@@ -33,7 +33,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = Guid.NewGuid(),
                 MarketplaceId = model.MarketplaceId,
                 RequestJson = JsonSerializer.Serialize(model.Request),
-                CreateTime = DateTime.UtcNow.Now,
+                CreateTime = DateTime.UtcNow,
             }, cancellationToken);
         }
 
