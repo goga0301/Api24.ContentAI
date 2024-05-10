@@ -38,11 +38,5 @@ namespace Api24ContentAI.Controllers
         {
             return await _requestLogService.CountByMarketplaceId(marketplaceId, cancellationToken);
         }
-
-        [HttpPost]
-        public async Task Create([FromBody] CreateRequestLogModel model, CancellationToken cancellationToken)
-        {
-            await _requestLogService.Create(model, cancellationToken);
-        }
     }
 }
