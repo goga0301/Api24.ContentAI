@@ -12,10 +12,12 @@ namespace Api24ContentAI.Infrastructure.Service
             services.AddScoped<ICustomTemplateService, CustomTemplateService>();
             services.AddScoped<IProductCategoryService, ProductCategoryService>();
             services.AddScoped<IMarketplaceService, MarketplaceService>();
+            services.AddScoped<IRequestLogService, RequestLogService>();
             
             services.AddScoped<IClaudeService, ClaudeService>();
             services.AddScoped<IContentService, ContentService>();
 
+            services.AddScoped<IApi24Service, Api24Service>();
         }
     }
 }

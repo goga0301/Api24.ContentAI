@@ -13,7 +13,7 @@ namespace Api24ContentAI.Domain.Models.Mappers
                 Name = model.Name,
                 Text = model.Text,
                 ProductCategoryId = model.ProductCategoryId,
-                MarketpalceId = model.MarketpalceId,
+                MarketplaceId = model.MarketplaceId,
             };
         }
 
@@ -25,7 +25,7 @@ namespace Api24ContentAI.Domain.Models.Mappers
                 Name = entity.Name,
                 Text = entity.Text,
                 ProductCategoryId = entity.ProductCategoryId,
-                MarketpalceId = entity.MarketpalceId,
+                MarketplaceId = entity.MarketplaceId,
             };
         }
     }

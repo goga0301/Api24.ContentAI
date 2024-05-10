@@ -13,5 +13,6 @@ namespace Api24ContentAI.Domain.Service
         Task Create(CreateProductCategoryModel productCategory, CancellationToken cancellationToken);
         Task Update(UpdateProductCategoryModel productCategory, CancellationToken cancellationToken);
         Task Delete(Guid id, CancellationToken cancellationToken);
+        Task SyncCategories(CancellationToken cancellationToken);
     }
 }

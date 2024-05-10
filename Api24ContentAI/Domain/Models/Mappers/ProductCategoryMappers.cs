@@ -11,6 +11,8 @@ namespace Api24ContentAI.Domain.Models.Mappers
             {
                 Id = Guid.NewGuid(),
                 Name = model.Name,
+                NameEng = model.NameEng,
+                Api24Id = model.Api24Id,
             };
         }
 
@@ -20,6 +22,8 @@ namespace Api24ContentAI.Domain.Models.Mappers
             {
                 Id = entity.Id,
                 Name = entity.Name,
+                NameEng = entity.NameEng,
+                Api24Id = entity.Api24Id,
             };
         }
     }

@@ -56,7 +56,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var entity = await _customTemplateRepository.GetById(customTemplate.Id, cancellationToken);
             entity.Name = customTemplate.Name;
             entity.Text = customTemplate.Text;
-            entity.MarketpalceId = customTemplate.MarketpalceId;
+            entity.MarketplaceId = customTemplate.MarketplaceId;
             entity.ProductCategoryId = customTemplate.ProductCategoryId;
 
             await _customTemplateRepository.Update(entity, cancellationToken);

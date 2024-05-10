@@ -15,18 +15,21 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly ITemplateService _templateService;
         private readonly IMarketplaceService _marketplaceService;
         private readonly IProductCategoryService _productCategoryService;
+        private readonly IRequestLogService _requestLogService;
 
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
                               IMarketplaceService marketplaceService,
-                              IProductCategoryService productCategoryService)
+                              IProductCategoryService productCategoryService,
+                              IRequestLogService requestLogService)
         {
             _claudeService = claudeService;
             _customTemplateService = customTemplateService;
             _templateService = templateService;
             _marketplaceService = marketplaceService;
             _productCategoryService = productCategoryService;
+            _requestLogService = requestLogService;
         }
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
@@ -42,6 +45,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var claudeRequest = new ClaudeRequest(claudRequestContent);
 
             var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+
+            await _requestLogService.Create(new CreateRequestLogModel
+            {
+                MarketplaceId = request.UniqueKey,
+                Request = request
+            }, cancellationToken);
 
             return new ContentAIResponse
             {

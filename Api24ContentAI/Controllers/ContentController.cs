@@ -10,19 +10,11 @@ namespace Api24ContentAI.Controllers
     [Route("api/[controller]")]
     public class ContentController : ControllerBase
     {
-        private readonly IClaudeService _claudeService;
         private readonly IContentService _contentService;
 
-        public ContentController(IClaudeService claudeService, IContentService contentService)
+        public ContentController(IContentService contentService)
         {
-            _claudeService = claudeService;
             _contentService = contentService;
-        }
-
-        [HttpPost("test")]
-        public async Task<ClaudeResponse> SendTest([FromBody] ClaudeRequest request, CancellationToken cancellationToken)
-        {
-            return await _claudeService.SendRequest(request, cancellationToken);
         }
 
         [HttpPost]

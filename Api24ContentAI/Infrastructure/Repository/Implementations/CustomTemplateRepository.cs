@@ -18,7 +18,7 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
         {
             return await _dbContext.Set<CustomTemplate>()
                                     .AsNoTracking()
-                                    .FirstOrDefaultAsync(e => e.MarketpalceId == marketplaceId && e.ProductCategoryId == productCategoryId, cancellationToken);
+                                    .FirstOrDefaultAsync(e => e.MarketplaceId == marketplaceId && e.ProductCategoryId == productCategoryId, cancellationToken);
         }
     }
 }

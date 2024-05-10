@@ -8,7 +8,7 @@ namespace Api24ContentAI.Domain.Entities
         public string Text { get; set; }
         public Guid ProductCategoryId { get; set; }
         public ProductCategory ProductCategory { get; set; }
-        public Guid MarketpalceId { get; set; }
+        public Guid MarketplaceId { get; set; }
         public Marketplace Marketplace { get; set; }
     }
 }

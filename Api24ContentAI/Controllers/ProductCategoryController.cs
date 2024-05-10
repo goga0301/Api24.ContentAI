@@ -5,10 +5,12 @@ using Api24ContentAI.Domain.Service;
 using System.Collections.Generic;
 using Api24ContentAI.Domain.Models;
 using System;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Api24ContentAI.Controllers
 {
     [ApiController]
+    [Authorize]
     [Route("api/[controller]")]
     public class ProductCategoryController : ControllerBase
     {
@@ -20,6 +22,7 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         public async Task<List<ProductCategoryModel>> GetAll(CancellationToken cancellationToken)
         {
             return await _productCategoryService.GetAll(cancellationToken);
@@ -47,6 +50,12 @@ namespace Api24ContentAI.Controllers
         public async Task Delete(Guid id, CancellationToken cancellationToken)
         {
             await _productCategoryService.Delete(id, cancellationToken);
+        }
+
+        [HttpGet("sync")]
+        public async Task SyncCategories(CancellationToken cancellationToken)
+        {
+            await _productCategoryService.SyncCategories(cancellationToken);
         }
     }
 }

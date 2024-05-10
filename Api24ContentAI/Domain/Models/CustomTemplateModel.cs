@@ -8,7 +8,7 @@ namespace Api24ContentAI.Domain.Models
         public string Name { get; set; }
         public string Text { get; set; }
         public Guid ProductCategoryId { get; set; }
-        public Guid MarketpalceId { get; set; }
+        public Guid MarketplaceId { get; set; }
     }
 
     public class CreateCustomTemplateModel
@@ -16,7 +16,7 @@ namespace Api24ContentAI.Domain.Models
         public string Name { get; set; }
         public string Text { get; set; }
         public Guid ProductCategoryId { get; set; }
-        public Guid MarketpalceId { get; set; }
+        public Guid MarketplaceId { get; set; }
     }
 
     public class UpdateCustomTemplateModel
@@ -25,6 +25,6 @@ namespace Api24ContentAI.Domain.Models
         public string Name { get; set; }
         public string Text { get; set; }
         public Guid ProductCategoryId { get; set; }
-        public Guid MarketpalceId { get; set; }
+        public Guid MarketplaceId { get; set; }
     }
 }

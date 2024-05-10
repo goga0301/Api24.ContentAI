@@ -5,10 +5,12 @@ using Api24ContentAI.Domain.Service;
 using System.Collections.Generic;
 using Api24ContentAI.Domain.Models;
 using System;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Api24ContentAI.Controllers
 {
     [ApiController]
+    [Authorize]
     [Route("api/[controller]")]
     public class TemplateController : ControllerBase
     {

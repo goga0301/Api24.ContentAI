@@ -3,15 +3,17 @@ using System;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace Api24ContentAI.Migrations
 {
     [DbContext(typeof(ContentDbContext))]
-    partial class ContentDbContextModelSnapshot : ModelSnapshot
+    [Migration("20240509213559_UpdateProductCategory")]
+    partial class UpdateProductCategory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -26,7 +28,7 @@ namespace Api24ContentAI.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("MarketplaceId")
+                    b.Property<Guid>("MarketpalceId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("Name")
@@ -40,10 +42,9 @@ namespace Api24ContentAI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProductCategoryId");
+                    b.HasIndex("MarketpalceId");
 
-                    b.HasIndex("MarketplaceId", "ProductCategoryId")
-                        .IsUnique();
+                    b.HasIndex("ProductCategoryId");
 
                     b.ToTable("CustomTemplates");
                 });
@@ -82,28 +83,6 @@ namespace Api24ContentAI.Migrations
                     b.ToTable("ProductCategories");
                 });
 
-            modelBuilder.Entity("Api24ContentAI.Domain.Entities.RequestLog", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreateTime")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<Guid>("MarketplaceId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("RequestJson")
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MarketplaceId");
-
-                    b.ToTable("RequestLogs");
-                });
-
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.Template", b =>
                 {
                     b.Property<Guid>("Id")
@@ -121,8 +100,7 @@ namespace Api24ContentAI.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ProductCategoryId")
-                        .IsUnique();
+                    b.HasIndex("ProductCategoryId");
 
                     b.ToTable("Templates");
                 });
@@ -131,7 +109,7 @@ namespace Api24ContentAI.Migrations
                 {
                     b.HasOne("Api24ContentAI.Domain.Entities.Marketplace", "Marketplace")
                         .WithMany()
-                        .HasForeignKey("MarketplaceId")
+                        .HasForeignKey("MarketpalceId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
@@ -144,15 +122,6 @@ namespace Api24ContentAI.Migrations
                     b.Navigation("Marketplace");
 
                     b.Navigation("ProductCategory");
-                });
-
-            modelBuilder.Entity("Api24ContentAI.Domain.Entities.RequestLog", b =>
-                {
-                    b.HasOne("Api24ContentAI.Domain.Entities.Marketplace", null)
-                        .WithMany()
-                        .HasForeignKey("MarketplaceId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.Template", b =>
