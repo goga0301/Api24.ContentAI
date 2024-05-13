@@ -1,5 +1,7 @@
 ﻿using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
+using Microsoft.AspNetCore.SignalR;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -14,21 +16,31 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly ICustomTemplateService _customTemplateService;
         private readonly ITemplateService _templateService;
         private readonly IRequestLogService _requestLogService;
-        private const string DefaultTemplate = "You can use these template in order to understand the structure of the response. Give creative response containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in Georgian. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc)";
+        private readonly IProductCategoryService _productCategoryService;
+
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
-                              IRequestLogService requestLogService)
+                              IRequestLogService requestLogService,
+                              IProductCategoryService productCategoryService)
         {
             _claudeService = claudeService;
             _customTemplateService = customTemplateService;
             _templateService = templateService;
             _requestLogService = requestLogService;
+            _productCategoryService = productCategoryService;
         }
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
-            var templateText = DefaultTemplate;
+            var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
+            
+            if(productCategory == null)
+            {
+                throw new Exception("პროდუქტის კატეგორია არ მოიძებნა");
+            }
+            
+            var templateText = GetDefaultTemplate(productCategory.NameEng);
 
             var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
 
@@ -58,7 +70,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return new ContentAIResponse
             {
-                Text = claudeResponse.Content.Single().Text
+                Text = claudeResponse.Content.Single().Text.Replace("\n","<br>")
             };
         }
 
@@ -70,6 +82,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
             }
             return resultBuilder.ToString();
+        }
+
+        private string GetDefaultTemplate(string productCategoryName)
+        {
+            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in Georgian. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
         }
     }
 }
