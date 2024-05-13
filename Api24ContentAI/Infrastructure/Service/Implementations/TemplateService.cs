@@ -43,7 +43,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<TemplateModel> GetByProductCategoryId(Guid productCategoryId, CancellationToken cancellationToken)
         {
-            return (await _templateRepository.GetByProductCategoryId(productCategoryId, cancellationToken)).ToModel();
+            var template = await _templateRepository.GetByProductCategoryId(productCategoryId, cancellationToken);
+            if (template == null) return null;
+            return template.ToModel();
         }
 
         public async Task Update(UpdateTemplateModel template, CancellationToken cancellationToken)

@@ -44,10 +44,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryId(Guid marketplaceId, Guid productCategoryId, CancellationToken cancellationToken)
         {
             var entity = await _customTemplateRepository.GetByMarketplaceAndProductCategoryId(marketplaceId, productCategoryId, cancellationToken);
-            if(entity == null)
-            {
-                return null;
-            }
+            if (entity == null) return null;
             return entity.ToModel();
         }
 
