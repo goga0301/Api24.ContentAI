@@ -1,6 +1,7 @@
 ﻿using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Mvc;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -20,7 +21,14 @@ namespace Api24ContentAI.Controllers
         [HttpPost]
         public async Task<ContentAIResponse> Send([FromBody] ContentAIRequest request, CancellationToken cancellationToken)
         {
-            return await _contentService.SendRequest(request, cancellationToken);
+            try
+            {
+                return await _contentService.SendRequest(request, cancellationToken);
+
+            }catch(Exception ex)
+            {
+                throw new Exception("მოხდა შეცდომა");
+            }
         }
 
     }
