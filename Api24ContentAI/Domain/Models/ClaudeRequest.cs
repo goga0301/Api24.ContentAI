@@ -30,7 +30,7 @@ namespace Api24ContentAI.Domain.Models
         public ClaudeRequest(string messageContent)
         {
             Model = "claude-3-opus-20240229";
-            MaxTokens = 2048;
+            MaxTokens = 1536;
             Messages = new List<Message> { new Message("user", messageContent) };
         }
     }
