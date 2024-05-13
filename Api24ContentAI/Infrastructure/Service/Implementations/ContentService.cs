@@ -13,34 +13,38 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IClaudeService _claudeService;
         private readonly ICustomTemplateService _customTemplateService;
         private readonly ITemplateService _templateService;
-        private readonly IMarketplaceService _marketplaceService;
-        private readonly IProductCategoryService _productCategoryService;
         private readonly IRequestLogService _requestLogService;
-
+        private const string DefaultTemplate = "You can use these template in order to understand the structure of the response. Give creative response containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in Georgian. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc)";
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
-                              IMarketplaceService marketplaceService,
-                              IProductCategoryService productCategoryService,
                               IRequestLogService requestLogService)
         {
             _claudeService = claudeService;
             _customTemplateService = customTemplateService;
             _templateService = templateService;
-            _marketplaceService = marketplaceService;
-            _productCategoryService = productCategoryService;
             _requestLogService = requestLogService;
         }
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
-            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
+            var templateText = DefaultTemplate;
 
             var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
 
-            var templateText = customTemplate == null ? template.Text : customTemplate.Text;
+            if (template != null)
+            {
+                templateText = template.Text;
+            }
 
-            var claudRequestContent = $"{request.ProductName} {templateText} {ConvertAttributes(request.Attributes)}";
+            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
+
+            if (customTemplate != null)
+            {
+                templateText = customTemplate.Text;
+            }
+
+            var claudRequestContent = $"{request.ProductName} {templateText} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
             var claudeRequest = new ClaudeRequest(claudRequestContent);
 
@@ -63,7 +67,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var resultBuilder = new StringBuilder();
             foreach (var attribute in attributes)
             {
-                resultBuilder.Append($"{attribute.Key}: {attribute.Value};");
+                resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
             }
             return resultBuilder.ToString();
         }
