@@ -34,9 +34,9 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost]
-        public async Task Create([FromBody] CreateCustomTemplateModel model, CancellationToken cancellationToken)
+        public async Task<Guid> Create([FromBody] CreateCustomTemplateModel model, CancellationToken cancellationToken)
         {
-            await _customTemplateService.Create(model, cancellationToken);
+            return await _customTemplateService.Create(model, cancellationToken);
         }
 
         [HttpPut]

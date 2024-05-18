@@ -6,6 +6,7 @@ namespace Api24ContentAI.Domain.Models
     public class ContentAIRequest
     {
         public string ProductName { get; set; }
+        public string Language { get; set; }
         public Guid ProductCategoryId { get; set; }
         public Guid UniqueKey { get; set; }
         public List<Attribute> Attributes { get; set; }

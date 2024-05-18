@@ -12,7 +12,7 @@ namespace Api24ContentAI.Domain.Repository
 
         Task<TEntity> GetById(Guid id, CancellationToken cancellationToken);
 
-        Task Create(TEntity entity, CancellationToken cancellationToken);
+        Task<Guid> Create(TEntity entity, CancellationToken cancellationToken);
 
         Task Update(TEntity entity, CancellationToken cancellationToken);
 

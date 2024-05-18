@@ -8,6 +8,7 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Models.Mappers;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using Api24ContentAI.Domain.Entities;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -22,9 +23,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _api24Service = api24Service;
         }
 
-        public async Task Create(CreateProductCategoryModel productCategory, CancellationToken cancellationToken)
+        public async Task<Guid> Create(CreateProductCategoryModel productCategory, CancellationToken cancellationToken)
         {
-            await _productCategoryRepository.Create(productCategory.ToEntity(), cancellationToken);
+            return await _productCategoryRepository.Create(productCategory.ToEntity(), cancellationToken);
         }
 
         public async Task Delete(Guid id, CancellationToken cancellationToken)
@@ -46,7 +47,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ProductCategoryModel> GetById(Guid id, CancellationToken cancellationToken)
         {
-            return (await _productCategoryRepository.GetById(id, cancellationToken)).ToModel();
+            var productCategory = await _productCategoryRepository.GetById(id, cancellationToken);
+            if (productCategory == null)
+            {
+                throw new Exception("პროდუქტის კატეგორია არ მოიძებნა");
+            }
+            return productCategory.ToModel();
         }
 
         public async Task SyncCategories(CancellationToken cancellationToken)

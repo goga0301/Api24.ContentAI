@@ -10,9 +10,10 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<List<CustomTemplateModel>> GetAll(CancellationToken cancellationToken);
         Task<CustomTemplateModel> GetById(Guid id, CancellationToken cancellationToken);
-        Task Create(CreateCustomTemplateModel customTemplate, CancellationToken cancellationToken);
+        Task<Guid> Create(CreateCustomTemplateModel customTemplate, CancellationToken cancellationToken);
         Task Update(UpdateCustomTemplateModel customTemplate, CancellationToken cancellationToken);
         Task Delete(Guid id, CancellationToken cancellationToken);
         Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryId(Guid marketplaceId, Guid productCategoryId, CancellationToken cancellationToken);
+        Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryIdAndLanguage(Guid marketplaceId, Guid productCategoryId, string language, CancellationToken cancellationToken);
     }
 }

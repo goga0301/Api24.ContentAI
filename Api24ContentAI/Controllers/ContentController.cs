@@ -19,15 +19,16 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost]
-        public async Task<ContentAIResponse> Send([FromBody] ContentAIRequest request, CancellationToken cancellationToken)
+        public async Task<IActionResult> Send([FromBody] ContentAIRequest request, CancellationToken cancellationToken)
         {
             try
             {
-                return await _contentService.SendRequest(request, cancellationToken);
+                return Ok(await _contentService.SendRequest(request, cancellationToken));
 
-            }catch(Exception ex)
+            }
+            catch (Exception ex)
             {
-                throw new Exception("მოხდა შეცდომა");
+                return BadRequest(new Error { ErrorText = ex.Message });
             }
         }
 

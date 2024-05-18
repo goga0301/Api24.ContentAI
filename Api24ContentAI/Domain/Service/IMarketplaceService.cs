@@ -10,7 +10,7 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<List<MarketplaceModel>> GetAll(CancellationToken cancellationToken);
         Task<MarketplaceModel> GetById(Guid id, CancellationToken cancellationToken);
-        Task Create(CreateMarketplaceModel marketplace, CancellationToken cancellationToken);
+        Task<Guid> Create(CreateMarketplaceModel marketplace, CancellationToken cancellationToken);
         Task Update(UpdateMarketplaceModel marketplace, CancellationToken cancellationToken);
         Task Delete(Guid id, CancellationToken cancellationToken);
     }

@@ -10,7 +10,7 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<List<ProductCategoryModel>> GetAll(CancellationToken cancellationToken);
         Task<ProductCategoryModel> GetById(Guid id, CancellationToken cancellationToken);
-        Task Create(CreateProductCategoryModel productCategory, CancellationToken cancellationToken);
+        Task<Guid> Create(CreateProductCategoryModel productCategory, CancellationToken cancellationToken);
         Task Update(UpdateProductCategoryModel productCategory, CancellationToken cancellationToken);
         Task Delete(Guid id, CancellationToken cancellationToken);
         Task SyncCategories(CancellationToken cancellationToken);

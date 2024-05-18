@@ -17,39 +17,39 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly ITemplateService _templateService;
         private readonly IRequestLogService _requestLogService;
         private readonly IProductCategoryService _productCategoryService;
+        private readonly IMarketplaceService _marketplaceService;
 
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
                               IRequestLogService requestLogService,
-                              IProductCategoryService productCategoryService)
+                              IProductCategoryService productCategoryService,
+                              IMarketplaceService marketplaceService)
         {
             _claudeService = claudeService;
             _customTemplateService = customTemplateService;
             _templateService = templateService;
             _requestLogService = requestLogService;
             _productCategoryService = productCategoryService;
+            _marketplaceService = marketplaceService;
         }
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
+            await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+
             var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
-            
-            if(productCategory == null)
-            {
-                throw new Exception("პროდუქტის კატეგორია არ მოიძებნა");
-            }
-            
+
             var templateText = GetDefaultTemplate(productCategory.NameEng);
 
-            var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
+            var template = await _templateService.GetByProductCategoryIdAndLanguage(request.ProductCategoryId, request.Language, cancellationToken);
 
             if (template != null)
             {
                 templateText = template.Text;
             }
 
-            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
+            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryIdAndLanguage(request.UniqueKey, request.ProductCategoryId, request.Language, cancellationToken);
 
             if (customTemplate != null)
             {
@@ -70,7 +70,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return new ContentAIResponse
             {
-                Text = claudeResponse.Content.Single().Text.Replace("\n","<br>")
+                Text = claudeResponse.Content.Single().Text.Replace("\n", "<br>")
             };
         }
 

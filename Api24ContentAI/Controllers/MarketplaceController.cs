@@ -34,9 +34,9 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost]
-        public async Task Create([FromBody] CreateMarketplaceModel model, CancellationToken cancellationToken)
+        public async Task<Guid> Create([FromBody] CreateMarketplaceModel model, CancellationToken cancellationToken)
         {
-            await _marketplaceService.Create(model, cancellationToken);
+           return await _marketplaceService.Create(model, cancellationToken);
         }
 
         [HttpPut]

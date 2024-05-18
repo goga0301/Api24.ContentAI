@@ -38,7 +38,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
                 .HasForeignKey(t => t.ProductCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<Template>().HasIndex(x => new { x.ProductCategoryId }).IsUnique();
+            modelBuilder.Entity<Template>().HasIndex(x => new { x.ProductCategoryId, x.Language }).IsUnique();
 
             modelBuilder.Entity<RequestLog>()
                 .HasOne<Marketplace>()

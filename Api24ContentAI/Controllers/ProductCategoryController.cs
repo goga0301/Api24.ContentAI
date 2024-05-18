@@ -35,9 +35,9 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost]
-        public async Task Create([FromBody] CreateProductCategoryModel model, CancellationToken cancellationToken)
+        public async Task<Guid> Create([FromBody] CreateProductCategoryModel model, CancellationToken cancellationToken)
         {
-            await _productCategoryService.Create(model, cancellationToken);
+            return await _productCategoryService.Create(model, cancellationToken);
         }
 
         [HttpPut]

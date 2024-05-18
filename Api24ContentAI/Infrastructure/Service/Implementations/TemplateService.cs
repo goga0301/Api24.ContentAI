@@ -20,9 +20,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _templateRepository = templateRepository;
         }
 
-        public async Task Create(CreateTemplateModel template, CancellationToken cancellationToken)
+        public async Task<Guid> Create(CreateTemplateModel template, CancellationToken cancellationToken)
         {
-            await _templateRepository.Create(template.ToEntity(), cancellationToken);
+           return await _templateRepository.Create(template.ToEntity(), cancellationToken);
         }
 
         public async Task Delete(Guid id, CancellationToken cancellationToken)
@@ -44,6 +44,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<TemplateModel> GetByProductCategoryId(Guid productCategoryId, CancellationToken cancellationToken)
         {
             var template = await _templateRepository.GetByProductCategoryId(productCategoryId, cancellationToken);
+            if (template == null) return null;
+            return template.ToModel();
+        }
+
+        public async Task<TemplateModel> GetByProductCategoryIdAndLanguage(Guid productCategoryId, string language, CancellationToken cancellationToken)
+        {
+            var template = await _templateRepository.GetByProductCategoryIdAndLanguage(productCategoryId, language, cancellationToken);
             if (template == null) return null;
             return template.ToModel();
         }

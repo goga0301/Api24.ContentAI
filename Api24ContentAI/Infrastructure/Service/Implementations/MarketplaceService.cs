@@ -20,9 +20,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _marketplaceRepository = marketplaceRepository;
         }
 
-        public async Task Create(CreateMarketplaceModel marketplace, CancellationToken cancellationToken)
+        public async Task<Guid> Create(CreateMarketplaceModel marketplace, CancellationToken cancellationToken)
         {
-            await _marketplaceRepository.Create(marketplace.ToEntity(), cancellationToken);
+           return await _marketplaceRepository.Create(marketplace.ToEntity(), cancellationToken);
         }
 
         public async Task Delete(Guid id, CancellationToken cancellationToken)
@@ -38,6 +38,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<MarketplaceModel> GetById(Guid id, CancellationToken cancellationToken)
         {
+            var marketplace = await _marketplaceRepository.GetById(id, cancellationToken);
+            if (marketplace == null)
+            {
+                throw new Exception("მარკეტფლეისი არ მოიძებნა");
+            }
             return (await _marketplaceRepository.GetById(id, cancellationToken)).ToModel();
         }
 

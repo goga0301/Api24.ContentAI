@@ -20,5 +20,15 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
                                     .AsNoTracking()
                                     .FirstOrDefaultAsync(e => e.MarketplaceId == marketplaceId && e.ProductCategoryId == productCategoryId, cancellationToken);
         }
+
+        public async Task<CustomTemplate> GetByMarketplaceAndProductCategoryIdAndLanguage(Guid marketplaceId, Guid productCategoryId, string language, CancellationToken cancellationToken)
+        {
+            return await _dbContext.Set<CustomTemplate>()
+                                              .AsNoTracking()
+                                              .FirstOrDefaultAsync(e => e.MarketplaceId == marketplaceId && 
+                                                                        e.ProductCategoryId == productCategoryId &&
+                                                                        e.Language == language, 
+                                                                  cancellationToken);
+        }
     }
 }

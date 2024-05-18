@@ -30,10 +30,11 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
                         .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
         }
 
-        public async Task Create(TEntity entity, CancellationToken cancellationToken)
+        public async Task<Guid> Create(TEntity entity, CancellationToken cancellationToken)
         {
             await _dbContext.Set<TEntity>().AddAsync(entity, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            return entity.Id;
         }
 
         public async Task Update(TEntity entity, CancellationToken cancellationToken)

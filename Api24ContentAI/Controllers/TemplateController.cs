@@ -34,11 +34,11 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost]
-        public async Task Create([FromBody] CreateTemplateModel model, CancellationToken cancellationToken)
+        public async Task<Guid> Create([FromBody] CreateTemplateModel model, CancellationToken cancellationToken)
         {
-            await _templateService.Create(model, cancellationToken);
-        } 
-        
+            return await _templateService.Create(model, cancellationToken);
+        }
+
         [HttpPut]
         public async Task Update([FromBody] UpdateTemplateModel model, CancellationToken cancellationToken)
         {
