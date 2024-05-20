@@ -12,7 +12,6 @@ namespace Api24ContentAI.Domain.Models.Mappers
                 Id = Guid.NewGuid(),
                 Name = model.Name,
                 Text = model.Text,
-                Language = model.Language,
                 ProductCategoryId = model.ProductCategoryId,
                 MarketplaceId = model.MarketplaceId,
             };
@@ -25,7 +24,6 @@ namespace Api24ContentAI.Domain.Models.Mappers
                 Id = entity.Id,
                 Name = entity.Name,
                 Text = entity.Text,
-                Language = entity.Language,
                 ProductCategoryId = entity.ProductCategoryId,
                 MarketplaceId = entity.MarketplaceId,
             };

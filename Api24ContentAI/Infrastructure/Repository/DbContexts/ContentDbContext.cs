@@ -14,6 +14,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
         public DbSet<ProductCategory> ProductCategories { get; set; }
         public DbSet<Template> Templates { get; set; }
         public DbSet<RequestLog> RequestLogs { get; set; }
+        public DbSet<Language> Languages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -38,7 +39,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
                 .HasForeignKey(t => t.ProductCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<Template>().HasIndex(x => new { x.ProductCategoryId, x.Language }).IsUnique();
+            modelBuilder.Entity<Template>().HasIndex(x => new { x.ProductCategoryId }).IsUnique();
 
             modelBuilder.Entity<RequestLog>()
                 .HasOne<Marketplace>()

@@ -28,6 +28,7 @@ namespace Api24ContentAI.Infrastructure.Repository
             services.AddScoped<ICustomTemplateRepository, CustomTemplateRepository>();
             services.AddScoped<IMarketplaceRepository, MarketplaceRepository>();
             services.AddScoped<IRequestLogRepository, RequestLogRepository>();
+            services.AddScoped<ILanguageRepository, LanguageRepository>();
         }
     }
 }

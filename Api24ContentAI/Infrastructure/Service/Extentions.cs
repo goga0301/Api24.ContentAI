@@ -13,6 +13,7 @@ namespace Api24ContentAI.Infrastructure.Service
             services.AddScoped<IProductCategoryService, ProductCategoryService>();
             services.AddScoped<IMarketplaceService, MarketplaceService>();
             services.AddScoped<IRequestLogService, RequestLogService>();
+            services.AddScoped<ILanguageService, LanguageService>();
             
             services.AddScoped<IClaudeService, ClaudeService>();
             services.AddScoped<IContentService, ContentService>();

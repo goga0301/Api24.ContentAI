@@ -18,13 +18,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IRequestLogService _requestLogService;
         private readonly IProductCategoryService _productCategoryService;
         private readonly IMarketplaceService _marketplaceService;
+        private readonly ILanguageService _languageService;
 
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
                               IRequestLogService requestLogService,
                               IProductCategoryService productCategoryService,
-                              IMarketplaceService marketplaceService)
+                              IMarketplaceService marketplaceService,
+                              ILanguageService languageService)
         {
             _claudeService = claudeService;
             _customTemplateService = customTemplateService;
@@ -32,6 +34,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _requestLogService = requestLogService;
             _productCategoryService = productCategoryService;
             _marketplaceService = marketplaceService;
+            _languageService = languageService;
         }
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
@@ -42,21 +45,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var templateText = GetDefaultTemplate(productCategory.NameEng);
 
-            var template = await _templateService.GetByProductCategoryIdAndLanguage(request.ProductCategoryId, request.Language, cancellationToken);
+            var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
 
             if (template != null)
             {
                 templateText = template.Text;
             }
 
-            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryIdAndLanguage(request.UniqueKey, request.ProductCategoryId, request.Language, cancellationToken);
+            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
 
             if (customTemplate != null)
             {
                 templateText = customTemplate.Text;
             }
 
-            var claudRequestContent = $"{request.ProductName} {templateText} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
+            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+
+            var claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
             var claudeRequest = new ClaudeRequest(claudRequestContent);
 

@@ -48,12 +48,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return template.ToModel();
         }
 
-        public async Task<TemplateModel> GetByProductCategoryIdAndLanguage(Guid productCategoryId, string language, CancellationToken cancellationToken)
-        {
-            var template = await _templateRepository.GetByProductCategoryIdAndLanguage(productCategoryId, language, cancellationToken);
-            if (template == null) return null;
-            return template.ToModel();
-        }
+        //public async Task<TemplateModel> GetByProductCategoryIdAndLanguage(Guid productCategoryId, string language, CancellationToken cancellationToken)
+        //{
+        //    var template = await _templateRepository.GetByProductCategoryIdAndLanguage(productCategoryId, language, cancellationToken);
+        //    if (template == null) return null;
+        //    return template.ToModel();
+        //}
 
         public async Task Update(UpdateTemplateModel template, CancellationToken cancellationToken)
         {

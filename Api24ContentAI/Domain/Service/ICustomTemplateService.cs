@@ -14,6 +14,6 @@ namespace Api24ContentAI.Domain.Service
         Task Update(UpdateCustomTemplateModel customTemplate, CancellationToken cancellationToken);
         Task Delete(Guid id, CancellationToken cancellationToken);
         Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryId(Guid marketplaceId, Guid productCategoryId, CancellationToken cancellationToken);
-        Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryIdAndLanguage(Guid marketplaceId, Guid productCategoryId, string language, CancellationToken cancellationToken);
+        //Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryIdAndLanguage(Guid marketplaceId, Guid productCategoryId, string language, CancellationToken cancellationToken);
     }
 }
