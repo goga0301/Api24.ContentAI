@@ -7,5 +7,6 @@ namespace Api24ContentAI.Domain.Service
     public interface IContentService
     {
         Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken);
+        Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken);
     }
 }

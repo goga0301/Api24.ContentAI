@@ -1,10 +1,12 @@
-﻿using Api24ContentAI.Domain.Models;
+﻿using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.SignalR;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -70,10 +72,35 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
-                Request = request
+                Request = JsonSerializer.Serialize(request),
+                RequestType = RequestType.Content
+
             }, cancellationToken);
 
             return new ContentAIResponse
+            {
+                Text = claudeResponse.Content.Single().Text.Replace("\n", "<br>")
+            };
+        }
+
+        public async Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken)
+        {
+            await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+
+            var templateText = GetTranslateTemplate(language.Name, request.Description);
+
+            var claudeRequest = new ClaudeRequest(templateText);
+            var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+
+            await _requestLogService.Create(new CreateRequestLogModel
+            {
+                MarketplaceId = request.UniqueKey,
+                Request = JsonSerializer.Serialize(request),
+                RequestType = RequestType.Translate
+            }, cancellationToken);
+
+            return new TranslateResponse
             {
                 Text = claudeResponse.Content.Single().Text.Replace("\n", "<br>")
             };
@@ -87,6 +114,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
             }
             return resultBuilder.ToString();
+        }
+
+        private string GetTranslateTemplate(string language, string description)
+        {
+            return $"Translate the given description to the {language} Language. description: {description}. Output should be formated in HTML language.";
         }
 
         private string GetDefaultTemplate(string productCategoryName)

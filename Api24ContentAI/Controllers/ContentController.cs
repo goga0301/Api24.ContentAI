@@ -32,5 +32,19 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpPost("translate")]
+        public async Task<IActionResult> Translate([FromBody] TranslateRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return Ok(await _contentService.Translate(request, cancellationToken));
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
+
     }
 }
