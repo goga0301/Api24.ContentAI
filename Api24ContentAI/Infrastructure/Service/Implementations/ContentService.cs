@@ -118,7 +118,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private string GetTranslateTemplate(string language, string description)
         {
-            return $"Translate the given description to the {language} Language. description: {description}. Output should be formated in HTML language.";
+            return $"Translate the given description to the {language} Language. description: {description}. Output should be pure translated text formated in HTML language.";
         }
 
         private string GetDefaultTemplate(string productCategoryName)
