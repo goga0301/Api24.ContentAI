@@ -11,6 +11,8 @@ namespace Api24ContentAI.Domain.Models.Mappers
             {
                 Id = Guid.NewGuid(),
                 Name = model.Name,
+                ContentLimit = model.ContentLimit,
+                TranslateLimit = model.TranslateLimit,
             };
         }
 
@@ -20,6 +22,8 @@ namespace Api24ContentAI.Domain.Models.Mappers
             {
                 Id = entity.Id,
                 Name = entity.Name,
+                ContentLimit = entity.ContentLimit,
+                TranslateLimit = entity.TranslateLimit,
             };
         }
     }

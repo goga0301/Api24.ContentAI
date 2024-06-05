@@ -41,8 +41,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
-            await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
-
+            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            {
+                throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
+            }
             var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
 
             var templateText = GetDefaultTemplate(productCategory.NameEng);
@@ -77,6 +80,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             }, cancellationToken);
 
+            await _marketplaceService.Update(new UpdateMarketplaceModel
+            {
+                Id = request.UniqueKey,
+                Name = marketplace.Name,
+                TranslateLimit = marketplace.TranslateLimit,
+                ContentLimit = marketplace.ContentLimit - 1,
+            }, cancellationToken);
+
             return new ContentAIResponse
             {
                 Text = claudeResponse.Content.Single().Text.Replace("\n", "<br>")
@@ -85,7 +96,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken)
         {
-            await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+
+            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            {
+                throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
+            }
+
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
             var templateText = GetTranslateTemplate(language.Name, request.Description);
@@ -98,6 +115,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 MarketplaceId = request.UniqueKey,
                 Request = JsonSerializer.Serialize(request),
                 RequestType = RequestType.Translate
+            }, cancellationToken);
+
+            await _marketplaceService.Update(new UpdateMarketplaceModel
+            {
+                Id = request.UniqueKey,
+                Name = marketplace.Name,
+                TranslateLimit = marketplace.TranslateLimit - 1,
+                ContentLimit = marketplace.ContentLimit,
             }, cancellationToken);
 
             return new TranslateResponse

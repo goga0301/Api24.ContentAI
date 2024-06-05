@@ -22,7 +22,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<Guid> Create(CreateMarketplaceModel marketplace, CancellationToken cancellationToken)
         {
-           return await _marketplaceRepository.Create(marketplace.ToEntity(), cancellationToken);
+            return await _marketplaceRepository.Create(marketplace.ToEntity(), cancellationToken);
         }
 
         public async Task Delete(Guid id, CancellationToken cancellationToken)
@@ -50,6 +50,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             var entity = await _marketplaceRepository.GetById(marketplace.Id, cancellationToken);
             entity.Name = marketplace.Name;
+            entity.TranslateLimit = marketplace.TranslateLimit;
+            entity.ContentLimit = marketplace.ContentLimit;
 
             await _marketplaceRepository.Update(entity, cancellationToken);
         }

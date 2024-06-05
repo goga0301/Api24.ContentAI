@@ -33,6 +33,12 @@ namespace Api24ContentAI.Controllers
             return await _requestLogService.GetById(id, cancellationToken);
         }
         
+        [HttpGet("by-marketplace/{marketplaceId}")]
+        public async Task<List<RequestLogModel>> GetByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            return await _requestLogService.GetByMarketplaceId(marketplaceId, cancellationToken);
+        }
+        
         [HttpGet("count/{marketplaceId}")]
         public async Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {

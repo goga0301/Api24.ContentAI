@@ -6,14 +6,22 @@ namespace Api24ContentAI.Domain.Models
     {
         public Guid Id { get; set; }
         public string Name { get; set; }
+        public int ContentLimit { get; set; }
+        public int TranslateLimit { get; set; }
     }
     public class CreateMarketplaceModel
     {
         public string Name { get; set; }
+        public int ContentLimit { get; set; }
+        public int TranslateLimit { get; set; }
+
+
     }
     public class UpdateMarketplaceModel
     {
         public Guid Id { get; set; }
         public string Name { get; set; }
+        public int ContentLimit { get; set; }
+        public int TranslateLimit { get; set; }
     }
 }

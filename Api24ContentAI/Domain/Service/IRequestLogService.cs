@@ -17,5 +17,6 @@ namespace Api24ContentAI.Domain.Service
         Task Create(CreateRequestLogModel model, CancellationToken cancellationToken);
 
         Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
+        Task<List<RequestLogModel>> GetByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
     }
 }

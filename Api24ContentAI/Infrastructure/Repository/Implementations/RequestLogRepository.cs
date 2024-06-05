@@ -41,5 +41,10 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
                         .AsNoTracking()
                         .FirstOrDefaultAsync(e => e.Id == id, cancellationToken);
         }
+
+        public IQueryable<RequestLog> GetByMarketplaceId(Guid marketplaceId)
+        {
+            return _dbContext.RequestLogs.AsNoTracking().Where(x => x.MarketplaceId == marketplaceId);
+        }
     }
 }

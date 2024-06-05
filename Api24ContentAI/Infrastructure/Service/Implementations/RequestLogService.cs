@@ -62,5 +62,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = entity.RequestType
             };
         }
+
+        public async Task<List<RequestLogModel>> GetByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            var t =  await _requestLogRepository.GetByMarketplaceId(marketplaceId).Select(x => new RequestLogModel
+            {
+                Id = x.Id,
+                MarketplaceId = x.MarketplaceId,
+                RequestJson = x.RequestJson,
+                CreateTime = x.CreateTime,
+                RequestType = x.RequestType
+            }).ToListAsync(cancellationToken);
+
+            return t;
+        }
     }
 }
