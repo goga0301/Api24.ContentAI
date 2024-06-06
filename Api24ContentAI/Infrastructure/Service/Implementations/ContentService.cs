@@ -42,7 +42,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
             var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
-            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            if (marketplace != null && marketplace.ContentLimit <= 0)
             {
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
