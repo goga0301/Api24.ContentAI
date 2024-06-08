@@ -47,8 +47,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
             var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
+            
+            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
-            var templateText = GetDefaultTemplate(productCategory.NameEng);
+            var templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
 
             var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
 
@@ -64,7 +66,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 templateText = customTemplate.Text;
             }
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
             var claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
@@ -146,9 +147,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return $"Translate the given description to the {language} Language. description: {description}. Output should be pure translated text formated in HTML language.";
         }
 
-        private string GetDefaultTemplate(string productCategoryName)
+        private string GetDefaultTemplate(string productCategoryName, string language)
         {
-            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in Georgian. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
+            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in {language}. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
         }
     }
 }
