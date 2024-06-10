@@ -139,7 +139,7 @@ namespace Api24ContentAI
             app.UseHttpsRedirection();
 
             app.UseRouting();
-
+            app.UseCors();
             app.UseAuthentication();
             app.UseAuthorization();
             
