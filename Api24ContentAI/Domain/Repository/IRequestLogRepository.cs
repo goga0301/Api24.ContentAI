@@ -16,6 +16,8 @@ namespace Api24ContentAI.Domain.Repository
         Task Create(RequestLog entity, CancellationToken cancellationToken);
 
         Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
+        Task<int> CountTranslatesByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
+        Task<int> CountContentAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         IQueryable<RequestLog> GetByMarketplaceId(Guid marketplaceId);
     }
 }

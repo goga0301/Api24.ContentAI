@@ -40,7 +40,7 @@ namespace Api24ContentAI.Controllers
         }
         
         [HttpGet("count/{marketplaceId}")]
-        public async Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        public async Task<LogCountModel> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
             return await _requestLogService.CountByMarketplaceId(marketplaceId, cancellationToken);
         }

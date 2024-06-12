@@ -23,6 +23,16 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
         {
             return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId).CountAsync(cancellationToken);
         }
+        
+        public async Task<int> CountTranslatesByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.Translate).CountAsync(cancellationToken);
+        }
+              
+        public async Task<int> CountContentAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.Content).CountAsync(cancellationToken);
+        }
 
         public async Task Create(RequestLog entity, CancellationToken cancellationToken)
         {

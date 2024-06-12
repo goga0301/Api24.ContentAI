@@ -21,9 +21,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _requestLogRepository = requestLogRepository;
         }
 
-        public async Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        public async Task<LogCountModel> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
-            return await _requestLogRepository.CountByMarketplaceId(marketplaceId, cancellationToken);
+            var translateCount = await _requestLogRepository.CountTranslatesByMarketplaceId(marketplaceId, cancellationToken);
+            var contentCount = await _requestLogRepository.CountContentAIByMarketplaceId(marketplaceId, cancellationToken);
+
+            return new LogCountModel { ContentAICount = contentCount, TranslateCount = translateCount };
         }
 
         public async Task Create(CreateRequestLogModel model, CancellationToken cancellationToken)
@@ -65,7 +68,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<RequestLogModel>> GetByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
-            var t =  await _requestLogRepository.GetByMarketplaceId(marketplaceId).Select(x => new RequestLogModel
+            var t = await _requestLogRepository.GetByMarketplaceId(marketplaceId).Select(x => new RequestLogModel
             {
                 Id = x.Id,
                 MarketplaceId = x.MarketplaceId,
