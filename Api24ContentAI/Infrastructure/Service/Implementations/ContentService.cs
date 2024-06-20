@@ -6,7 +6,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Unicode;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -47,7 +50,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
             var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
-            
+
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
             var templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
@@ -72,11 +75,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var claudeRequest = new ClaudeRequest(claudRequestContent);
 
             var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            var lastPeriod = claudResponseText.LastIndexOf('.');
+
+            if (lastPeriod != -1)
+            {
+                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+            }
 
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
-                Request = JsonSerializer.Serialize(request),
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
                 RequestType = RequestType.Content
 
             }, cancellationToken);
@@ -91,7 +105,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return new ContentAIResponse
             {
-                Text = claudeResponse.Content.Single().Text.Replace("\n", "<br>")
+                Text = claudResponseText
             };
         }
 
@@ -110,11 +124,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var claudeRequest = new ClaudeRequest(templateText);
             var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
+            var lastPeriod = claudResponseText.LastIndexOf('.');
+
+            if (lastPeriod != -1)
+            {
+                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+            }
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
-                Request = JsonSerializer.Serialize(request),
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
                 RequestType = RequestType.Translate
             }, cancellationToken);
 
@@ -128,7 +153,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return new TranslateResponse
             {
-                Text = claudeResponse.Content.Single().Text.Replace("\n", "<br>")
+                Text = claudResponseText
             };
         }
 
