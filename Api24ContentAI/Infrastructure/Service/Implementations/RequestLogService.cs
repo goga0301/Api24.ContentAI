@@ -25,8 +25,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             var translateCount = await _requestLogRepository.CountTranslatesByMarketplaceId(marketplaceId, cancellationToken);
             var contentCount = await _requestLogRepository.CountContentAIByMarketplaceId(marketplaceId, cancellationToken);
+            var copyrightCount = await _requestLogRepository.CountCopyrightAIByMarketplaceId(marketplaceId, cancellationToken);
+            var videoScriptCount = await _requestLogRepository.CountVideoScriptByMarketplaceId(marketplaceId, cancellationToken);
 
-            return new LogCountModel { ContentAICount = contentCount, TranslateCount = translateCount };
+            return new LogCountModel
+            {
+                ContentAICount = contentCount,
+                TranslateCount = translateCount,
+                CopyrightAICount = copyrightCount,
+                VideoScriptCount = videoScriptCount
+            };
         }
 
         public async Task Create(CreateRequestLogModel model, CancellationToken cancellationToken)

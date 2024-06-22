@@ -34,6 +34,16 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.Content).CountAsync(cancellationToken);
         }
 
+        public async Task<int> CountCopyrightAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.Copyright).CountAsync(cancellationToken);
+        }
+
+        public async Task<int> CountVideoScriptByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.VideoScript).CountAsync(cancellationToken);
+        }
+
         public async Task Create(RequestLog entity, CancellationToken cancellationToken)
         {
             await _dbContext.Set<RequestLog>().AddAsync(entity, cancellationToken);

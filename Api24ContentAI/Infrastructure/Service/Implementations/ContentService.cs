@@ -243,6 +243,80 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
+        public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, VideoScriptAIRequest request, CancellationToken cancellationToken)
+        {
+            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+
+            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            {
+                throw new Exception("VideoScriptAI რექვესთების ბალანსი ამოიწურა");
+            }
+
+            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+
+
+            var templateText = GetVideoScriptTemplate(language.Name, request.ProductName);
+
+            var message = new ContentFile()
+            {
+                Type = "text",
+                Text = templateText
+            };
+
+            var extention = file.FileName.Split('.').Last();
+            if (!SupportedFileExtensions.Contains(extention))
+            {
+                throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
+            }
+
+            var fileMessage = new ContentFile()
+            {
+                Type = "image",
+                Source = new Source()
+                {
+                    Type = "base64",
+                    MediaType = $"image/{extention}",
+                    Data = EncodeFileToBase64(file)
+                }
+            };
+
+            var claudeRequest = new ClaudeRequestWithFile(templateText, new List<ContentFile>() { fileMessage, message });
+            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+            var lastPeriod = claudResponseText.LastIndexOf('.');
+
+            if (lastPeriod != -1)
+            {
+                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+            }
+
+            await _requestLogService.Create(new CreateRequestLogModel
+            {
+                MarketplaceId = request.UniqueKey,
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                RequestType = RequestType.VideoScript
+            }, cancellationToken);
+
+            await _marketplaceService.Update(new UpdateMarketplaceModel
+            {
+                Id = request.UniqueKey,
+                Name = marketplace.Name,
+                TranslateLimit = marketplace.TranslateLimit,
+                ContentLimit = marketplace.ContentLimit,
+                CopyrightLimit = marketplace.CopyrightLimit,
+                VideoScriptLimit = marketplace.VideoScriptLimit - 1,
+            }, cancellationToken);
+
+            return new VideoScriptAIResponse
+            {
+                Text = claudResponseText
+            };
+        }
         private string ConvertAttributes(List<Domain.Models.Attribute> attributes)
         {
             var resultBuilder = new StringBuilder();
@@ -262,9 +336,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             return $"Your task is to generate an engaging and effective Facebook ad text based on a provided image and an optional product name. The ad text should include relevant emojis and a promotional offer to entice potential customers. i attached image that you should use And here is the optional product name (if not provided, leave blank):{productName} Do not make any promotional offer if not stated in the photo. Output text in {language} Language.";
         }
-        // {
-        //     return $"Translate the given description to the {language} Language. description: {description}. Output should be pure translated text formated in HTML language.";
-        // }
+
+        private string GetVideoScriptTemplate(string language, string productName)
+        {
+            return $"You are an AI assistant that specializes in creating engaging advertising video scripts and descriptions for social media platforms like TikTok, Instagram Reels, and YouTube Shorts. Your task is to generate a video script and description in {language} based on a provided product photo and optional product name. I have attached product photo And here is the product name (if provided):{productName}. First, carefully analyze the product photo. Take note of the product's appearance, key features, and any text or branding visible. If a product name was provided, consider how it relates to the product's appearance and potential benefits. Next, brainstorm 2-3 engaging and creative video script ideas that highlight the product's features and benefits in an entertaining way. Consider the short video format and what would grab viewers' attention. Select the best video script idea and write out the full script in {language}. The script should be concise (under 60 seconds) but engaging, with a clear hook, product showcase, and call-to-action. Use language that resonates with the target audience. Format your response like this: [Full video script in Georgian] Remember, the goal is to create a short, attention-grabbing video that effectively showcases the product and encourages viewers to engage with the brand. Let your creativity shine while keeping the script and description concise and relevant.";
+        }
+
 
         private string GetDefaultTemplate(string productCategoryName, string language)
         {
@@ -283,6 +360,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 return Convert.ToBase64String(fileBytes);
             }
         }
+
     }
 }
 

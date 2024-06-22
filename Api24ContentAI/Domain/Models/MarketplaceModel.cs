@@ -9,6 +9,7 @@ namespace Api24ContentAI.Domain.Models
         public int ContentLimit { get; set; }
         public int TranslateLimit { get; set; }
         public int CopyrightLimit { get; set; }
+        public int VideoScriptLimit { get; set; }
     }
     public class CreateMarketplaceModel
     {
@@ -16,6 +17,7 @@ namespace Api24ContentAI.Domain.Models
         public int ContentLimit { get; set; }
         public int TranslateLimit { get; set; }
         public int CopyrightLimit { get; set; }
+        public int VideoScriptLimit { get; set; }
     }
     public class UpdateMarketplaceModel
     {
@@ -24,5 +26,6 @@ namespace Api24ContentAI.Domain.Models
         public int ContentLimit { get; set; }
         public int TranslateLimit { get; set; }
         public int CopyrightLimit { get; set; }
+        public int VideoScriptLimit { get; set; }
     }
 }

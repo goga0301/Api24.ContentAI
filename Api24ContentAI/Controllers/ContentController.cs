@@ -61,5 +61,19 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpPost("video-script")]
+        public async Task<IActionResult> VideoScript([FromForm] VideoScriptAIRequest request, IFormFile file, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return Ok(await _contentService.VideoScript(file, request, cancellationToken));
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
+
     }
 }

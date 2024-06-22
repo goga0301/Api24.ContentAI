@@ -14,4 +14,8 @@
     {
         public string Text { get; set; }
     }
+    public class VideoScriptAIResponse
+    {
+        public string Text { get; set; }
+    }
 }

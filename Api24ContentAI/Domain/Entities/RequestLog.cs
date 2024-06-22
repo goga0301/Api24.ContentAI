@@ -13,6 +13,7 @@ namespace Api24ContentAI.Domain.Entities
     {
         Content = 1,
         Translate = 2,
-        Copyright = 3
+        Copyright = 3,
+        VideoScript = 4
     }
 }

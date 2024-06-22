@@ -18,6 +18,8 @@ namespace Api24ContentAI.Domain.Repository
         Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         Task<int> CountTranslatesByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         Task<int> CountContentAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
+        Task<int> CountCopyrightAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
+        Task<int> CountVideoScriptByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         IQueryable<RequestLog> GetByMarketplaceId(Guid marketplaceId);
     }
 }
