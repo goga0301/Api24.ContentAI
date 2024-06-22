@@ -1,9 +1,12 @@
 ﻿using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
 using System;
+using System.Buffers.Text;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -25,6 +28,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IMarketplaceService _marketplaceService;
         private readonly ILanguageService _languageService;
 
+        private static readonly string[] SupportedFileExtensions = new string[]
+        {
+            "jpeg",
+            "png",
+            "gif",
+            "webp"
+        };
+        
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
@@ -132,6 +143,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
+
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
@@ -157,6 +169,80 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
+        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, CopyrightAIRequest request, CancellationToken cancellationToken)
+        {
+            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+
+            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            {
+                throw new Exception("CopyrightAI რექვესთების ბალანსი ამოიწურა");
+            }
+
+            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+
+
+            var templateText = GetCopyrightTemplate(language.Name, request.ProductName);
+
+            var message = new ContentFile()
+            {
+                Type = "text",
+                Text = templateText
+            };
+
+            var extention = file.FileName.Split('.').Last();
+            if (!SupportedFileExtensions.Contains(extention))
+            {
+                throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
+            }
+
+            var fileMessage = new ContentFile()
+            {
+                Type = "image",
+                Source = new Source()
+                {
+                    Type = "base64",
+                    MediaType = $"image/{extention}",
+                    Data = EncodeFileToBase64(file)
+                }
+            };
+
+            var claudeRequest = new ClaudeRequestWithFile(templateText, new List<ContentFile>() { fileMessage, message });
+            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+            var lastPeriod = claudResponseText.LastIndexOf('.');
+
+            if (lastPeriod != -1)
+            {
+                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+            }
+
+            await _requestLogService.Create(new CreateRequestLogModel
+            {
+                MarketplaceId = request.UniqueKey,
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                RequestType = RequestType.Copyright
+            }, cancellationToken);
+
+            await _marketplaceService.Update(new UpdateMarketplaceModel
+            {
+                Id = request.UniqueKey,
+                Name = marketplace.Name,
+                TranslateLimit = marketplace.TranslateLimit,
+                ContentLimit = marketplace.ContentLimit,
+                CopyrightLimit = marketplace.CopyrightLimit - 1,
+            }, cancellationToken);
+
+            return new CopyrightAIResponse
+            {
+                Text = claudResponseText
+            };
+        }
+
         private string ConvertAttributes(List<Domain.Models.Attribute> attributes)
         {
             var resultBuilder = new StringBuilder();
@@ -171,6 +257,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             return $"You are a multilingual AI translation assistant. Your task is to translate product descriptions from one language to another and output the result in HTML format. The source language for the product description is: <source_language> {{ENGLISH}} </source_language>. The target language for the product description is: <target_language> {language} </target_language>. Here is the product description text to translate: <product_description> {description} </product_description>. Please translate the product description text from {{ENGLISH}} to {language}. Output the translated text in HTML format, enclosed within <translated_description> tags. Do not include any other explanations, notes, or caveats in your output. Only provide the translated text in the specified HTML tags.";
         }
+
+        private string GetCopyrightTemplate(string language, string productName)
+        {
+            return $"Your task is to generate an engaging and effective Facebook ad text based on a provided image and an optional product name. The ad text should include relevant emojis and a promotional offer to entice potential customers. i attached image that you should use And here is the optional product name (if not provided, leave blank):{productName} Do not make any promotional offer if not stated in the photo. Output text in {language} Language.";
+        }
         // {
         //     return $"Translate the given description to the {language} Language. description: {description}. Output should be pure translated text formated in HTML language.";
         // }
@@ -178,6 +269,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private string GetDefaultTemplate(string productCategoryName, string language)
         {
             return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in {language}. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
+        }
+
+        private static string EncodeFileToBase64(IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                return string.Empty;
+
+            using (var ms = new MemoryStream())
+            {
+                file.CopyTo(ms);
+                byte[] fileBytes = ms.ToArray();
+                return Convert.ToBase64String(fileBytes);
+            }
         }
     }
 }

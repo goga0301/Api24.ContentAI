@@ -1,4 +1,5 @@
 ﻿using Api24ContentAI.Domain.Models;
+using Microsoft.AspNetCore.Http;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,5 +9,6 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken);
         Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken);
+        Task<CopyrightAIResponse> CopyrightAI(IFormFile file, CopyrightAIRequest request, CancellationToken cancellationToken);
     }
 }

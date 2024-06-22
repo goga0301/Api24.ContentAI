@@ -9,4 +9,9 @@
     {
         public string Text { get; set; }
     }
+
+    public class CopyrightAIResponse
+    {
+        public string Text { get; set; }
+    }
 }

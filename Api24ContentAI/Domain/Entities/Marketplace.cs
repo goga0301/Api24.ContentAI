@@ -5,5 +5,6 @@
         public string Name { get; set; }
         public int ContentLimit { get; set; }
         public int TranslateLimit { get; set; }
+        public int CopyrightLimit { get; set; }
     }
 }

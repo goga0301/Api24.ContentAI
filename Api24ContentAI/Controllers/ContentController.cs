@@ -1,5 +1,6 @@
 ﻿using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading;
@@ -38,6 +39,20 @@ namespace Api24ContentAI.Controllers
             try
             {
                 return Ok(await _contentService.Translate(request, cancellationToken));
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
+
+        [HttpPost("copyright")]
+        public async Task<IActionResult> Copyright([FromForm] CopyrightAIRequest request, IFormFile file, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return Ok(await _contentService.CopyrightAI(file, request, cancellationToken));
 
             }
             catch (Exception ex)

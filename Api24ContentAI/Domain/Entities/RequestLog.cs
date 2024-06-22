@@ -12,6 +12,7 @@ namespace Api24ContentAI.Domain.Entities
     public enum RequestType
     {
         Content = 1,
-        Translate = 2
+        Translate = 2,
+        Copyright = 3
     }
 }
