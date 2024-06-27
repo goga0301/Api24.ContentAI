@@ -345,7 +345,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private string GetDefaultTemplate(string productCategoryName, string language)
         {
-            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in {language}. Output HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
+            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in {language}. Output pure annotation formatted in HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
         }
 
         private static string EncodeFileToBase64(IFormFile file)
