@@ -334,7 +334,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private string GetCopyrightTemplate(string language, string productName)
         {
-            return $"Your task is to generate an engaging and effective Facebook ad text based on a provided image and an optional product name. The ad text should include relevant emojis and a promotional offer to entice potential customers. i attached image that you should use And here is the optional product name (if not provided, leave blank):{productName} Do not make any promotional offer if not stated in the photo. Output text in {language} Language.";
+            return $"Your task is to generate an engaging and effective Facebook ad text based on a provided image and an optional product name. The advertisement text should include relevant emojis and a promotional offer to entice potential customers. I attached image that you should use and here is the optional product name (if not provided, leave blank):{productName} Do not make any promotional offer if not stated in the photo. Output text in {language} Language. Write minimum of 500 characters.";
         }
 
         private string GetVideoScriptTemplate(string language, string productName)
@@ -345,7 +345,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private string GetDefaultTemplate(string productCategoryName, string language)
         {
-            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in {language}. Output pure annotation formatted in HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n;";
+            return $"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. Output should be in paragraphs and in {language}. Output pure annotation formatted in HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n. Do not start with 'Here is the annotation of the products..', give only description text.";
         }
 
         private static string EncodeFileToBase64(IFormFile file)
@@ -364,3 +364,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
     }
 }
 
+
+// Esaa mail is prompti
+
+// You are an AI assistant tasked with responding to emails in Georgian. You will be given a received email and a preferred speech form (either formal or familiar). Your job is to craft an appropriate response and translate it into Georgian.  Here is the received email: <received_email> {{RECEIVED_EMAIL}} </received_email> The preferred speech form for the response is: {{SPEECH_FORM}} Follow these steps to complete the task: Carefully read and analyze the received email. Pay attention to the content, tone, and any specific questions or requests. Craft an appropriate response in English, keeping in mind the following guidelines: Use the specified speech form (formal or familiar) consistently throughout the response. Address all points mentioned in the original email. Be polite and professional, regardless of the speech form. Keep the response concise but comprehensive. Translate your response into Georgian. Ensure that the translation maintains the same tone and speech form as the English version. Output your final response in Georgian, enclosed in <georgian_response> tags. Remember to adjust your language and tone based on the specified speech form. Formal speech should
