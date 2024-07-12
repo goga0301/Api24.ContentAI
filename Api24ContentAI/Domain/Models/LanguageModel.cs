@@ -1,6 +1,4 @@
-﻿using System;
-
-namespace Api24ContentAI.Domain.Models
+﻿namespace Api24ContentAI.Domain.Models
 {
     public class LanguageModel
     {

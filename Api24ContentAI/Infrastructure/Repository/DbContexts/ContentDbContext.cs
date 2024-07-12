@@ -14,7 +14,11 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
         public DbSet<ProductCategory> ProductCategories { get; set; }
         public DbSet<Template> Templates { get; set; }
         public DbSet<RequestLog> RequestLogs { get; set; }
+        public DbSet<UserRequestLog> UserRequestLogs { get; set; }
         public DbSet<Language> Languages { get; set; }
+        public DbSet<User> Users { get; set; }
+        public DbSet<Role> Roles { get; set; }
+        public DbSet<UserBalance> UserBalances { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -46,6 +50,31 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
                 .WithMany()
                 .HasForeignKey(ct => ct.MarketplaceId)
                 .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<User>()
+                .HasMany<UserRequestLog>()
+                .WithOne()
+                .HasForeignKey(ct => ct.UserId)
+                .OnDelete(DeleteBehavior.NoAction);
+
+            modelBuilder.Entity<User>()
+                .ToTable("Users");
+
+            modelBuilder.Entity<User>()
+                .Property(c => c.FirstName)
+                .IsRequired();
+
+            modelBuilder.Entity<User>()
+                .Property(c => c.LastName)
+                .IsRequired();
+
+            modelBuilder.Entity<Role>()
+                .ToTable("Roles");
+
+            modelBuilder.Entity<User>().HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId);
+
+            modelBuilder.Entity<UserBalance>().HasOne(x => x.User).WithOne(x => x.UserBalance).HasForeignKey<UserBalance>(x => x.UserId).IsRequired(false);
+
         }
     }
 }

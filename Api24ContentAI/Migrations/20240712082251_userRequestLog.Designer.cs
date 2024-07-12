@@ -3,15 +3,17 @@ using System;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 namespace Api24ContentAI.Migrations
 {
     [DbContext(typeof(ContentDbContext))]
-    partial class ContentDbContextModelSnapshot : ModelSnapshot
+    [Migration("20240712082251_userRequestLog")]
+    partial class userRequestLog
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -241,27 +243,6 @@ namespace Api24ContentAI.Migrations
                     b.ToTable("Users");
                 });
 
-            modelBuilder.Entity("Api24ContentAI.Domain.Entities.UserBalance", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn);
-
-                    b.Property<decimal>("Balance")
-                        .HasColumnType("numeric");
-
-                    b.Property<string>("UserId")
-                        .HasColumnType("text");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("UserId")
-                        .IsUnique();
-
-                    b.ToTable("UserBalances");
-                });
-
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.UserRequestLog", b =>
                 {
                     b.Property<Guid>("Id")
@@ -333,26 +314,12 @@ namespace Api24ContentAI.Migrations
                         .HasForeignKey("RoleId");
                 });
 
-            modelBuilder.Entity("Api24ContentAI.Domain.Entities.UserBalance", b =>
-                {
-                    b.HasOne("Api24ContentAI.Domain.Entities.User", "User")
-                        .WithOne("UserBalance")
-                        .HasForeignKey("Api24ContentAI.Domain.Entities.UserBalance", "UserId");
-
-                    b.Navigation("User");
-                });
-
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.UserRequestLog", b =>
                 {
                     b.HasOne("Api24ContentAI.Domain.Entities.User", null)
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.NoAction);
-                });
-
-            modelBuilder.Entity("Api24ContentAI.Domain.Entities.User", b =>
-                {
-                    b.Navigation("UserBalance");
                 });
 #pragma warning restore 612, 618
         }

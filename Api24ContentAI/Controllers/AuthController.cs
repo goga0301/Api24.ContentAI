@@ -6,6 +6,9 @@ using System.Security.Claims;
 using System.Text;
 using System;
 using Microsoft.Extensions.Configuration;
+using System.Threading.Tasks;
+using Api24ContentAI.Domain.Service;
+using Api24ContentAI.Domain.Models;
 
 namespace Api24ContentAI.Controllers
 {
@@ -14,10 +17,12 @@ namespace Api24ContentAI.Controllers
     public class AuthController : ControllerBase
     {
         private readonly IConfiguration _configuration;
+        private readonly IAuthService _authService;
 
-        public AuthController(IConfiguration configuration)
+        public AuthController(IConfiguration configuration, IAuthService authService)
         {
             _configuration = configuration;
+            _authService = authService;
         }
 
         [HttpPost("token")]
@@ -44,6 +49,20 @@ namespace Api24ContentAI.Controllers
             var token = tokenHandler.WriteToken(securityToken);
 
             return Ok(new { Token = token });
+        }
+
+        [HttpPost("login")]
+        public async Task<IActionResult> Login(LoginRequest loginRequestDTO)
+        {
+            var user = await _authService.Login(loginRequestDTO);
+            return Ok(user);
+        }
+
+        [HttpPost("register")]
+        public async Task<IActionResult> Register(RegistrationRequest registrationRequestDTO)
+        {
+            await _authService.Register(registrationRequestDTO);
+            return Ok();
         }
     }
 }

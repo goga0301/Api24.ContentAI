@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using System.Threading;
 using System;
 using Api24ContentAI.Domain.Entities;
-using System.Collections.Generic;
 
 namespace Api24ContentAI.Domain.Repository
 {
@@ -21,5 +20,5 @@ namespace Api24ContentAI.Domain.Repository
         Task<int> CountCopyrightAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         Task<int> CountVideoScriptByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         IQueryable<RequestLog> GetByMarketplaceId(Guid marketplaceId);
-    }
+    }    
 }

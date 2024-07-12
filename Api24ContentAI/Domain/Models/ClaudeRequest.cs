@@ -1,5 +1,4 @@
 ﻿using System.Collections.Generic;
-using System.Net;
 using System.Text.Json.Serialization;
 
 namespace Api24ContentAI.Domain.Models

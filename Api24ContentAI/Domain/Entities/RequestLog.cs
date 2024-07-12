@@ -8,6 +8,14 @@ namespace Api24ContentAI.Domain.Entities
         public string RequestJson { get; set; }
         public DateTime CreateTime { get; set; }
         public RequestType RequestType { get; set; }
+    }  
+    
+    public class UserRequestLog : BaseEntity
+    {
+        public string UserId { get; set; }
+        public string RequestJson { get; set; }
+        public DateTime CreateTime { get; set; }
+        public RequestType RequestType { get; set; }
     }
     public enum RequestType
     {

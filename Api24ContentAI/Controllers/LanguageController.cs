@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Threading;
-using System;
 using Microsoft.AspNetCore.Authorization;
 
 namespace Api24ContentAI.Controllers

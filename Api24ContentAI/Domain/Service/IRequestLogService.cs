@@ -1,6 +1,4 @@
-﻿using Api24ContentAI.Domain.Entities;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using System.Threading.Tasks;
 using System.Threading;
 using System;
 using System.Collections.Generic;
@@ -18,5 +16,5 @@ namespace Api24ContentAI.Domain.Service
 
         Task<LogCountModel> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
         Task<List<RequestLogModel>> GetByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken);
-    }
+    }    
 }

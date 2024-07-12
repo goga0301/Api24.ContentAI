@@ -14,6 +14,10 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Collections.Generic;
+using Microsoft.AspNetCore.Identity;
+using Api24ContentAI.Infrastructure.Repository.DbContexts;
+using Api24ContentAI.Domain.Models;
+using Api24ContentAI.Domain.Entities;
 
 namespace Api24ContentAI
 {
@@ -95,22 +99,42 @@ namespace Api24ContentAI
             })
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
+            services.Configure<JwtOptions>(Configuration.GetSection("ApiSettings:JwtOptions"));
+
+            services.AddIdentity<User, Role>(Options =>
+            {
+                Options.Password.RequiredLength = 3;
+                Options.Password.RequireNonAlphanumeric = false;
+                Options.Password.RequireUppercase = false;
+                Options.Password.RequireLowercase = false;
+                Options.Password.RequireDigit = false;
+
+                Options.User.RequireUniqueEmail = true;
+            })
+             .AddEntityFrameworkStores<ContentDbContext>()
+             .AddDefaultTokenProviders();
+
+            var secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
+            var issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
+            var audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
+            var key = Encoding.ASCII.GetBytes(secret);
+
             services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
                 options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-            })
-            .AddJwtBearer(options =>
+            }).AddJwtBearer(options =>
             {
-                options.RequireHttpsMetadata = false; // Set this to true for production
-                options.SaveToken = true;
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
+                    ValidateIssuer = true,
+                    ValidateAudience = true,
+                    ValidateLifetime = true,
+
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.ASCII.GetBytes(Configuration.GetSection("Security:SecretKey").Value)), 
-                    ValidateIssuer = false,
-                    ClockSkew = TimeSpan.FromMinutes(0.1),
-                    ValidateAudience = false
+                    ValidIssuer = issuer,
+                    ValidAudience = audience,
+                    IssuerSigningKey = new SymmetricSecurityKey(key)
                 };
             });
 

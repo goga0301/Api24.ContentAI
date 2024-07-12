@@ -6,7 +6,6 @@ using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -80,6 +79,83 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 Id = x.Id,
                 MarketplaceId = x.MarketplaceId,
+                RequestJson = x.RequestJson,
+                CreateTime = x.CreateTime,
+                RequestType = x.RequestType
+            }).ToListAsync(cancellationToken);
+
+            return t;
+        }
+    }
+
+    public class UserRequestLogService : IUserRequestLogService
+    {
+        private readonly IUserRequestLogRepository _requestLogRepository;
+
+        public UserRequestLogService(IUserRequestLogRepository requestLogRepository)
+        {
+            _requestLogRepository = requestLogRepository;
+        }
+
+        public async Task<LogCountModel> CountByUserId(string UserId, CancellationToken cancellationToken)
+        {
+            var translateCount = await _requestLogRepository.CountTranslatesByUserId(UserId, cancellationToken);
+            var contentCount = await _requestLogRepository.CountContentAIByUserId(UserId, cancellationToken);
+            var copyrightCount = await _requestLogRepository.CountCopyrightAIByUserId(UserId, cancellationToken);
+            var videoScriptCount = await _requestLogRepository.CountVideoScriptByUserId(UserId, cancellationToken);
+
+            return new LogCountModel
+            {
+                ContentAICount = contentCount,
+                TranslateCount = translateCount,
+                CopyrightAICount = copyrightCount,
+                VideoScriptCount = videoScriptCount
+            };
+        }
+
+        public async Task Create(CreateUserRequestLogModel model, CancellationToken cancellationToken)
+        {
+            await _requestLogRepository.Create(new UserRequestLog
+            {
+                Id = Guid.NewGuid(),
+                UserId = model.UserId,
+                RequestJson = model.Request,
+                CreateTime = DateTime.UtcNow,
+                RequestType = model.RequestType,
+            }, cancellationToken);
+        }
+
+        public async Task<List<UserRequestLogModel>> GetAll(CancellationToken cancellationToken)
+        {
+            return await _requestLogRepository.GetAll().Select(x => new UserRequestLogModel
+            {
+                Id = x.Id,
+                UserId = x.UserId,
+                RequestJson = x.RequestJson,
+                CreateTime = x.CreateTime,
+                RequestType = x.RequestType
+            }).ToListAsync(cancellationToken);
+        }
+
+        public async Task<UserRequestLogModel> GetById(Guid id, CancellationToken cancellationToken)
+        {
+            var entity = await _requestLogRepository.GetById(id, cancellationToken);
+            return new UserRequestLogModel
+            {
+                Id = entity.Id,
+                UserId = entity.UserId,
+                RequestJson = entity.RequestJson,
+                CreateTime = entity.CreateTime,
+                RequestType = entity.RequestType
+            };
+        }
+
+        public async Task<List<UserRequestLogModel>> GetByUserId(string UserId, CancellationToken cancellationToken)
+        {
+            var t = await _requestLogRepository.GetByUserId(UserId).Select(x => new UserRequestLogModel
+            {
+                Id = x.Id,
+                UserId = x.UserId,
                 RequestJson = x.RequestJson,
                 CreateTime = x.CreateTime,
                 RequestType = x.RequestType

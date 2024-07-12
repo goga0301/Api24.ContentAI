@@ -8,7 +8,6 @@ using Api24ContentAI.Domain.Models.Mappers;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using Api24ContentAI.Domain.Service;
-using Api24ContentAI.Domain.Entities;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {

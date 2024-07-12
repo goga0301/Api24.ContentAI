@@ -1,5 +1,4 @@
 ﻿using Api24ContentAI.Domain.Entities;
-using System.Security.Policy;
 
 namespace Api24ContentAI.Domain.Models.Mappers
 {

@@ -21,6 +21,7 @@ namespace Api24ContentAI.Infrastructure.Repository
 
             });
         }
+
         public static void AddRepositories(this IServiceCollection services)
         {
             services.AddScoped<IProductCategoryRepository, ProductCategoryRepository>();
@@ -28,7 +29,9 @@ namespace Api24ContentAI.Infrastructure.Repository
             services.AddScoped<ICustomTemplateRepository, CustomTemplateRepository>();
             services.AddScoped<IMarketplaceRepository, MarketplaceRepository>();
             services.AddScoped<IRequestLogRepository, RequestLogRepository>();
+            services.AddScoped<IUserRequestLogRepository, UserRequestLogRepository>();
             services.AddScoped<ILanguageRepository, LanguageRepository>();
+            services.AddScoped<IUserRepository, UserRepository>();
         }
     }
 }
