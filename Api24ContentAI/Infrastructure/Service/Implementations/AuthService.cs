@@ -9,6 +9,8 @@ using Api24ContentAI.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Linq;
 using System.Collections.Generic;
+using Api24ContentAI.Domain.Repository;
+using System.Threading;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -18,20 +20,27 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly UserManager<User> _userManager;
         private readonly RoleManager<Role> _roleManager;
         private readonly IJwtGenerator _jwtTokenGenerator;
+        private readonly IUserRepository _userRepository;
         private readonly IHttpContextAccessor _httpContextAccessor;
         private const string _adminRole = "administrator";
         private const string _customerRole = "user";
 
 
-        public AuthService(ContentDbContext context, UserManager<User> userManager, RoleManager<Role> roleManager, IJwtGenerator jwtTokenGenerator, IHttpContextAccessor httpContextAccessor)
+        public AuthService(ContentDbContext context,
+                           UserManager<User> userManager,
+                           RoleManager<Role> roleManager,
+                           IUserRepository userRepository,
+                           IJwtGenerator jwtTokenGenerator,
+                           IHttpContextAccessor httpContextAccessor)
         {
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
             _jwtTokenGenerator = jwtTokenGenerator;
             _httpContextAccessor = httpContextAccessor;
+            _userRepository = userRepository;
         }
-        public async Task<LoginResponse> Login(LoginRequest loginRequest)
+        public async Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken)
         {
             var user = await _context.Users.FirstOrDefaultAsync(x => x.UserName.ToLower() == loginRequest.UserName.ToLower());
 
@@ -55,7 +64,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
-        public async Task Register(RegistrationRequest registrationRequest)
+        public async Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken)
         {
             // identityuser unda shevkra amisgan
             User user = new()
@@ -66,18 +75,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 NormalizedEmail = registrationRequest.Email.ToUpper(),
                 PhoneNumber = registrationRequest.PhoneNUmber,
                 FirstName = registrationRequest.FirstName,
-                LastName = registrationRequest.LastName,
-
+                LastName = registrationRequest.LastName
             };
-
 
             try
             {
-                if (!await _roleManager.RoleExistsAsync(_customerRole))
-                {
-                    await _roleManager.CreateAsync(new Role(_customerRole));
-                }
-                //var role = new Role(_customerRole) { NormalizedName = _customerRole.ToUpper() };
                 var role = await _roleManager.FindByNameAsync(_customerRole);
                 user.RoleId = role.Id;
 
@@ -86,6 +88,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     throw new Exception(result.Errors.FirstOrDefault().Description);
                 }
+
+                var createUser = await _userRepository.GetByUserName(user.UserName, cancellationToken);
+                await _userRepository.CreateUserBalance(createUser.Id, cancellationToken);
+                
             }
             catch (Exception ex)
             {
@@ -93,7 +99,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task RegisterAdmin(RegistrationRequest registrationRequest)
+        public async Task RegisterAdmin(RegistrationRequest registrationRequest, CancellationToken cancellationToken)
         {
             User user = new()
             {

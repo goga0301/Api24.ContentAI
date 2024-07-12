@@ -10,6 +10,7 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
     public class UserRepository : IUserRepository
     {
+        private const int StartingBalance = 100;
         private readonly ContentDbContext _context;
 
         public UserRepository(ContentDbContext context)
@@ -21,6 +22,16 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
         {
             await _context.Users.AddAsync(entity, cancellationToken);
             await _context.SaveChangesAsync();
+        }
+
+        public async Task CreateUserBalance(string userId, CancellationToken cancellationToken)
+        {
+            await _context.UserBalances.AddAsync(new UserBalance
+            {
+                UserId = userId,
+                Balance = StartingBalance
+            });
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         public async Task Delete(string id, CancellationToken cancellationToken)

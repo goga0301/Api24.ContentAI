@@ -15,6 +15,7 @@ namespace Api24ContentAI.Domain.Repository
         Task Create(User entity, CancellationToken cancellationToken);
 
         Task Update(User entity, CancellationToken cancellationToken);
+        Task CreateUserBalance(string userId, CancellationToken cancellationToken);
         Task UpdateUserBalance(string userId, decimal newBalance, CancellationToken cancellationToken);
 
         Task Delete(string id, CancellationToken cancellationToken);

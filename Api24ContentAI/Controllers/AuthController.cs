@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using System.Threading.Tasks;
 using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Domain.Models;
+using System.Threading;
 
 namespace Api24ContentAI.Controllers
 {
@@ -52,16 +53,16 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginRequest loginRequestDTO)
+        public async Task<IActionResult> Login(LoginRequest loginRequestDTO, CancellationToken cancellationToken)
         {
-            var user = await _authService.Login(loginRequestDTO);
+            var user = await _authService.Login(loginRequestDTO, cancellationToken);
             return Ok(user);
         }
 
         [HttpPost("register")]
-        public async Task<IActionResult> Register(RegistrationRequest registrationRequestDTO)
+        public async Task<IActionResult> Register(RegistrationRequest registrationRequestDTO, CancellationToken cancellationToken)
         {
-            await _authService.Register(registrationRequestDTO);
+            await _authService.Register(registrationRequestDTO, cancellationToken);
             return Ok();
         }
     }
