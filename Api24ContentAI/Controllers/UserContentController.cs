@@ -6,11 +6,13 @@ using System.Threading.Tasks;
 using System.Threading;
 using System;
 using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize]
     public class UserContentController : ControllerBase
     {
         private readonly IUserContentService _userContentService;

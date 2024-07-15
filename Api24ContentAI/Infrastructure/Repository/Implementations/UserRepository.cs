@@ -47,28 +47,24 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public IQueryable<User> GetAll()
         {
-            return _context.Users.Include(x => x.UserBalance);
+            return _context.Users.Include(x => x.UserBalance).Include(x => x.Role);
         }
 
         public async Task<User> GetById(string userId, CancellationToken cancellationToken)
         {
-            return await _context.Users.Include(x => x.UserBalance).SingleOrDefaultAsync(x => x.Id == userId);
+            return await _context.Users.Include(x => x.UserBalance).Include(x => x.Role).SingleOrDefaultAsync(x => x.Id == userId);
         }
 
         public async Task<User> GetByUserName(string userName, CancellationToken cancellationToken)
         {
-            return await _context.Users.Include(x => x.UserBalance).SingleOrDefaultAsync(x => x.UserName == userName);
+            return await _context.Users.Include(x => x.UserBalance).Include(x => x.Role).SingleOrDefaultAsync(x => x.UserName == userName);
         }
 
         public async Task Update(User entity, CancellationToken cancellationToken)
         {
-            var user = await _context.Users.SingleOrDefaultAsync(x => x.Id == entity.Id);
+            //var user = await _context.Users.SingleOrDefaultAsync(x => x.Id == entity.Id);
 
-            user.FirstName = entity.FirstName;
-            user.LastName = entity.LastName;
-            user.UserBalance.Balance = entity.UserBalance.Balance;
-
-            _context.Users.Update(user);
+            _context.Users.Update(entity);
             await _context.SaveChangesAsync(cancellationToken);
         }
 

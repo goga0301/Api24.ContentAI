@@ -19,6 +19,7 @@ namespace Api24ContentAI.Infrastructure.Service
             services.AddScoped<IClaudeService, ClaudeService>();
             services.AddScoped<IContentService, ContentService>();
             services.AddScoped<IUserContentService, UserContentService>();
+            services.AddScoped<IUserService, UserService>();
 
             services.AddScoped<IApi24Service, Api24Service>();
 
