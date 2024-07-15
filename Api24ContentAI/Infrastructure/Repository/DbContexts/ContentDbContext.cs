@@ -67,11 +67,13 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
             modelBuilder.Entity<User>()
                 .Property(c => c.LastName)
                 .IsRequired();
+            
+            modelBuilder.Entity<User>().HasIndex(x => x.NormalizedUserName).IsUnique();
 
             modelBuilder.Entity<Role>()
                 .ToTable("Roles");
 
-            modelBuilder.Entity<User>().HasOne<Role>().WithMany().HasForeignKey(x => x.RoleId);
+            modelBuilder.Entity<User>().HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId);
 
             modelBuilder.Entity<UserBalance>().HasOne(x => x.User).WithOne(x => x.UserBalance).HasForeignKey<UserBalance>(x => x.UserId).IsRequired(false);
 
