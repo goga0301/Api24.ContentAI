@@ -43,15 +43,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken)
         {
             var user = await _context.Users.FirstOrDefaultAsync(x => x.UserName.ToLower() == loginRequest.UserName.ToLower());
-
+            if(user == null)
+            {
+                throw new Exception($"User not found by username {loginRequest.UserName}");
+            }
             bool isValid = await _userManager.CheckPasswordAsync(user, loginRequest.Password);
 
-            if (user == null || !isValid)
+            if (!isValid)
             {
-                return new LoginResponse()
-                {
-                    Token = string.Empty
-                };
+                throw new Exception("Password is not correct");
             }
             var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
 
