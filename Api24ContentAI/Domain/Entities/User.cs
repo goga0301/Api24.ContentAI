@@ -7,6 +7,7 @@ namespace Api24ContentAI.Domain.Entities
         public string FirstName { get; set; }
         public string LastName { get; set; }
         public string RoleId { get; set; }
+        public Role Role { get; set; }
         public UserBalance UserBalance { get; set; }
     }
 }
