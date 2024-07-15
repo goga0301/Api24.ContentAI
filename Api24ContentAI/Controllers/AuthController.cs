@@ -55,8 +55,15 @@ namespace Api24ContentAI.Controllers
         [HttpPost("login")]
         public async Task<IActionResult> Login(LoginRequest loginRequestDTO, CancellationToken cancellationToken)
         {
-            var user = await _authService.Login(loginRequestDTO, cancellationToken);
-            return Ok(user);
+            try
+            {
+                var user = await _authService.Login(loginRequestDTO, cancellationToken);
+                return Ok(user);
+            }
+            catch(Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpPost("register")]
