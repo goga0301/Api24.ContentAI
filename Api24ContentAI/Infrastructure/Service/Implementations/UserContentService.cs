@@ -219,10 +219,25 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
             var end = claudResponseText.LastIndexOf("</translation>");
-            if(end == -1)
+            if (end == -1)
             {
-                throw new Exception("Reqeust is too long");
+                var messageContinue = new ContentFile()
+                {
+                    Type = "text",
+                    Text = "continue"
+                };
+                var continueReq = new List<ContentFile>() { messageContinue };
+                var claudeRequestContinue = new ClaudeRequestWithFile(continueReq);
+                var claudeResponseContinue = await _claudeService.SendRequestWithFile(claudeRequestContinue, cancellationToken);
+                var claudResponseTextContinue = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+                claudResponseText += claudResponseTextContinue;
             }
+            end = claudResponseText.LastIndexOf("</translation>");
+            if (end == -1)
+            {
+                throw new Exception("too long");
+            }
+
 
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
