@@ -66,14 +66,14 @@ namespace Api24ContentAI.Domain.Models
         public ClaudeRequestWithFile(List<ContentFile> contents )
         {
             Model = "claude-3-5-sonnet-20240620";
-            MaxTokens = 8192;
+            MaxTokens = 4096;
             Messages = new List<MessageWithFile> { new MessageWithFile("user", contents) };
         }
 
         public ClaudeRequestWithFile(List<MessageWithFile> messages)
         {
             Model = "claude-3-5-sonnet-20240620";
-            MaxTokens = 8192;
+            MaxTokens = 4096;
             Messages = messages;
         }
     }    
@@ -90,7 +90,7 @@ namespace Api24ContentAI.Domain.Models
         public ClaudeRequest(string messageContent)
         {
             Model = "claude-3-5-sonnet-20240620";
-            MaxTokens = 2048;
+            MaxTokens = 4096;
             Messages = new List<Message> { new Message("user", messageContent) };
         }
     }
