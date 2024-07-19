@@ -37,7 +37,7 @@ namespace Api24ContentAI.Domain.Models
         public string Type { get; set; }
         [JsonPropertyName("source")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-        public Source Source { get; set; }
+        public Source? Source { get; set; }
         [JsonPropertyName("text")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string Text { get; set; }
@@ -63,11 +63,18 @@ namespace Api24ContentAI.Domain.Models
         [JsonPropertyName("messages")]
         public List<MessageWithFile> Messages { get; }
 
-        public ClaudeRequestWithFile(string messageContent, List<ContentFile> contents )
+        public ClaudeRequestWithFile(List<ContentFile> contents )
         {
             Model = "claude-3-5-sonnet-20240620";
             MaxTokens = 2048;
             Messages = new List<MessageWithFile> { new MessageWithFile("user", contents) };
+        }
+
+        public ClaudeRequestWithFile(List<MessageWithFile> messages)
+        {
+            Model = "claude-3-5-sonnet-20240620";
+            MaxTokens = 2048;
+            Messages = messages;
         }
     }    
     

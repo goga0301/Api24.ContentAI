@@ -1,4 +1,6 @@
-﻿using System;
+﻿using Microsoft.AspNetCore.Http;
+using System;
+using System.Collections.Generic;
 
 namespace Api24ContentAI.Domain.Models
 {
@@ -12,5 +14,7 @@ namespace Api24ContentAI.Domain.Models
     {
         public string Description { get; set; }
         public int LanguageId { get; set; }
+        public List<IFormFile> Files { get; set; }
+        public bool IsPdf { get; set; }
     }
 }

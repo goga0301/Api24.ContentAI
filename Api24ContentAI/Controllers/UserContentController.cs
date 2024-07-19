@@ -7,6 +7,7 @@ using System.Threading;
 using System;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using System.Collections.Generic;
 
 namespace Api24ContentAI.Controllers
 {
@@ -40,7 +41,7 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost("translate")]
-        public async Task<IActionResult> Translate([FromBody] UserTranslateRequest request, CancellationToken cancellationToken)
+        public async Task<IActionResult> Translate([FromForm] UserTranslateRequest request, CancellationToken cancellationToken)
         {
             try
             {

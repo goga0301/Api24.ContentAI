@@ -204,7 +204,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             };
 
-            var claudeRequest = new ClaudeRequestWithFile(templateText, new List<ContentFile>() { fileMessage, message });
+            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { fileMessage, message });
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
@@ -278,7 +278,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             };
 
-            var claudeRequest = new ClaudeRequestWithFile(templateText, new List<ContentFile>() { fileMessage, message });
+            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { fileMessage, message });
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
