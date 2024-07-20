@@ -219,19 +219,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
             var end = claudResponseText.LastIndexOf("</translation>");
-            if (end == -1)
-            {
-                var messageContinue = new ContentFile()
-                {
-                    Type = "text",
-                    Text = "continue"
-                };
-                var continueReq = new List<ContentFile>() { messageContinue };
-                var claudeRequestContinue = new ClaudeRequestWithFile(continueReq);
-                var claudeResponseContinue = await _claudeService.SendRequestWithFile(claudeRequestContinue, cancellationToken);
-                var claudResponseTextContinue = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-                claudResponseText += claudResponseTextContinue;
-            }
+            //if (end == -1)
+            //{
+            //    var messageContinue = new ContentFile()
+            //    {
+            //        Type = "text",
+            //        Text = "continue"   
+            //    };
+            //    var continueReq = new List<ContentFile>() { messageContinue };
+            //    var claudeRequestContinue = new ClaudeRequestWithFile(continueReq);
+            //    var claudeResponseContinue = await _claudeService.SendRequestWithFile(claudeRequestContinue, cancellationToken);
+            //    var claudResponseTextContinue = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            //    claudResponseText += claudResponseTextContinue;
+            //}
             end = claudResponseText.LastIndexOf("</translation>");
             if (end == -1)
             {
@@ -482,7 +482,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                      4. For proper nouns, brand names, or specific technical terms, keep them in their original form unless there's a widely accepted translation in the target language.
                      5. Translate full texts, do not commit any parts
                      
-                     Provide your translation inside <translation> tags. If you have any notes or explanations about your translation choices, include them in <translator_notes> tags after the translation.
+                     Provide your translation inside <translation> tags. 
                      
                      Begin your translation now.";
         }
