@@ -177,8 +177,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
             bool isText = true;
             var contents = new List<ContentFile>();
+            var textFromImage = new StringBuilder(); 
             if (!request.IsPdf)
             {
                 foreach (var file in request.Files)
@@ -199,14 +201,28 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             Data = EncodeFileToBase64(file)
                         }
                     };
-                    contents.Add(fileMessage);
+                    var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
+
+                    var messageImageToText = new ContentFile()
+                    {
+                        Type = "text",
+                        Text = templateTextForImageToText
+                    };
+                    var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
+                    var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
+                    var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+                    var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
+                    textFromImage.Append(claudResponseTextContinueImageToText);
                 }
                 isText = false;
+                request.Description = textFromImage.ToString();
+
             }
             else
             {
                 request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
             }
+
             var templateText = GetTranslateTemplateTest(language.Name, request.Description, isText);
 
             var message = new ContentFile()
@@ -235,7 +251,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             end = claudResponseText.LastIndexOf("</translation>");
             if (end == -1)
             {
-                throw new Exception("too long");
+                throw new Exception("Request is too long");
             }
 
 
@@ -439,7 +455,48 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             return $"You are a multilingual AI translation assistant. Your task is to translate product descriptions from one language to another and output the result in HTML format. The source language for the product description is: <source_language> {{ENGLISH}} </source_language>. The target language for the product description is: <target_language> {language} </target_language>. Here is the product description text to translate: <product_description> {description} </product_description>. Please translate the product description text from {{ENGLISH}} to {language}. Output the translated text in HTML format, enclosed within <translated_description> tags. Do not include any other explanations, notes, or caveats in your output. Only provide the translated text in the specified HTML tags.";
         }
-        private string GetTranslateTemplateTest(string language, string description, bool isText)
+        private string GetImageToTextTemplate(string sourceLanguage)
+        {
+            return $@"You are an advanced AI assistant capable of performing image-to-text processing. Your task is to analyze an image containing text in {sourceLanguage} and convert it into written text. This may include both printed and handwritten text.
+
+                      Here is the image you need to analyze:
+                      
+                      <image>
+                      {{IMAGE_TO_PROCESS}}
+                      </image>
+                      
+                      Follow these steps to complete the task:
+                      
+                      1. Carefully examine the image, paying attention to all visible text elements.
+                      
+                      2. Identify and distinguish between printed and handwritten text if both are present.
+                      
+                      3. For handwritten text:
+                         - Focus on the shape and style of the characters
+                         - Consider context clues to help decipher unclear words
+                         - Be prepared to make educated guesses for ambiguous characters
+                      
+                      4. For printed text:
+                         - Recognize standard fonts and typefaces
+                         - Pay attention to formatting, such as bold or italic text
+                      
+                      5. Transcribe the text you see in the image, maintaining the original formatting as much as possible.
+                      
+                      6. If you encounter any text that is unclear or ambiguous, indicate this by placing the uncertain text in square brackets with a question mark, like this: [unclear word?]
+                      
+                      7. If there are multiple separate text elements or paragraphs in the image, preserve their relative positioning in your transcription.
+                      
+                      8. Include any relevant punctuation marks that you can identify in the image.
+                      
+                      9. If the image contains any non-text elements (e.g., logos, drawings), you can briefly mention their presence but do not describe them in detail.
+                      
+                      10. After transcribing the text, provide a brief note about the overall clarity and legibility of the text in the image.
+                      
+                      Present your transcription and notes within <transcription> tags. Begin with the transcribed text, followed by any notes about clarity or uncertainty.
+                      
+                      Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image, whether it's printed or handwritten. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
+        }
+        private string GetTranslateTemplateTest(string targetLanguage, string description, bool isText)
         {
             var input = isText ? "text" : "image";
             return @$"You are a highly skilled translator tasked with translating text from one language to another. You aim to provide accurate and natural-sounding translations while maintaining the original meaning and context.
@@ -467,7 +524,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                      The target language for translation:
                      
                      <target_language>
-                     {language}
+                     {targetLanguage}
                      </target_language>
                      
                      When translating, follow these guidelines:
