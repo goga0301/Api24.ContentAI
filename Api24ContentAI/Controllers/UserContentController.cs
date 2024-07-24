@@ -77,6 +77,25 @@ namespace Api24ContentAI.Controllers
                 return BadRequest(new Error { ErrorText = ex.Message });
             }
         }
+        
+        [HttpPost("email")]
+        public async Task<IActionResult> Email([FromBody] UserEmailRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var userId = User.FindFirstValue("UserId");
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return Unauthorized("User ID not found in the token");
+                }
+                return Ok(await _userContentService.Email(request, userId, cancellationToken));
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
 
         [HttpPost("video-script")]
         public async Task<IActionResult> VideoScript([FromForm] UserVideoScriptAIRequest request, IFormFile file, CancellationToken cancellationToken)

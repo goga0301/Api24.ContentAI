@@ -10,6 +10,7 @@ namespace Api24ContentAI.Domain.Service
         Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId, CancellationToken cancellationToken);
         Task<TranslateResponse> Translate(UserTranslateRequest request, string userId, CancellationToken cancellationToken);
         Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken);
+        Task<EmailAIResponse> Email(UserEmailRequest request, string userId, CancellationToken cancellationToken);
         Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request, string userId, CancellationToken cancellationToken);
 
     }

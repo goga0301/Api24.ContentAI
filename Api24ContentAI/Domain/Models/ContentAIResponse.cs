@@ -18,4 +18,9 @@
     {
         public string Text { get; set; }
     }
+    
+    public class EmailAIResponse
+    {
+        public string Text { get; set; }
+    }
 }

@@ -22,6 +22,7 @@ namespace Api24ContentAI.Domain.Entities
         Content = 1,
         Translate = 2,
         Copyright = 3,
-        VideoScript = 4
+        VideoScript = 4,
+        Email = 5
     }
 }
