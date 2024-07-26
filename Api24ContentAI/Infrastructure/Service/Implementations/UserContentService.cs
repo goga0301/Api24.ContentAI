@@ -441,49 +441,32 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private string GetTranslateTemplate(string targetLanguage, string description, bool isText)
         {
             var input = isText ? "text" : "image";
-            return @$"You are a highly skilled translator tasked with translating text from one language to another. You aim to provide accurate and natural-sounding translations while maintaining the original meaning and context.
+            return @$"<text_to_translate> {description} </text_to_translate>
 
-                     First, you will receive information about the input type:
-                     
-                     <input_type>
-                     {input}
-                     </input_type>
-                     
-                     Based on the input type, follow these instructions:
-                     
-                     1. If the input type is ""text"":
-                        - Proceed directly to the translation task using the provided text.
-                     
-                     2. If the input type is ""image"":
-                        - Process the image and take the text for translation.
-                     
-                     Next, you will receive the text to be translated:
-                     
-                     <text_to_translate>
-                     {description}
-                     </text_to_translate>
-                     
-                     The target language for translation:
-                     
-                     <target_language>
-                     {targetLanguage}
-                     </target_language>
-                     
-                     When translating, follow these guidelines:
-                     
-                     1. For long texts:
-                        - Divide the text into smaller, manageable paragraphs or sections.
-                        - Translate each section individually, ensuring coherence between sections.
-                        - If the text is extremely long, inform the user that you'll translate it in parts and provide updates on your progress.
-                     
-                     2. Maintain the original formatting, including paragraphs, bullet points, and numbered lists.
-                     3. Pay attention to context and idiomatic expressions, translating them appropriately for the target language.
-                     4. For proper nouns, brand names, or specific technical terms, keep them in their original form unless there's a widely accepted translation in the target language.
-                     5. Translate full texts, do not commit any parts
-                     
-                     Provide your translation inside <translation> tags. 
-                     
-                     Begin your translation now.";
+                      You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context.
+                      
+                      First, you will receive information about the input type:
+                      <input_type> {input} </input_type>
+                      
+                      Based on the input type, follow these instructions:
+                      1. If the input type is ""text"": Proceed directly to the translation task using the provided text.
+                      2. If the input type is ""image"": Process the image and take the text for translation.
+                      
+                      Next, you will receive the text to be translated: <text_to_translate> {description} </text_to_translate>
+                      The target language for translation: <target_language>{targetLanguage}</target_language>
+                      
+                      When translating, follow these guidelines:
+                      1. For long texts:
+                         - Divide the text into smaller, manageable paragraphs or sections.
+                         - Translate each section individually, ensuring coherence between sections.
+                         - If the text is extremely long, inform the user that you'll translate it in parts and provide updates on your progress.
+                      2. Maintain the original formatting, including paragraphs, bullet points, and numbered lists.
+                      3. Pay attention to context and idiomatic expressions, translating them appropriately for the target language.
+                      4. For proper nouns, brand names, or specific technical terms, keep them in their original form unless there's a widely accepted translation in the target language.
+                      5. Translate full texts, do not commit any parts
+                      
+                      Provide your translation inside <translation> tags. If you have any notes or explanations about your translation choices, include them in <translator_notes> tags after the translation.
+                      Begin your translation now.";
         }
 
         private string GetCopyrightTemplate(string language, string productName)
