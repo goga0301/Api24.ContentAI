@@ -1,7 +1,11 @@
 ﻿using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
+using Dapper;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Npgsql;
+using System.Data.SqlClient;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,10 +16,12 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
     {
         private const int StartingBalance = 100;
         private readonly ContentDbContext _context;
+        private readonly string connectionString;
 
-        public UserRepository(ContentDbContext context)
+        public UserRepository(ContentDbContext context, IConfiguration configuration)
         {
             _context = context;
+            connectionString = configuration.GetSection("DatabaseOptions:ConnectionString").Value ?? "";
         }
 
         public async Task Create(User entity, CancellationToken cancellationToken)
@@ -68,12 +74,25 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             await _context.SaveChangesAsync(cancellationToken);
         }
 
-        public async Task UpdateUserBalance(string userId, decimal newBalance, CancellationToken cancellationToken)
+        public async Task UpdateUserBalance(string userId, decimal price, CancellationToken cancellationToken)
         {
-            var balance = await _context.UserBalances.SingleOrDefaultAsync(x => x.UserId == userId);
-            balance.Balance = newBalance;
-            _context.UserBalances.Update(balance);
-            await _context.SaveChangesAsync(cancellationToken);
+            using (var connection = new NpgsqlConnection(connectionString))
+            {
+                await connection.OpenAsync();
+
+                var balance = await connection.QuerySingleOrDefaultAsync<UserBalance>(
+                    @"select ""UserId"" from ""ContentDb"".""UserBalances"" WHERE ""UserId"" = @UserId",
+                    new { UserId = userId });
+
+                if (balance != null)
+                {
+                    var updateQuery = @"UPDATE ""ContentDb"".""UserBalances""
+                                    	SET ""Balance""=""Balance"" - @Price
+                                    	WHERE ""UserId"" = @UserId";
+
+                    await connection.ExecuteAsync(updateQuery, new { Price = price, UserId = userId });
+                }
+            }
         }
     }
 }

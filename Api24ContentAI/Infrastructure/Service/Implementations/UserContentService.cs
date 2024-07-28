@@ -19,6 +19,8 @@ using iText.Kernel.Pdf.Canvas.Parser;
 using Microsoft.OpenApi.Extensions;
 using Microsoft.AspNetCore.Cors;
 using System.ComponentModel;
+using System.Text.RegularExpressions;
+using Microsoft.VisualBasic;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -110,7 +112,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.Copyright
             }, cancellationToken);
 
-            await _userRepository.UpdateUserBalance(userId, user.UserBalance.Balance - requestPrice, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
             return new CopyrightAIResponse
             {
@@ -160,14 +162,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             }, cancellationToken);
 
-            await _userRepository.UpdateUserBalance(userId, user.UserBalance.Balance - requestPrice, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
             return new ContentAIResponse
             {
                 Text = claudResponseText
             };
         }
-
         public async Task<TranslateResponse> Translate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
         {
             var requestPrice = GetRequestPrice(RequestType.Copyright);
@@ -215,7 +216,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
                     var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
                     var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
-                    textFromImage.Append(claudResponseTextContinueImageToText);
+
+                    var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
+                    var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+
+
+                    textFromImage.Append(claudResponseTextContinueImageToText.Substring(start, endt - start));
                 }
                 isText = false;
                 request.Description = textFromImage.ToString();
@@ -226,24 +232,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
             }
 
-            var templateText = GetTranslateTemplate(language.Name, request.Description, isText);
-
-            var message = new ContentFile()
+            var chunks = GetChunksOfLargeText(request.Description);
+            var chunkBuilder = new StringBuilder();
+            var claudResponseText = new StringBuilder();
+            foreach (var chunk in chunks)
             {
-                Type = "text",
-                Text = templateText
-            };
-            contents.Add(message);
-            var claudeRequest = new ClaudeRequestWithFile(contents);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            var end = claudResponseText.LastIndexOf("</translation>");
-            if (end == -1)
-            {
-                throw new Exception("Request is too long");
+                chunkBuilder.AppendLine(chunk);
+                chunkBuilder.AppendLine("-----------------------------------------");
+                var translatedChunk = await TranslateTextAsync(chunk, language.Name, isText, cancellationToken);
+                claudResponseText.AppendLine(translatedChunk);
             }
 
+            var chunksLog = chunkBuilder.ToString();
 
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
@@ -256,12 +256,62 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.Translate
             }, cancellationToken);
 
-            await _userRepository.UpdateUserBalance(userId, user.UserBalance.Balance - requestPrice, cancellationToken);
-
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
             return new TranslateResponse
             {
-                Text = claudResponseText
+                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
             };
+        }
+
+        private async Task<string> TranslateTextAsync(string text, string language, bool isText, CancellationToken cancellationToken)
+        {
+            var templateText = GetTranslateTemplate(language, text, isText);
+            var wholeRequest = new StringBuilder(templateText);
+            wholeRequest.AppendLine("-----------------------------------");
+            wholeRequest.AppendLine();
+            wholeRequest.AppendLine();
+            wholeRequest.AppendLine();
+            var contents = new List<ContentFile>();
+
+            var message = new ContentFile()
+            {
+                Type = "text",
+                Text = templateText
+            };
+            contents.Add(message);
+            var claudeRequest = new ClaudeRequestWithFile(contents);
+            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+            var start = claudResponsePlainText.IndexOf("<translation>") + 13;
+            var end = claudResponsePlainText.IndexOf("</translation>");
+            return claudResponsePlainText.Substring(start, end - start);
+        }
+
+        private List<string> GetChunksOfLargeText(string text, int chunkSize = 2000)
+        {
+            List<string> chunks = new List<string>();
+            string[] sentences = Regex.Split(text, @"(?<=[.!?])\s+");
+
+            StringBuilder currentChunk = new StringBuilder();
+
+            foreach (string sentence in sentences)
+            {
+                if (currentChunk.Length + sentence.Length > chunkSize && currentChunk.Length > 0)
+                {
+                    chunks.Add(currentChunk.ToString().Trim());
+                    currentChunk.Clear();
+                }
+
+                currentChunk.Append(sentence + " ");
+            }
+
+            if (currentChunk.Length > 0)
+            {
+                chunks.Add(currentChunk.ToString().Trim());
+            }
+
+            return chunks;
         }
 
         public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request, string userId, CancellationToken cancellationToken)
@@ -325,7 +375,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.VideoScript
             }, cancellationToken);
 
-            await _userRepository.UpdateUserBalance(userId, user.UserBalance.Balance - requestPrice, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
             return new VideoScriptAIResponse
             {
@@ -378,7 +428,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.Email
             }, cancellationToken);
 
-            await _userRepository.UpdateUserBalance(userId, user.UserBalance.Balance - requestPrice, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
             return new EmailAIResponse
             {
@@ -433,17 +483,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       
                       10. After transcribing the text, provide a brief note about the overall clarity and legibility of the text in the image.
                       
-                      Present your transcription and notes within <transcription> tags. Begin with the transcribed text, followed by any notes about clarity or uncertainty.
+                      Present your transcription in <transcription></transcription> tags  and notes within <transcription_notes></transcription_notes> tags. Begin with the transcribed text, followed by any notes about clarity or uncertainty.
                       
                       Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image, whether it's printed or handwritten. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
         }
 
+        private string GetChainTranslateTemplate(string initialPrompt, string lastResponse)
+        {
+            return $@"you should continue translation of previously given text.
+                      initial prompt is here <initial_prompt>{initialPrompt}</initial_prompt>
+                      your last response is <last_response>{lastResponse}</last_response>
+                      now you should continue translation from where last response is finished.
+                      you should use translation rules from initial prompt";
+        }
         private string GetTranslateTemplate(string targetLanguage, string description, bool isText)
         {
             var input = isText ? "text" : "image";
-            return @$"<text_to_translate> {description} </text_to_translate>
-
-                      You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context.
+            return @$"You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context.
                       
                       First, you will receive information about the input type:
                       <input_type> {input} </input_type>
@@ -465,7 +521,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       4. For proper nouns, brand names, or specific technical terms, keep them in their original form unless there's a widely accepted translation in the target language.
                       5. Translate full texts, do not commit any parts
                       
-                      Provide your translation inside <translation> tags. If you have any notes or explanations about your translation choices, include them in <translator_notes> tags after the translation.
+                      Provide your translation inside <translation> tags.  End translation with closing tag only when the full text is translated. If you have any notes or explanations about your translation choices, include them in <translator_notes> tags after the translation.
                       Begin your translation now.";
         }
 

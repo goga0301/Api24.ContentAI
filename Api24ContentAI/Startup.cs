@@ -71,6 +71,7 @@ namespace Api24ContentAI
             {
                 client.DefaultRequestHeaders.Add("x-api-key", Configuration.GetSection("Security:ClaudeApiKey").Value);
                 client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+                client.DefaultRequestHeaders.Add("anthropic-beta", "max-tokens-3-5-sonnet-2024-07-15");
 
                 client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
             })

@@ -50,7 +50,8 @@ namespace Api24ContentAI.Controllers
                 {
                     return Unauthorized("User ID not found in the token");
                 }
-                return Ok(await _userContentService.Translate(request, userId, cancellationToken));
+                var result = await _userContentService.Translate(request, userId, cancellationToken);
+                return Ok(result);
 
             }
             catch (Exception ex)
@@ -77,7 +78,7 @@ namespace Api24ContentAI.Controllers
                 return BadRequest(new Error { ErrorText = ex.Message });
             }
         }
-        
+
         [HttpPost("email")]
         public async Task<IActionResult> Email([FromBody] UserEmailRequest request, CancellationToken cancellationToken)
         {
