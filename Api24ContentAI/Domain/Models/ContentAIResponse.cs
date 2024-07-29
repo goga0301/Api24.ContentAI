@@ -1,4 +1,6 @@
-﻿namespace Api24ContentAI.Domain.Models
+﻿using System.Collections.Generic;
+
+namespace Api24ContentAI.Domain.Models
 {
     public class ContentAIResponse
     {
@@ -8,6 +10,10 @@
     public class TranslateResponse
     {
         public string Text { get; set; }
+    }
+    public class ChunkForTranslateResponse
+    {
+        public List<string> Chunks { get; set; }
     }
 
     public class CopyrightAIResponse

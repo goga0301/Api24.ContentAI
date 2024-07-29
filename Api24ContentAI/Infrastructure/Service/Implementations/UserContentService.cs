@@ -169,7 +169,73 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Text = claudResponseText
             };
         }
-        public async Task<TranslateResponse> Translate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
+
+        //public async Task<ChunkForTranslateResponse> GetChunksForTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
+        //{
+        //    var requestPrice = GetRequestPrice(RequestType.Copyright);
+
+        //    var user = await _userRepository.GetById(userId, cancellationToken);
+
+        //    if (user != null && user.UserBalance.Balance < requestPrice)
+        //    {
+        //        throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
+        //    }
+        //    var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+        //    var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+        //    bool isText = true;
+        //    var contents = new List<ContentFile>();
+        //    var textFromImage = new StringBuilder();
+        //    if (!request.IsPdf)
+        //    {
+        //        foreach (var file in request.Files)
+        //        {
+        //            var extention = file.FileName.Split('.').Last();
+        //            if (!SupportedFileExtensions.Contains(extention))
+        //            {
+        //                throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
+        //            }
+
+        //            var fileMessage = new ContentFile()
+        //            {
+        //                Type = "image",
+        //                Source = new Source()
+        //                {
+        //                    Type = "base64",
+        //                    MediaType = $"image/{extention}",
+        //                    Data = EncodeFileToBase64(file)
+        //                }
+        //            };
+        //            var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
+
+        //            var messageImageToText = new ContentFile()
+        //            {
+        //                Type = "text",
+        //                Text = templateTextForImageToText
+        //            };
+        //            var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
+        //            var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
+        //            var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+        //            var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
+
+        //            var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
+        //            var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+
+
+        //            textFromImage.Append(claudResponseTextContinueImageToText.Substring(start, endt - start));
+        //        }
+        //        isText = false;
+        //        request.Description = textFromImage.ToString();
+
+        //    }
+        //    else
+        //    {
+        //        request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
+        //    }
+
+        //    var chunks = GetChunksOfLargeText(request.Description);
+        //}
+
+        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
         {
             var requestPrice = GetRequestPrice(RequestType.Copyright);
 
@@ -187,6 +253,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var textFromImage = new StringBuilder();
             if (!request.IsPdf)
             {
+                var tasksForImages = new List<Task<KeyValuePair<int, string>>>();
+                int indexForImages = 0;
+
                 foreach (var file in request.Files)
                 {
                     var extention = file.FileName.Split('.').Last();
@@ -205,23 +274,39 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             Data = EncodeFileToBase64(file)
                         }
                     };
-                    var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
 
+                    var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
                     var messageImageToText = new ContentFile()
                     {
                         Type = "text",
                         Text = templateTextForImageToText
                     };
+
                     var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
                     var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
-                    var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-                    var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
 
-                    var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
-                    var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+                    int currentIndex = indexForImages;
+                    var task = Task.Run(async () =>
+                    {
+                        var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+                        var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
+                        var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
+                        var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+                        var result = claudResponseTextContinueImageToText.Substring(start, endt - start);
+                        return new KeyValuePair<int, string>(currentIndex, result);
+                    });
 
+                    tasksForImages.Add(task);
+                    indexForImages++;
+                }
 
-                    textFromImage.Append(claudResponseTextContinueImageToText.Substring(start, endt - start));
+                var imageResults = await Task.WhenAll(tasksForImages);
+
+                var orderedImageResults = imageResults.OrderBy(r => r.Key).Select(r => r.Value);
+
+                foreach (var result in orderedImageResults)
+                {
+                    textFromImage.Append(result);
                 }
                 isText = false;
                 request.Description = textFromImage.ToString();
@@ -235,14 +320,30 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var chunks = GetChunksOfLargeText(request.Description);
             var chunkBuilder = new StringBuilder();
             var claudResponseText = new StringBuilder();
+            var tasks = new List<Task<KeyValuePair<int, string>>>();
+            int index = 0;
+
             foreach (var chunk in chunks)
             {
                 chunkBuilder.AppendLine(chunk);
                 chunkBuilder.AppendLine("-----------------------------------------");
-                var translatedChunk = await TranslateTextAsync(chunk, language.Name, isText, cancellationToken);
-                claudResponseText.AppendLine(translatedChunk);
+
+                int currentIndex = index;
+                var task = TranslateTextAsync(chunk, language.Name, isText, cancellationToken)
+                    .ContinueWith(t => new KeyValuePair<int, string>(currentIndex, t.Result));
+
+                tasks.Add(task);
+                index++;
             }
 
+            var results = await Task.WhenAll(tasks);
+
+            var orderedResults = results.OrderBy(r => r.Key).Select(r => r.Value);
+
+            foreach (var result in orderedResults)
+            {
+                claudResponseText.AppendLine(result);
+            }
             var chunksLog = chunkBuilder.ToString();
 
             await _requestLogService.Create(new CreateUserRequestLogModel
@@ -262,6 +363,100 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
             };
         }
+        
+        //public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
+        //{
+        //    var requestPrice = GetRequestPrice(RequestType.Copyright);
+
+        //    var user = await _userRepository.GetById(userId, cancellationToken);
+
+        //    if (user != null && user.UserBalance.Balance < requestPrice)
+        //    {
+        //        throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
+        //    }
+
+        //    var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+        //    var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+        //    bool isText = true;
+        //    var contents = new List<ContentFile>();
+        //    var textFromImage = new StringBuilder();
+        //    if (!request.IsPdf)
+        //    {
+        //        foreach (var file in request.Files)
+        //        {
+        //            var extention = file.FileName.Split('.').Last();
+        //            if (!SupportedFileExtensions.Contains(extention))
+        //            {
+        //                throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
+        //            }
+
+        //            var fileMessage = new ContentFile()
+        //            {
+        //                Type = "image",
+        //                Source = new Source()
+        //                {
+        //                    Type = "base64",
+        //                    MediaType = $"image/{extention}",
+        //                    Data = EncodeFileToBase64(file)
+        //                }
+        //            };
+        //            var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
+
+        //            var messageImageToText = new ContentFile()
+        //            {
+        //                Type = "text",
+        //                Text = templateTextForImageToText
+        //            };
+        //            var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
+        //            var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
+        //            var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+        //            var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
+
+        //            var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
+        //            var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+
+
+        //            textFromImage.Append(claudResponseTextContinueImageToText.Substring(start, endt - start));
+        //        }
+        //        isText = false;
+        //        request.Description = textFromImage.ToString();
+
+        //    }
+        //    else
+        //    {
+        //        request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
+        //    }
+
+        //    var chunks = GetChunksOfLargeText(request.Description);
+        //    var chunkBuilder = new StringBuilder();
+        //    var claudResponseText = new StringBuilder();
+        //    foreach (var chunk in chunks)
+        //    {
+        //        chunkBuilder.AppendLine(chunk);
+        //        chunkBuilder.AppendLine("-----------------------------------------");
+        //        var translatedChunk = await TranslateTextAsync(chunk, language.Name, isText, cancellationToken);
+        //        claudResponseText.AppendLine(translatedChunk);
+        //    }
+
+        //    var chunksLog = chunkBuilder.ToString();
+
+        //    await _requestLogService.Create(new CreateUserRequestLogModel
+        //    {
+        //        UserId = userId,
+        //        Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+        //        {
+        //            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        //            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+        //        }),
+        //        RequestType = RequestType.Translate
+        //    }, cancellationToken);
+
+        //    await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+        //    return new TranslateResponse
+        //    {
+        //        Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
+        //    };
+        //}
 
         private async Task<string> TranslateTextAsync(string text, string language, bool isText, CancellationToken cancellationToken)
         {
