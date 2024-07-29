@@ -170,71 +170,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
-        //public async Task<ChunkForTranslateResponse> GetChunksForTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
-        //{
-        //    var requestPrice = GetRequestPrice(RequestType.Copyright);
-
-        //    var user = await _userRepository.GetById(userId, cancellationToken);
-
-        //    if (user != null && user.UserBalance.Balance < requestPrice)
-        //    {
-        //        throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
-        //    }
-        //    var language = await _languageService.GetById(request.LanguageId, cancellationToken);
-        //    var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-        //    bool isText = true;
-        //    var contents = new List<ContentFile>();
-        //    var textFromImage = new StringBuilder();
-        //    if (!request.IsPdf)
-        //    {
-        //        foreach (var file in request.Files)
-        //        {
-        //            var extention = file.FileName.Split('.').Last();
-        //            if (!SupportedFileExtensions.Contains(extention))
-        //            {
-        //                throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
-        //            }
-
-        //            var fileMessage = new ContentFile()
-        //            {
-        //                Type = "image",
-        //                Source = new Source()
-        //                {
-        //                    Type = "base64",
-        //                    MediaType = $"image/{extention}",
-        //                    Data = EncodeFileToBase64(file)
-        //                }
-        //            };
-        //            var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
-
-        //            var messageImageToText = new ContentFile()
-        //            {
-        //                Type = "text",
-        //                Text = templateTextForImageToText
-        //            };
-        //            var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
-        //            var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
-        //            var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-        //            var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
-
-        //            var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
-        //            var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
-
-
-        //            textFromImage.Append(claudResponseTextContinueImageToText.Substring(start, endt - start));
-        //        }
-        //        isText = false;
-        //        request.Description = textFromImage.ToString();
-
-        //    }
-        //    else
-        //    {
-        //        request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
-        //    }
-
-        //    var chunks = GetChunksOfLargeText(request.Description);
-        //}
-
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
         {
             var requestPrice = GetRequestPrice(RequestType.Copyright);
@@ -248,7 +183,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
             var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-            bool isText = true;
             var contents = new List<ContentFile>();
             var textFromImage = new StringBuilder();
             if (!request.IsPdf)
@@ -308,7 +242,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     textFromImage.Append(result);
                 }
-                isText = false;
                 request.Description = textFromImage.ToString();
 
             }
@@ -329,8 +262,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 chunkBuilder.AppendLine("-----------------------------------------");
 
                 int currentIndex = index;
-                var task = TranslateTextAsync(chunk, language.Name, isText, cancellationToken)
-                    .ContinueWith(t => new KeyValuePair<int, string>(currentIndex, t.Result));
+                var task = TranslateTextAsync(currentIndex, chunk, language.Name, cancellationToken);
 
                 tasks.Add(task);
                 index++;
@@ -363,104 +295,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
             };
         }
-        
-        //public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
-        //{
-        //    var requestPrice = GetRequestPrice(RequestType.Copyright);
-
-        //    var user = await _userRepository.GetById(userId, cancellationToken);
-
-        //    if (user != null && user.UserBalance.Balance < requestPrice)
-        //    {
-        //        throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
-        //    }
-
-        //    var language = await _languageService.GetById(request.LanguageId, cancellationToken);
-        //    var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-        //    bool isText = true;
-        //    var contents = new List<ContentFile>();
-        //    var textFromImage = new StringBuilder();
-        //    if (!request.IsPdf)
-        //    {
-        //        foreach (var file in request.Files)
-        //        {
-        //            var extention = file.FileName.Split('.').Last();
-        //            if (!SupportedFileExtensions.Contains(extention))
-        //            {
-        //                throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
-        //            }
-
-        //            var fileMessage = new ContentFile()
-        //            {
-        //                Type = "image",
-        //                Source = new Source()
-        //                {
-        //                    Type = "base64",
-        //                    MediaType = $"image/{extention}",
-        //                    Data = EncodeFileToBase64(file)
-        //                }
-        //            };
-        //            var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
-
-        //            var messageImageToText = new ContentFile()
-        //            {
-        //                Type = "text",
-        //                Text = templateTextForImageToText
-        //            };
-        //            var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
-        //            var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
-        //            var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-        //            var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
-
-        //            var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
-        //            var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
-
-
-        //            textFromImage.Append(claudResponseTextContinueImageToText.Substring(start, endt - start));
-        //        }
-        //        isText = false;
-        //        request.Description = textFromImage.ToString();
-
-        //    }
-        //    else
-        //    {
-        //        request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
-        //    }
-
-        //    var chunks = GetChunksOfLargeText(request.Description);
-        //    var chunkBuilder = new StringBuilder();
-        //    var claudResponseText = new StringBuilder();
-        //    foreach (var chunk in chunks)
-        //    {
-        //        chunkBuilder.AppendLine(chunk);
-        //        chunkBuilder.AppendLine("-----------------------------------------");
-        //        var translatedChunk = await TranslateTextAsync(chunk, language.Name, isText, cancellationToken);
-        //        claudResponseText.AppendLine(translatedChunk);
-        //    }
-
-        //    var chunksLog = chunkBuilder.ToString();
-
-        //    await _requestLogService.Create(new CreateUserRequestLogModel
-        //    {
-        //        UserId = userId,
-        //        Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-        //        {
-        //            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-        //            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-        //        }),
-        //        RequestType = RequestType.Translate
-        //    }, cancellationToken);
-
-        //    await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-        //    return new TranslateResponse
-        //    {
-        //        Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
-        //    };
-        //}
-
-        private async Task<string> TranslateTextAsync(string text, string language, bool isText, CancellationToken cancellationToken)
+        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
         {
-            var templateText = GetTranslateTemplate(language, text, isText);
+
+            var templateText = GetTranslateTemplate(language, text);
             var wholeRequest = new StringBuilder(templateText);
             wholeRequest.AppendLine("-----------------------------------");
             wholeRequest.AppendLine();
@@ -480,7 +318,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var start = claudResponsePlainText.IndexOf("<translation>") + 13;
             var end = claudResponsePlainText.IndexOf("</translation>");
-            return claudResponsePlainText.Substring(start, end - start);
+
+            return new KeyValuePair<int, string>(order, claudResponsePlainText.Substring(start, end - start));
         }
 
         private List<string> GetChunksOfLargeText(string text, int chunkSize = 2000)
@@ -691,20 +530,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       now you should continue translation from where last response is finished.
                       you should use translation rules from initial prompt";
         }
-        private string GetTranslateTemplate(string targetLanguage, string description, bool isText)
+        private string GetTranslateTemplate(string targetLanguage, string description)
         {
-            var input = isText ? "text" : "image";
-            return @$"You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context.
-                      
-                      First, you will receive information about the input type:
-                      <input_type> {input} </input_type>
-                      
-                      Based on the input type, follow these instructions:
-                      1. If the input type is ""text"": Proceed directly to the translation task using the provided text.
-                      2. If the input type is ""image"": Process the image and take the text for translation.
-                      
-                      Next, you will receive the text to be translated: <text_to_translate> {description} </text_to_translate>
-                      The target language for translation: <target_language>{targetLanguage}</target_language>
+            return @$" <text_to_translate> {description} </text_to_translate
+                      You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context. The target language for translation: <target_language>{targetLanguage}</target_language>
                       
                       When translating, follow these guidelines:
                       1. For long texts:
@@ -716,7 +545,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       4. For proper nouns, brand names, or specific technical terms, keep them in their original form unless there's a widely accepted translation in the target language.
                       5. Translate full texts, do not commit any parts
                       
-                      Provide your translation inside <translation> tags.  End translation with closing tag only when the full text is translated. If you have any notes or explanations about your translation choices, include them in <translator_notes> tags after the translation.
+                      Provide your translation inside <translation> tags.  End translation with closing tag only when the full text is translated. 
                       Begin your translation now.";
         }
 

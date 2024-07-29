@@ -36,45 +36,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, CancellationToken cancellationToken)
         {
-            try
-            {
-                var response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
+            var response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
 
-                var str = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<ClaudeResponse>(str);
-            }
-            catch (Exception ex)
+            var str = await response.Content.ReadAsStringAsync();
+            var result = JsonSerializer.Deserialize<ClaudeResponse>(str);
+            if (result.Content == null)
             {
-
+                throw new Exception(str);
             }
-            return null;
+            return result;
+
         }
-
-        //    public async Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, IFormFile file, CancellationToken cancellationToken)
-        //    {
-        //        try
-        //        {
-        //            using var content = new MultipartFormDataContent();
-
-        //            var jsonContent = new StringContent(JsonSerializer.Serialize(request));
-        //            content.Add(jsonContent, "json");
-
-        //            using var fileStream = file.OpenReadStream();
-        //            var fileContent = new StreamContent(fileStream);
-        //            fileContent.Headers.ContentType = new MediaTypeHeaderValue(file.ContentType);
-        //            content.Add(fileContent, "file", file.FileName);
-
-        //            var response = await _httpClient.PostAsJsonAsync(Messages, content, cancellationToken);
-
-        //            var str = await response.Content.ReadAsStringAsync();
-        //            return JsonSerializer.Deserialize<ClaudeResponse>(str);
-        //        }
-        //        catch(Exception ex)
-        //        {
-
-        //        }
-        //        return null;
-        //    }
-        
     }
 }

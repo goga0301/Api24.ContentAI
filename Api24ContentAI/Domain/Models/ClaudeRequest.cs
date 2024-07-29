@@ -31,6 +31,7 @@ namespace Api24ContentAI.Domain.Models
             Content = content;
         }
     }
+
     public class ContentFile
     {
         [JsonPropertyName("type")]
