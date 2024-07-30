@@ -187,63 +187,65 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var textFromImage = new StringBuilder();
             if (!request.IsPdf)
             {
-                var tasksForImages = new List<Task<KeyValuePair<int, string>>>();
-                int indexForImages = 0;
-
-                foreach (var file in request.Files)
+                if (string.IsNullOrWhiteSpace(request.Description) && request.Files != null)
                 {
-                    var extention = file.FileName.Split('.').Last();
-                    if (!SupportedFileExtensions.Contains(extention))
+                    var tasksForImages = new List<Task<KeyValuePair<int, string>>>();
+                    int indexForImages = 0;
+
+                    foreach (var file in request.Files)
                     {
-                        throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
+                        var extention = file.FileName.Split('.').Last();
+                        if (!SupportedFileExtensions.Contains(extention))
+                        {
+                            throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
+                        }
+
+                        var fileMessage = new ContentFile()
+                        {
+                            Type = "image",
+                            Source = new Source()
+                            {
+                                Type = "base64",
+                                MediaType = $"image/{extention}",
+                                Data = EncodeFileToBase64(file)
+                            }
+                        };
+
+                        var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
+                        var messageImageToText = new ContentFile()
+                        {
+                            Type = "text",
+                            Text = templateTextForImageToText
+                        };
+
+                        var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
+                        var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
+
+                        int currentIndex = indexForImages;
+                        var task = Task.Run(async () =>
+                        {
+                            var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+                            var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
+                            var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
+                            var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+                            var result = claudResponseTextContinueImageToText.Substring(start, endt - start);
+                            return new KeyValuePair<int, string>(currentIndex, result);
+                        });
+
+                        tasksForImages.Add(task);
+                        indexForImages++;
                     }
 
-                    var fileMessage = new ContentFile()
+                    var imageResults = await Task.WhenAll(tasksForImages);
+
+                    var orderedImageResults = imageResults.OrderBy(r => r.Key).Select(r => r.Value);
+
+                    foreach (var result in orderedImageResults)
                     {
-                        Type = "image",
-                        Source = new Source()
-                        {
-                            Type = "base64",
-                            MediaType = $"image/{extention}",
-                            Data = EncodeFileToBase64(file)
-                        }
-                    };
-
-                    var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
-                    var messageImageToText = new ContentFile()
-                    {
-                        Type = "text",
-                        Text = templateTextForImageToText
-                    };
-
-                    var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
-                    var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
-
-                    int currentIndex = indexForImages;
-                    var task = Task.Run(async () =>
-                    {
-                        var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-                        var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
-                        var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
-                        var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
-                        var result = claudResponseTextContinueImageToText.Substring(start, endt - start);
-                        return new KeyValuePair<int, string>(currentIndex, result);
-                    });
-
-                    tasksForImages.Add(task);
-                    indexForImages++;
-                }
-
-                var imageResults = await Task.WhenAll(tasksForImages);
-
-                var orderedImageResults = imageResults.OrderBy(r => r.Key).Select(r => r.Value);
-
-                foreach (var result in orderedImageResults)
-                {
-                    textFromImage.Append(result);
-                }
-                request.Description = textFromImage.ToString();
-
+                        textFromImage.Append(result);
+                    }
+                    request.Description = textFromImage.ToString();
+                }        
             }
             else
             {
