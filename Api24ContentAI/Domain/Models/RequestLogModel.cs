@@ -15,6 +15,7 @@ namespace Api24ContentAI.Domain.Models
     {
         public Guid MarketplaceId { get; set; }
         public string Request { get; set; }
+        public string Response { get; set; }
         public RequestType RequestType { get; set; }
     }
 
@@ -31,6 +32,7 @@ namespace Api24ContentAI.Domain.Models
     {
         public string UserId { get; set; }
         public string Request { get; set; }
+        public string Response { get; set; }
         public RequestType RequestType { get; set; }
     }
 }

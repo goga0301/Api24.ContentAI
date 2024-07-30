@@ -120,6 +120,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = Guid.NewGuid(),
                 UserId = model.UserId,
                 RequestJson = model.Request,
+                ResponseJson = model.Response,
                 CreateTime = DateTime.UtcNow,
                 RequestType = model.RequestType,
             }, cancellationToken);
