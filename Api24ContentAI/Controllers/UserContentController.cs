@@ -7,7 +7,6 @@ using System.Threading;
 using System;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
-using System.Collections.Generic;
 
 namespace Api24ContentAI.Controllers
 {

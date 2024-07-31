@@ -5,12 +5,10 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Transactions;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {

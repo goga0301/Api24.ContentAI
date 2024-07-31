@@ -60,7 +60,21 @@ namespace Api24ContentAI.Controllers
                 var user = await _authService.Login(loginRequestDTO, cancellationToken);
                 return Ok(user);
             }
-            catch(Exception ex)
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("refresh-token")]
+        public async Task<IActionResult> RefreshToken([FromBody] TokenModel tokenModel, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var user = await _authService.RefreshToken(tokenModel, cancellationToken);
+                return Ok(user);
+            }
+            catch (Exception ex)
             {
                 return BadRequest(ex.Message);
             }
