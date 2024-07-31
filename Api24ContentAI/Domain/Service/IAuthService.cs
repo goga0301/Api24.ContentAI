@@ -9,5 +9,6 @@ namespace Api24ContentAI.Domain.Service
         Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken);
         Task RegisterAdmin(RegistrationRequest registrationRequest, CancellationToken cancellationToken);
         Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken);
+        Task<LoginResponse> RefreshToken(TokenModel tokenModel, CancellationToken cancellationToken);
     }
 }

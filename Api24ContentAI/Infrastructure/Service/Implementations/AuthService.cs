@@ -21,7 +21,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly RoleManager<Role> _roleManager;
         private readonly IJwtGenerator _jwtTokenGenerator;
         private readonly IUserRepository _userRepository;
-        private readonly IHttpContextAccessor _httpContextAccessor;
         private const string _adminRole = "administrator";
         private const string _customerRole = "user";
 
@@ -30,38 +29,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                            UserManager<User> userManager,
                            RoleManager<Role> roleManager,
                            IUserRepository userRepository,
-                           IJwtGenerator jwtTokenGenerator,
-                           IHttpContextAccessor httpContextAccessor)
+                           IJwtGenerator jwtTokenGenerator)
         {
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
             _jwtTokenGenerator = jwtTokenGenerator;
-            _httpContextAccessor = httpContextAccessor;
             _userRepository = userRepository;
-        }
-        public async Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken)
-        {
-            var user = await _context.Users.FirstOrDefaultAsync(x => x.UserName.ToLower() == loginRequest.UserName.ToLower());
-            if(user == null)
-            {
-                throw new Exception($"User not found by username {loginRequest.UserName}");
-            }
-            bool isValid = await _userManager.CheckPasswordAsync(user, loginRequest.Password);
-
-            if (!isValid)
-            {
-                throw new Exception("Password is not correct");
-            }
-            var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
-
-            var token = _jwtTokenGenerator.GenerateToken(user, new List<string>() { role.NormalizedName }); //gaaketa tokeni
-
-
-            return new LoginResponse()
-            {
-                Token = token
-            };
         }
 
         public async Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken)
@@ -91,7 +65,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 var createUser = await _userRepository.GetByUserName(user.UserName, cancellationToken);
                 await _userRepository.CreateUserBalance(createUser.Id, cancellationToken);
-                
+
             }
             catch (Exception ex)
             {
@@ -136,6 +110,68 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 throw new Exception(ex.Message);
             }
+        }
+
+        public async Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken)
+        {
+            var user = await _userManager.FindByNameAsync(loginRequest.UserName);
+            if (user == null)
+            {
+                throw new Exception($"User not found by username {loginRequest.UserName}");
+            }
+            bool isValid = await _userManager.CheckPasswordAsync(user, loginRequest.Password);
+
+            if (!isValid)
+            {
+                throw new Exception("Password is not correct");
+            }
+
+            var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
+            var (accessToken, refreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string>() { role.NormalizedName });
+
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1);
+            await _userManager.UpdateAsync(user);
+
+            return new LoginResponse()
+            {
+                Token = accessToken,
+                RefreshToken = refreshToken
+            };
+        }
+
+        public async Task<LoginResponse> RefreshToken(TokenModel tokenModel, CancellationToken cancellationToken)
+        {
+            if (tokenModel is null)
+            {
+                throw new Exception("Invalid client request");
+            }
+
+            string accessToken = tokenModel.AccessToken;
+            string refreshToken = tokenModel.RefreshToken;
+
+            var principal = _jwtTokenGenerator.GetPrincipalFromExpiredToken(accessToken);
+            if (principal == null)
+            {
+                throw new Exception("Invalid access token or refresh token");
+            }
+
+            string username = principal.Identity.Name;
+            var user = await _userManager.FindByNameAsync(username);
+
+            if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            {
+                throw new Exception("Invalid access token or refresh token");
+            }
+
+            var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
+            var (newAccessToken, newRefreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string> { role.NormalizedName});
+
+            user.RefreshToken = newRefreshToken;
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1);
+            await _userManager.UpdateAsync(user);
+
+            return new LoginResponse { Token = newAccessToken, RefreshToken = newRefreshToken };
         }
     }
 }

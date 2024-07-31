@@ -16,11 +16,7 @@ using Api24ContentAI.Domain.Repository;
 using System.Text;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
-using Microsoft.OpenApi.Extensions;
-using Microsoft.AspNetCore.Cors;
-using System.ComponentModel;
 using System.Text.RegularExpressions;
-using Microsoft.VisualBasic;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
