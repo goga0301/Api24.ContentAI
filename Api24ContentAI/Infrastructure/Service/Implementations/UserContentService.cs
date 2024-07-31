@@ -17,6 +17,7 @@ using System.Text;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using System.Text.RegularExpressions;
+using Api24ContentAI.Migrations;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -97,6 +98,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
+            var response = new CopyrightAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
@@ -105,15 +111,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
                 }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
                 RequestType = RequestType.Copyright
             }, cancellationToken);
 
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
-            return new CopyrightAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         public async Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId, CancellationToken cancellationToken)
@@ -146,6 +154,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
+            var response = new ContentAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
@@ -154,16 +167,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
                 }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
                 RequestType = RequestType.Content
 
             }, cancellationToken);
 
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
-            return new ContentAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
@@ -276,6 +291,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             var chunksLog = chunkBuilder.ToString();
 
+            var response = new TranslateResponse
+            {
+                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
+            };
+
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
@@ -284,14 +304,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
                 }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
                 RequestType = RequestType.Translate
             }, cancellationToken);
 
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-            return new TranslateResponse
-            {
-                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
-            };
+            return response;
         }
         private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
         {
@@ -396,6 +418,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
+            var response = new VideoScriptAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
@@ -404,15 +431,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
                 }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
                 RequestType = RequestType.VideoScript
             }, cancellationToken);
 
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
-            return new VideoScriptAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         public async Task<EmailAIResponse> Email(UserEmailRequest request, string userId, CancellationToken cancellationToken)
@@ -449,6 +478,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             }
 
+            var response = new EmailAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
@@ -457,15 +491,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
                 }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
                 RequestType = RequestType.Email
             }, cancellationToken);
 
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
 
-            return new EmailAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         private string ConvertAttributes(List<Domain.Models.Attribute> attributes)

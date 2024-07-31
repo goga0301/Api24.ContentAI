@@ -120,6 +120,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = Guid.NewGuid(),
                 UserId = model.UserId,
                 RequestJson = model.Request,
+                ResponseJson = model.Response,
                 CreateTime = DateTime.UtcNow,
                 RequestType = model.RequestType,
             }, cancellationToken);
@@ -132,6 +133,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = x.Id,
                 UserId = x.UserId,
                 RequestJson = x.RequestJson,
+                ResponseJson = x.ResponseJson,
                 CreateTime = x.CreateTime,
                 RequestType = x.RequestType
             }).ToListAsync(cancellationToken);
@@ -145,6 +147,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = entity.Id,
                 UserId = entity.UserId,
                 RequestJson = entity.RequestJson,
+                ResponseJson = entity.ResponseJson,
                 CreateTime = entity.CreateTime,
                 RequestType = entity.RequestType
             };
@@ -157,6 +160,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = x.Id,
                 UserId = x.UserId,
                 RequestJson = x.RequestJson,
+                ResponseJson = x.ResponseJson,
                 CreateTime = x.CreateTime,
                 RequestType = x.RequestType
             }).ToListAsync(cancellationToken);
