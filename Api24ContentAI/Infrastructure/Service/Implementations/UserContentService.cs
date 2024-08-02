@@ -183,8 +183,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
         {
-            var requestPrice = GetRequestPrice(RequestType.Copyright);
+            var pdfPageCount = 0;
+            if (request.IsPdf)
+            {
+                (request.Description, pdfPageCount) = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
+            }
 
+            var requestPrice = CalculateTranslateRequestPrice(request, pdfPageCount);
             var user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
@@ -194,7 +199,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
             var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-            var contents = new List<ContentFile>();
+
             var textFromImage = new StringBuilder();
             if (!request.IsPdf)
             {
@@ -256,11 +261,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         textFromImage.Append(result);
                     }
                     request.Description = textFromImage.ToString();
-                }        
-            }
-            else
-            {
-                request.Description = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
+                }
             }
 
             var chunks = GetChunksOfLargeText(request.Description);
@@ -315,6 +316,24 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
             return response;
         }
+
+        private decimal CalculateTranslateRequestPrice(UserTranslateRequest request, int pdfPageCount)
+        {
+            var defaultPrice = GetRequestPrice(RequestType.Translate);
+
+            if (!string.IsNullOrWhiteSpace(request.Description) && (request.Files == null || !request.Files.Any()))
+            {
+                return defaultPrice;
+            }
+
+            if (request.Files != null && request.Files.Count == 1 && request.IsPdf)
+            {
+                return pdfPageCount * defaultPrice;
+            }
+
+            return request.Files.Count * defaultPrice;
+        }
+
         private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
         {
 
@@ -629,16 +648,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
-        private async Task<string> GetPdfContentInStringAsync(IFormFile file)
+        private async Task<(string, int)> GetPdfContentInStringAsync(IFormFile file)
         {
 
             var builder = new StringBuilder();
             var bytes = await PdfToByteArrayAsync(file);
+            var pageCount = 0;
             using (var stream = new MemoryStream(bytes))
             {
                 using (var pdfReader = new PdfReader(stream))
                 {
-                    var pdf = new iText.Kernel.Pdf.PdfDocument(pdfReader);
+                    var pdf = new PdfDocument(pdfReader);
+                    pageCount = pdf.GetNumberOfPages();
                     for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
                     {
                         var page = pdf.GetPage(i);
@@ -646,7 +667,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         builder.Append(text);
                     }
                 }
-                return builder.ToString();
+                return (builder.ToString(), pageCount);
             }
 
         }
