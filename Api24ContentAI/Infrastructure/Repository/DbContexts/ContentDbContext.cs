@@ -67,7 +67,12 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
             modelBuilder.Entity<User>()
                 .Property(c => c.LastName)
                 .IsRequired();
-            
+
+            modelBuilder.Entity<User>()
+                .Property(c => c.UserType)
+                .HasDefaultValue(UserType.Normal)
+                .IsRequired();
+
             modelBuilder.Entity<User>().HasIndex(x => x.NormalizedUserName).IsUnique();
 
             modelBuilder.Entity<Role>()
