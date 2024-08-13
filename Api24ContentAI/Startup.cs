@@ -101,6 +101,7 @@ namespace Api24ContentAI
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
             services.Configure<JwtOptions>(Configuration.GetSection("ApiSettings:JwtOptions"));
+            services.Configure<FbOptions>(Configuration.GetSection("ApiSettings:FbOptions"));
 
             services.AddIdentity<User, Role>(Options =>
             {
@@ -140,6 +141,7 @@ namespace Api24ContentAI
                 };
             });
 
+            services.AddHttpClient();
             services.AddAuthorization();
 
             services.AddCors(options =>

@@ -128,7 +128,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<UserRequestLogModel>> GetAll(CancellationToken cancellationToken)
         {
-            return await _requestLogRepository.GetAll().Select(x => new UserRequestLogModel
+            return await _requestLogRepository.GetAll().Where(x => !string.IsNullOrWhiteSpace(x.ResponseJson)).Select(x => new UserRequestLogModel
             {
                 Id = x.Id,
                 UserId = x.UserId,
@@ -155,7 +155,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<UserRequestLogModel>> GetByUserId(string UserId, CancellationToken cancellationToken)
         {
-            var t = await _requestLogRepository.GetByUserId(UserId).Select(x => new UserRequestLogModel
+            var t = await _requestLogRepository.GetByUserId(UserId).Where(x => !string.IsNullOrWhiteSpace(x.ResponseJson)).Select(x => new UserRequestLogModel
             {
                 Id = x.Id,
                 UserId = x.UserId,

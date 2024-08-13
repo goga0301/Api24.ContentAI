@@ -10,6 +10,8 @@ using System.Threading.Tasks;
 using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Domain.Models;
 using System.Threading;
+using System.Net.Http;
+using Newtonsoft.Json;
 
 namespace Api24ContentAI.Controllers
 {
@@ -58,6 +60,20 @@ namespace Api24ContentAI.Controllers
             try
             {
                 var user = await _authService.Login(loginRequestDTO, cancellationToken);
+                return Ok(user);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
+        }
+
+        [HttpPost("login-with-fb")]
+        public async Task<IActionResult> LoginWithFacebook([FromBody] string credential, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var user = await _authService.LoginWithFacebook(credential, cancellationToken);
                 return Ok(user);
             }
             catch (Exception ex)

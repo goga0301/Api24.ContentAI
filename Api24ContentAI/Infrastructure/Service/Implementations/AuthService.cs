@@ -11,6 +11,9 @@ using System.Linq;
 using System.Collections.Generic;
 using Api24ContentAI.Domain.Repository;
 using System.Threading;
+using Newtonsoft.Json;
+using System.Net.Http;
+using Microsoft.Extensions.Options;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -21,6 +24,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly RoleManager<Role> _roleManager;
         private readonly IJwtGenerator _jwtTokenGenerator;
         private readonly IUserRepository _userRepository;
+        private readonly HttpClient _httpClient;
+        private readonly FbOptions _fbOptions;
         private const string _adminRole = "administrator";
         private const string _customerRole = "user";
 
@@ -29,16 +34,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                            UserManager<User> userManager,
                            RoleManager<Role> roleManager,
                            IUserRepository userRepository,
-                           IJwtGenerator jwtTokenGenerator)
+                           IJwtGenerator jwtTokenGenerator,
+                           HttpClient httpClient, IOptions<FbOptions> fbOptions)
         {
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
             _jwtTokenGenerator = jwtTokenGenerator;
             _userRepository = userRepository;
+            _httpClient = httpClient;
+            _fbOptions = fbOptions.Value;
         }
 
-        public async Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken)
+        public async Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken, UserType userType = UserType.Normal)
         {
             // identityuser unda shevkra amisgan
             User user = new()
@@ -49,7 +57,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 NormalizedEmail = registrationRequest.Email.ToUpper(),
                 PhoneNumber = registrationRequest.PhoneNUmber,
                 FirstName = registrationRequest.FirstName,
-                LastName = registrationRequest.LastName
+                LastName = registrationRequest.LastName,
+                UserType = userType
             };
 
             try
@@ -112,6 +121,56 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
+        public async Task<LoginResponse> LoginWithFacebook(string credentials, CancellationToken cancellationToken)
+        {
+            var applicationId = _fbOptions.ApplicationId;
+            var secret = _fbOptions.Secret;
+            var response = await _httpClient.GetAsync($"https://graph.facebook.com/debug?input_token={credentials}&access_token={applicationId}|{secret}");
+            var stringThing = await response.Content.ReadAsStringAsync();
+            var userObject = JsonConvert.DeserializeObject<FBUser>(stringThing);
+            //var user = await _authService.Login(loginRequestDTO, cancellationToken);
+
+            if (!userObject.Data.IsValid)
+            {
+                return null;
+            }
+
+            var infoResponse = await _httpClient.GetAsync($"https://graph.facebook.com/me?fields=first_name,last_name,email,id&access_token={applicationId}|{secret}");
+            var userInfoContent = await infoResponse.Content.ReadAsStringAsync();
+            var userInfo = JsonConvert.DeserializeObject<FBUserInfo>(userInfoContent);
+
+            var user = await _userManager.FindByEmailAsync(userInfo.Email);
+            if (user == null)
+            {
+                var registration = new RegistrationRequest()
+                {
+                    FirstName = userInfo.FirstName,
+                    LastName = userInfo.LastName,
+                    Email = userInfo.Email,
+                    Password = userInfo.Id,
+                    PhoneNUmber = ""
+                };
+
+                await Register(registration, cancellationToken, UserType.Facebook);
+                user = await _userManager.FindByEmailAsync(userInfo.Email);
+            }
+
+            var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
+            var (accessToken, refreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string>() { role.NormalizedName });
+
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1);
+            await _userManager.UpdateAsync(user);
+
+            return new LoginResponse()
+            {
+                Token = accessToken,
+                RefreshToken = refreshToken
+            };
+
+        }
+
+
         public async Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken)
         {
             var user = await _userManager.FindByNameAsync(loginRequest.UserName);
@@ -165,7 +224,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
-            var (newAccessToken, newRefreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string> { role.NormalizedName});
+            var (newAccessToken, newRefreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string> { role.NormalizedName });
 
             user.RefreshToken = newRefreshToken;
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1);
