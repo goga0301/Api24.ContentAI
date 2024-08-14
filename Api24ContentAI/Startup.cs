@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
+using Microsoft.Extensions.Options;
 
 namespace Api24ContentAI
 {
@@ -102,6 +103,8 @@ namespace Api24ContentAI
 
             services.Configure<JwtOptions>(Configuration.GetSection("ApiSettings:JwtOptions"));
 
+            services.Configure<EmailSettings>(Configuration.GetSection("EmailInfo:EmailSettings"));
+
             services.AddIdentity<User, Role>(Options =>
             {
                 Options.Password.RequiredLength = 3;
@@ -115,9 +118,9 @@ namespace Api24ContentAI
              .AddEntityFrameworkStores<ContentDbContext>()
              .AddDefaultTokenProviders();
 
-            var secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
-            var issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
-            var audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
+                var secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
+                var issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
+                var audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
             var key = Encoding.ASCII.GetBytes(secret);
 
             services.AddAuthentication(options =>

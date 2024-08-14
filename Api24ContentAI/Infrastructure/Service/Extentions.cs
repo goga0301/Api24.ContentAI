@@ -25,6 +25,7 @@ namespace Api24ContentAI.Infrastructure.Service
 
             services.AddScoped<IAuthService, AuthService>();
             services.AddScoped<IJwtGenerator, JwtTokenGenerator>();
+            services.AddScoped<IEmailSenderService, EmailSenderService>();
 
             services.AddHttpContextAccessor();
         }

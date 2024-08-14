@@ -21,6 +21,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly RoleManager<Role> _roleManager;
         private readonly IJwtGenerator _jwtTokenGenerator;
         private readonly IUserRepository _userRepository;
+        private readonly IEmailSenderService _emailSenderService;
         private const string _adminRole = "administrator";
         private const string _customerRole = "user";
 
@@ -29,13 +30,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                            UserManager<User> userManager,
                            RoleManager<Role> roleManager,
                            IUserRepository userRepository,
-                           IJwtGenerator jwtTokenGenerator)
+                           IJwtGenerator jwtTokenGenerator,
+                           IEmailSenderService emailSenderService)
         {
             _context = context;
             _userManager = userManager;
             _roleManager = roleManager;
             _jwtTokenGenerator = jwtTokenGenerator;
             _userRepository = userRepository;
+            _emailSenderService = emailSenderService;   
         }
 
         public async Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken)
@@ -66,11 +69,28 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 var createUser = await _userRepository.GetByUserName(user.UserName, cancellationToken);
                 await _userRepository.CreateUserBalance(createUser.Id, cancellationToken);
 
+                var code = await _emailSenderService.SendEmailAsync(user.Email, cancellationToken);
+                user.EmailAuthorizationCode = code;
+                await _userManager.UpdateAsync(user);
+
             }
             catch (Exception ex)
             {
                 throw new Exception(ex.Message);
             }
+        }
+
+        public async Task VerifyEmail(string email, string code, CancellationToken cancellationToken)
+        {
+            var user = await _userManager.FindByEmailAsync(email) ?? throw new Exception("User not found");
+
+            if ( user.EmailAuthorizationCode != code)
+            {
+                throw new Exception("code is incorrect");
+            }
+
+            user.EmailConfirmed = true;
+            await _userManager.UpdateAsync(user);
         }
 
         public async Task RegisterAdmin(RegistrationRequest registrationRequest, CancellationToken cancellationToken)

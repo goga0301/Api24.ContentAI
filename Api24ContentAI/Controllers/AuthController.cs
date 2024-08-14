@@ -86,5 +86,12 @@ namespace Api24ContentAI.Controllers
             await _authService.Register(registrationRequestDTO, cancellationToken);
             return Ok();
         }
+
+        [HttpPost("verify-email")]
+        public async Task<IActionResult> VerifyEmail(string email, string userInput, CancellationToken cancellationToken)
+        {
+            await _authService.VerifyEmail(email, userInput, cancellationToken);
+            return Ok();
+        }
     }
 }
