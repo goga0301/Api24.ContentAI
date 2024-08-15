@@ -20,32 +20,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _emailSettings = emailSettings.Value;
         }
 
-        public async Task<string> SendEmailAsync(string email, CancellationToken cancellationToken)
+        public async Task SendEmailAsync(string email, string body, string subject, CancellationToken cancellationToken)
         {
-            var code = GenerateRandomCode();
             var mail = new MimeMessage();
             mail.From.Add(MailboxAddress.Parse(_emailSettings.Email));
             mail.To.Add(MailboxAddress.Parse(email));
-            mail.Subject = "Verification Code";
-            mail.Body = new TextPart(TextFormat.Html)
-            {
-                Text = $"<b>This is your verification code: {code}</b>"
-            };
+            mail.Subject = subject;
+            mail.Body = new TextPart(TextFormat.Html) { Text = body };
 
             using var smpt = new SmtpClient();
-            smpt.Connect(_emailSettings.SmtpServer, _emailSettings.Port, SecureSocketOptions.StartTls, cancellationToken);
-            smpt.Authenticate(_emailSettings.Email, _emailSettings.Password, cancellationToken);
-            smpt.Send(mail);
-            smpt.Disconnect(true, cancellationToken);
-
-            return code;
-        }
-
-        public string GenerateRandomCode()
-        {
-            Random random = new Random();
-            int code = random.Next(100000, 999999); // Generates a random 6-digit number
-            return code.ToString();
+            await smpt.ConnectAsync(_emailSettings.SmtpServer, _emailSettings.Port, SecureSocketOptions.StartTls, cancellationToken);
+            await smpt.AuthenticateAsync(_emailSettings.Email, _emailSettings.Password, cancellationToken);
+            await smpt.SendAsync(mail);
+            await smpt.DisconnectAsync(true, cancellationToken);
         }
 
     }

@@ -18,9 +18,9 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost("send-email")]
-        public async Task<IActionResult> SendEmail(string email, CancellationToken cancellationToken)
+        public async Task<IActionResult> SendEmail(string email, string body, string subject, CancellationToken cancellationToken)
         {
-            await _emailSender.SendEmailAsync(email, cancellationToken);
+            await _emailSender.SendEmailAsync(email, body, subject, cancellationToken);
             return Ok();
         }
     }

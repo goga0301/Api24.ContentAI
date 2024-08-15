@@ -1,6 +1,5 @@
 ﻿using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Service;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using System.Threading.Tasks;
 using System;
@@ -24,6 +23,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IEmailSenderService _emailSenderService;
         private const string _adminRole = "administrator";
         private const string _customerRole = "user";
+        private const string emailVerificationSubject = "Verification Code";
 
 
         public AuthService(ContentDbContext context,
@@ -69,8 +69,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 var createUser = await _userRepository.GetByUserName(user.UserName, cancellationToken);
                 await _userRepository.CreateUserBalance(createUser.Id, cancellationToken);
 
-                var code = await _emailSenderService.SendEmailAsync(user.Email, cancellationToken);
+                var code = GenerateRandomCode();
                 user.EmailAuthorizationCode = code;
+                await _emailSenderService.SendEmailAsync(user.Email, EmailVerificationBody(code), emailVerificationSubject, cancellationToken);
                 await _userManager.UpdateAsync(user);
 
             }
@@ -80,11 +81,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task VerifyEmail(string email, string code, CancellationToken cancellationToken)
+        private string GenerateRandomCode()
+        {
+            Random random = new Random();
+            int code = random.Next(100000, 999999);
+            return code.ToString();
+        }
+        private string EmailVerificationBody(string code) => $"<b>This is your verification code: {code}</b>";
+
+        public async Task VerifyEmail(string email, string userInput, CancellationToken cancellationToken)
         {
             var user = await _userManager.FindByEmailAsync(email) ?? throw new Exception("User not found");
 
-            if ( user.EmailAuthorizationCode != code)
+            if ( user.EmailAuthorizationCode != userInput)
             {
                 throw new Exception("code is incorrect");
             }

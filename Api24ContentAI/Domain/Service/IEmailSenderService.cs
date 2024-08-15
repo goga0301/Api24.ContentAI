@@ -5,6 +5,6 @@ namespace Api24ContentAI.Domain.Service
 {
     public interface IEmailSenderService
     {
-        Task<string> SendEmailAsync(string email, CancellationToken cancellationToken);
+        Task SendEmailAsync(string email, string body, string subject, CancellationToken cancellationToken);
     }
 }

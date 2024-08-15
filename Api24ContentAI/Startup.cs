@@ -118,9 +118,9 @@ namespace Api24ContentAI
              .AddEntityFrameworkStores<ContentDbContext>()
              .AddDefaultTokenProviders();
 
-                var secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
-                var issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
-                var audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
+            var secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
+            var issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
+            var audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
             var key = Encoding.ASCII.GetBytes(secret);
 
             services.AddAuthentication(options =>
