@@ -50,6 +50,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             var entity = await _languageRepository.GetById(language.Id, cancellationToken);
             entity.Name = language.Name;
+            entity.NameGeo = language.NameGeo;
 
             await _languageRepository.Update(entity, cancellationToken);
         }

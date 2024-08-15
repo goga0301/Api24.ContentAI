@@ -7,5 +7,6 @@ namespace Api24ContentAI.Domain.Entities
         [Key]
         public int Id { get; set; }
         public string Name { get; set; }
+        public string NameGeo { get; set; }
     }
 }

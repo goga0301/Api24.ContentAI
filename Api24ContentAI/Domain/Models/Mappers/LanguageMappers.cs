@@ -6,12 +6,12 @@ namespace Api24ContentAI.Domain.Models.Mappers
     {
         public static Language ToEntity(this CreateLanguageModel model)
         {
-            return new Language { Name = model.Name };
+            return new Language { Name = model.Name, NameGeo = model.NameGeo };
         }
 
         public static LanguageModel ToModel(this Language entity)
         {
-            return new LanguageModel { Id = entity.Id, Name = entity.Name };
+            return new LanguageModel { Id = entity.Id, Name = entity.Name, NameGeo = entity.NameGeo };
         }
     }
 }
