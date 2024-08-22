@@ -82,11 +82,11 @@ namespace Api24ContentAI.Controllers
 
 
         [HttpPost("prompt")]
-        public async Task<IActionResult> Prompt([FromBody] string prompt, CancellationToken cancellationToken)
+        public async Task<IActionResult> Prompt([FromQuery] string prompt, CancellationToken cancellationToken)
         {
             try
             {
-                var response = await _httpClient.GetFromJsonAsync<PromptResponse>("http://localhost:8000/rag/?prompt=test&k=5&model=claude-3-sonnet-20240229", cancellationToken);
+                var response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
                 return Ok(response);
 
             }
