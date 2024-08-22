@@ -3,6 +3,8 @@ using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -13,10 +15,13 @@ namespace Api24ContentAI.Controllers
     public class ContentController : ControllerBase
     {
         private readonly IContentService _contentService;
+        private readonly HttpClient _httpClient;
 
-        public ContentController(IContentService contentService)
+        public ContentController(IContentService contentService, HttpClient httpClient)
         {
             _contentService = contentService;
+            _httpClient = httpClient;
+
         }
 
         [HttpPost]
@@ -75,5 +80,27 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+
+        [HttpPost("prompt")]
+        public async Task<IActionResult> Prompt([FromBody] string prompt, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var response = await _httpClient.GetFromJsonAsync<PromptResponse>("http://localhost:8000/rag/?prompt=test&k=5&model=claude-3-sonnet-20240229", cancellationToken);
+                return Ok(response);
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
+
+    }
+
+    public class PromptResponse
+    {
+        public string Query { get; set; }
+        public string Response { get; set; }
     }
 }
