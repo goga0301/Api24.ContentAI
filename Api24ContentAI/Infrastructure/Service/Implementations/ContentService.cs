@@ -143,7 +143,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             //    claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             //}
 
-            if(request.UniqueKey == biblusi)
+            if(request.UniqueKey == biblusi && request.LanguageId == 5) // slovenian
             {
                 claudResponseText += "<br> Opisi izdelkov so prevedeni s pomočjo umetne inteligence.";
             }
