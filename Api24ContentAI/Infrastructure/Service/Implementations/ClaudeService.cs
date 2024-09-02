@@ -29,9 +29,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-
+                throw new Exception("Error in integration service ", ex.InnerException);
             }
-            return null;
         }
 
         public async Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, CancellationToken cancellationToken)
