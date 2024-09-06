@@ -96,6 +96,20 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+
+        [HttpPost("lawyer")]
+        public async Task<IActionResult> Lawyer([FromBody] LawyerRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return Ok(await _contentService.Lawyer(request, cancellationToken));
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
+
     }
 
     public class PromptResponse

@@ -28,5 +28,10 @@ namespace Api24ContentAI.Domain.Models
     public class EmailAIResponse
     {
         public string Text { get; set; }
+    }   
+
+    public class LawyerResponse
+    {
+        public string Text { get; set; }
     }
 }

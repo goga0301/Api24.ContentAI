@@ -13,7 +13,9 @@ namespace Api24ContentAI.Domain.Models.Mappers
                 Name = model.Name,
                 ContentLimit = model.ContentLimit,
                 TranslateLimit = model.TranslateLimit,
-                CopyrightLimit = model.CopyrightLimit
+                CopyrightLimit = model.CopyrightLimit,
+                VideoScriptLimit = model.VideoScriptLimit,
+                LawyerLimit = model.LawyerLimit
             };
         }
 
@@ -25,7 +27,9 @@ namespace Api24ContentAI.Domain.Models.Mappers
                 Name = entity.Name,
                 ContentLimit = entity.ContentLimit,
                 TranslateLimit = entity.TranslateLimit,
-                CopyrightLimit = entity.CopyrightLimit
+                CopyrightLimit = entity.CopyrightLimit,
+                VideoScriptLimit = entity.VideoScriptLimit,
+                LawyerLimit = entity.LawyerLimit
             };
         }
     }

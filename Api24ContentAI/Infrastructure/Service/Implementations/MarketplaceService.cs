@@ -8,6 +8,7 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Models.Mappers;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using Api24ContentAI.Domain.Entities;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -54,8 +55,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             entity.ContentLimit = marketplace.ContentLimit;
             entity.CopyrightLimit = marketplace.CopyrightLimit;
             entity.VideoScriptLimit = marketplace.VideoScriptLimit;
+            entity.LawyerLimit = marketplace.LawyerLimit;
 
             await _marketplaceRepository.Update(entity, cancellationToken);
+        }
+
+        public async Task UpdateBalance(Guid uniqueKey, RequestType requestType)
+        {
+            await _marketplaceRepository.UpdateBalance(uniqueKey, requestType);
         }
     }
 }

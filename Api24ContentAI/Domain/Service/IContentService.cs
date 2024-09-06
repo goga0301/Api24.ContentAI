@@ -11,5 +11,6 @@ namespace Api24ContentAI.Domain.Service
         Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken);
         Task<CopyrightAIResponse> CopyrightAI(IFormFile file, CopyrightAIRequest request, CancellationToken cancellationToken);
         Task<VideoScriptAIResponse> VideoScript(IFormFile file, VideoScriptAIRequest request, CancellationToken cancellationToken);
+        Task<LawyerResponse> Lawyer(LawyerRequest request, CancellationToken cancellationToken);
     }
 }

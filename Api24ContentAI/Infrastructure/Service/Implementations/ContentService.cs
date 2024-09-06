@@ -1,4 +1,5 @@
-﻿using Api24ContentAI.Domain.Entities;
+﻿using Api24ContentAI.Controllers;
+using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Http;
@@ -6,6 +7,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -25,6 +28,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IProductCategoryService _productCategoryService;
         private readonly IMarketplaceService _marketplaceService;
         private readonly ILanguageService _languageService;
+        private readonly HttpClient _httpClient;
+
 
         private static readonly string[] SupportedFileExtensions = new string[]
         {
@@ -33,14 +38,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             "gif",
             "webp"
         };
-        
+
         public ContentService(IClaudeService claudeService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
                               IRequestLogService requestLogService,
                               IProductCategoryService productCategoryService,
                               IMarketplaceService marketplaceService,
-                              ILanguageService languageService)
+                              ILanguageService languageService,
+                              HttpClient httpClient)
         {
             _claudeService = claudeService;
             _customTemplateService = customTemplateService;
@@ -49,12 +55,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _productCategoryService = productCategoryService;
             _marketplaceService = marketplaceService;
             _languageService = languageService;
+            _httpClient = httpClient;
         }
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
             var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
-            if (marketplace != null && marketplace.ContentLimit <= 0)
+
+            if (marketplace == null)
+            {
+                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+            }
+            
+            if (marketplace.ContentLimit <= 0)
             {
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
@@ -104,13 +117,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             }, cancellationToken);
 
-            await _marketplaceService.Update(new UpdateMarketplaceModel
-            {
-                Id = request.UniqueKey,
-                Name = marketplace.Name,
-                TranslateLimit = marketplace.TranslateLimit,
-                ContentLimit = marketplace.ContentLimit - 1,
-            }, cancellationToken);
+            //await _marketplaceService.Update(new UpdateMarketplaceModel
+            //{
+            //    Id = request.UniqueKey,
+            //    Name = marketplace.Name,
+            //    TranslateLimit = marketplace.TranslateLimit,
+            //    ContentLimit = marketplace.ContentLimit - 1,
+            //}, cancellationToken);
+
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
 
             return new ContentAIResponse
             {
@@ -148,7 +163,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             //    claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             //}
 
-            if(request.UniqueKey == biblusi && request.LanguageId == 5) // slovenian
+            if (request.UniqueKey == biblusi && request.LanguageId == 5) // slovenian
             {
                 claudResponseText += "<br> Opisi izdelkov so prevedeni s pomočjo umetne inteligence.";
             }
@@ -164,13 +179,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.Translate
             }, cancellationToken);
 
-            await _marketplaceService.Update(new UpdateMarketplaceModel
-            {
-                Id = request.UniqueKey,
-                Name = marketplace.Name,
-                TranslateLimit = marketplace.TranslateLimit - 1,
-                ContentLimit = marketplace.ContentLimit,
-            }, cancellationToken);
+            //await _marketplaceService.Update(new UpdateMarketplaceModel
+            //{
+            //    Id = request.UniqueKey,
+            //    Name = marketplace.Name,
+            //    TranslateLimit = marketplace.TranslateLimit - 1,
+            //    ContentLimit = marketplace.ContentLimit,
+            //}, cancellationToken);
+
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Translate);
 
             return new TranslateResponse
             {
@@ -182,7 +199,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
 
-            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            if (marketplace == null)
+            {
+                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+            }
+
+            if (marketplace.TranslateLimit <= 0)
             {
                 throw new Exception("CopyrightAI რექვესთების ბალანსი ამოიწურა");
             }
@@ -237,14 +259,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.Copyright
             }, cancellationToken);
 
-            await _marketplaceService.Update(new UpdateMarketplaceModel
-            {
-                Id = request.UniqueKey,
-                Name = marketplace.Name,
-                TranslateLimit = marketplace.TranslateLimit,
-                ContentLimit = marketplace.ContentLimit,
-                CopyrightLimit = marketplace.CopyrightLimit - 1,
-            }, cancellationToken);
+            //await _marketplaceService.Update(new UpdateMarketplaceModel
+            //{
+            //    Id = request.UniqueKey,
+            //    Name = marketplace.Name,
+            //    TranslateLimit = marketplace.TranslateLimit,
+            //    ContentLimit = marketplace.ContentLimit,
+            //    CopyrightLimit = marketplace.CopyrightLimit - 1,
+            //}, cancellationToken);
+
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Copyright);
 
             return new CopyrightAIResponse
             {
@@ -256,7 +280,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
 
-            if (marketplace != null && marketplace.TranslateLimit <= 0)
+            if (marketplace == null)
+            {
+                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+            }
+
+            if (marketplace.TranslateLimit <= 0)
             {
                 throw new Exception("VideoScriptAI რექვესთების ბალანსი ამოიწურა");
             }
@@ -311,21 +340,71 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.VideoScript
             }, cancellationToken);
 
-            await _marketplaceService.Update(new UpdateMarketplaceModel
-            {
-                Id = request.UniqueKey,
-                Name = marketplace.Name,
-                TranslateLimit = marketplace.TranslateLimit,
-                ContentLimit = marketplace.ContentLimit,
-                CopyrightLimit = marketplace.CopyrightLimit,
-                VideoScriptLimit = marketplace.VideoScriptLimit - 1,
-            }, cancellationToken);
+            //await _marketplaceService.Update(new UpdateMarketplaceModel
+            //{
+            //    Id = request.UniqueKey,
+            //    Name = marketplace.Name,
+            //    TranslateLimit = marketplace.TranslateLimit,
+            //    ContentLimit = marketplace.ContentLimit,
+            //    CopyrightLimit = marketplace.CopyrightLimit,
+            //    VideoScriptLimit = marketplace.VideoScriptLimit - 1,
+            //    LawyerLimit = marketplace.LawyerLimit,
+            //}, cancellationToken);
+
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.VideoScript);
 
             return new VideoScriptAIResponse
             {
                 Text = claudResponseText
             };
         }
+
+        public async Task<LawyerResponse> Lawyer(LawyerRequest request, CancellationToken cancellationToken)
+        {
+            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+
+            if (marketplace == null)
+            {
+                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+            }
+
+            if (marketplace.LawyerLimit <= 0)
+            {
+                throw new Exception("Lawyer რექვესთების ბალანსი ამოიწურა");
+            }
+
+            var response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={request.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
+
+            await _requestLogService.Create(new CreateRequestLogModel
+            {
+                MarketplaceId = request.UniqueKey,
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                RequestType = RequestType.Lawyer
+            }, cancellationToken);
+
+            //await _marketplaceService.Update(new UpdateMarketplaceModel
+            //{
+            //    Id = request.UniqueKey,
+            //    Name = marketplace.Name,
+            //    TranslateLimit = marketplace.TranslateLimit,
+            //    ContentLimit = marketplace.ContentLimit,
+            //    CopyrightLimit = marketplace.CopyrightLimit,
+            //    VideoScriptLimit = marketplace.VideoScriptLimit,
+            //    LawyerLimit = marketplace.LawyerLimit - 1,
+            //}, cancellationToken);
+
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Lawyer);
+
+            return new LawyerResponse
+            {
+                Text = response.Response
+            };
+        }
+
         private string ConvertAttributes(List<Domain.Models.Attribute> attributes)
         {
             var resultBuilder = new StringBuilder();
