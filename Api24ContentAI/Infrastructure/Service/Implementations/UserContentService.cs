@@ -323,15 +323,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             if (!string.IsNullOrWhiteSpace(request.Description) && (request.Files == null || !request.Files.Any()))
             {
-                return defaultPrice;
+                return defaultPrice * ((request.Description.Length / 250) + request.Description.Length % 250 == 0 ? 0 : 1);
             }
 
             if (request.Files != null && request.Files.Count == 1 && request.IsPdf)
             {
-                return pdfPageCount * defaultPrice;
+                return pdfPageCount * 0.1m;
             }
 
-            return request.Files.Count * defaultPrice;
+            return request.Files.Count * 0.15m;
         }
 
         private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
@@ -639,11 +639,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             return requestType switch
             {
-                RequestType.Content => 10,
-                RequestType.Copyright => 10,
-                RequestType.Translate => 10,
-                RequestType.VideoScript => 10,
-                RequestType.Email => 10,
+                RequestType.Content => 0.1m,
+                RequestType.Copyright => 0.1m,
+                RequestType.Translate => 0.01m,
+                RequestType.VideoScript => 0.1m,
+                RequestType.Email => 0.1m,
                 _ => 0
             };
         }

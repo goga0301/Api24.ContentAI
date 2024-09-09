@@ -13,7 +13,7 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
     public class UserRepository : IUserRepository
     {
-        private const int StartingBalance = 100;
+        private const int StartingBalance = 5;
         private readonly ContentDbContext _context;
         private readonly string connectionString;
 
