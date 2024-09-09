@@ -198,7 +198,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
-            var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
 
             var textFromImage = new StringBuilder();
             if (!request.IsPdf)
@@ -227,6 +226,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             }
                         };
 
+                        var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
                         var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
                         var messageImageToText = new ContentFile()
                         {
