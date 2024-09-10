@@ -328,10 +328,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             if (request.Files != null && request.Files.Count == 1 && request.IsPdf)
             {
-                return pdfPageCount * 1;
+                return pdfPageCount * 0.9m;
             }
 
-            return request.Files.Count * 1.5m;
+            return request.Files.Count * 1.45m;
         }
 
         private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
@@ -641,7 +641,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 RequestType.Content => 1,
                 RequestType.Copyright => 1,
-                RequestType.Translate => 0.1m,
+                RequestType.Translate => 0.04m,
                 RequestType.VideoScript => 1,
                 RequestType.Email => 1,
                 _ => 0
