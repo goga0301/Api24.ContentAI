@@ -189,14 +189,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 (request.Description, pdfPageCount) = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
             }
 
-            var requestPrice = CalculateTranslateRequestPrice(request, pdfPageCount);
-            var user = await _userRepository.GetById(userId, cancellationToken);
-
-            if (user != null && user.UserBalance.Balance < requestPrice)
-            {
-                throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
-            }
-
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
             var textFromImage = new StringBuilder();
@@ -264,6 +256,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             }
 
+            var requestPrice = CalculateTranslateRequestPriceNew(request.Description);
+            var user = await _userRepository.GetById(userId, cancellationToken);
+
+            if (user != null && user.UserBalance.Balance < requestPrice)
+            {
+                throw new Exception("ბალანსი არ არის საკმარისი მოთხოვნის დასამუშავებლად!!!");
+            }
             var chunks = GetChunksOfLargeText(request.Description);
             var chunkBuilder = new StringBuilder();
             var claudResponseText = new StringBuilder();
@@ -332,6 +331,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             return request.Files.Count * 1.45m;
+        }
+
+        private decimal CalculateTranslateRequestPriceNew(string description)
+        {
+            var defaultPrice = GetRequestPrice(RequestType.Translate);
+
+            return defaultPrice * ((description.Length / 250) + description.Length % 250 == 0 ? 0 : 1);
+
         }
 
         private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
@@ -641,7 +648,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 RequestType.Content => 1,
                 RequestType.Copyright => 1,
-                RequestType.Translate => 0.04m,
+                RequestType.Translate => 0.1m,
                 RequestType.VideoScript => 1,
                 RequestType.Email => 1,
                 _ => 0
