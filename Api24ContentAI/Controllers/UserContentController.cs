@@ -42,8 +42,8 @@ namespace Api24ContentAI.Controllers
         [HttpPost("translate")]
         public async Task<IActionResult> Translate([FromForm] UserTranslateRequest request, CancellationToken cancellationToken)
         {
-            try
-            {
+            //try
+            //{
                 var userId = User.FindFirstValue("UserId");
                 if (string.IsNullOrEmpty(userId))
                 {
@@ -52,11 +52,11 @@ namespace Api24ContentAI.Controllers
                 var result = await _userContentService.ChunkedTranslate(request, userId, cancellationToken);
                 return Ok(result);
 
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new Error { ErrorText = ex.Message });
-            }
+            //}
+            //catch (Exception ex)
+            //{
+            //    return BadRequest(new Error { ErrorText = ex.Message });
+            //}
         }
 
         [HttpPost("copyright")]
