@@ -8,6 +8,7 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Models.Mappers;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -15,11 +16,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
     {
         private readonly IProductCategoryRepository _productCategoryRepository;
         private readonly IApi24Service _api24Service;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
 
-        public ProductCategoryService(IProductCategoryRepository productCategoryRepository, IApi24Service api24Service)
+        public ProductCategoryService(IProductCategoryRepository productCategoryRepository, IApi24Service api24Service, IServiceScopeFactory serviceScopeFactory )
         {
             _productCategoryRepository = productCategoryRepository;
             _api24Service = api24Service;
+            _serviceScopeFactory = serviceScopeFactory;
         }
 
         public async Task<Guid> Create(CreateProductCategoryModel productCategory, CancellationToken cancellationToken)
@@ -57,6 +60,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task SyncCategories(CancellationToken cancellationToken)
         {
             var categoriesFromApi24 = await _api24Service.GetCategories(cancellationToken);
+            categoriesFromApi24 = await TranslateCategoryName(categoriesFromApi24, cancellationToken);
             var categories = await _productCategoryRepository.GetAll().ToListAsync(cancellationToken);
             //var toDelete = categories.Where(x => !categoriesFromApi24.Exists(c => c.Id == x.Api24Id));
             //var toAdd = categoriesFromApi24.Where(x => !categories.Exists(c => x.Id == c.Api24Id));
@@ -103,6 +107,25 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 };
                 await Update(catUpdate, cancellationToken);
             }
+        }
+
+        private async Task<List<CategoryResponse>> TranslateCategoryName(List<CategoryResponse> categories, CancellationToken cancellationToken)
+        {
+            using var scope = _serviceScopeFactory.CreateScope();
+            var _userContentService = scope.ServiceProvider.GetRequiredService<IUserContentService>();
+            foreach (var category in categories)
+            {
+                var req = new UserTranslateRequest
+                {
+                    Description = category.Name,
+                    SourceLanguageId = 1,
+                    LanguageId = 2,
+                    IsPdf = false
+                };
+                var translated = await _userContentService.ChunkedTranslate(req, "ae77823a-e212-4b9f-ab1a-a5c9b727a581", cancellationToken);
+                category.NameEng = translated.Text.Replace("<br>", "");
+            }
+            return categories;
         }
 
         public async Task Update(UpdateProductCategoryModel productCategory, CancellationToken cancellationToken)
