@@ -8,6 +8,7 @@ namespace Api24ContentAI.Infrastructure.Service
     {
         public static void  AddServices(this IServiceCollection services)
         {
+            services.AddScoped<IPayseraService, PayseraService>();
             services.AddScoped<ITemplateService, TemplateService>();
             services.AddScoped<ICustomTemplateService, CustomTemplateService>();
             services.AddScoped<IProductCategoryService, ProductCategoryService>();
