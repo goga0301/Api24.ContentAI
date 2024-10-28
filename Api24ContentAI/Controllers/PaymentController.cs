@@ -32,26 +32,6 @@ namespace Api24ContentAI.Controllers
                 return BadRequest(new { error = ex.Message });
             }
         }
-
-        [HttpPost("callback")]
-        public async Task<IActionResult> PayseraCallback()
-        {
-            try
-            {
-                bool isValid = await _payseraService.ValidateCallbackAsync(Request.Query);
-
-                if (!isValid)
-                {
-                    return BadRequest(new { error = "Invalid callback" });
-                }
-
-                return Ok("OK");
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { error = ex.Message });
-            }
-        }
     }
 }
 

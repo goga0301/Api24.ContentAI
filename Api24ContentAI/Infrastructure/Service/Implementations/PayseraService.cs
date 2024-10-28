@@ -1,10 +1,7 @@
 ﻿using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
 using EVP.WebToPay.ClientAPI;
-using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
-using System.Linq;
-using System;
 using System.Threading.Tasks;
 
 
@@ -44,28 +41,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 RedirectUrl = redirectUrl
             });
-        }
-
-        public async Task<bool> ValidateCallbackAsync(IQueryCollection query)
-        {
-            try
-            {
-                var microAnswer = _payseraClient.NewMicroAnswer();
-
-                // Convert query parameters to dictionary
-                var parameters = query.ToDictionary(
-                    x => x.Key,
-                    x => x.Value.ToString()
-                );
-
-                // Validate the callback
-                //microAnswer.LoadFromCollection(parameters);
-                return await Task.FromResult(true);
-            }
-            catch (Exception)
-            {
-                return await Task.FromResult(false);
-            }
         }
     }
 }
