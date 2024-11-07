@@ -6,6 +6,9 @@ using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Domain.Models;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
+using System.Security.Claims;
+using Api24ContentAI.Domain.Repository;
+using System.Threading;
 
 namespace Api24ContentAI.Controllers
 {
@@ -14,26 +17,35 @@ namespace Api24ContentAI.Controllers
     [Route("api/[controller]")]
     public class PaymentController : ControllerBase
     {
-        private readonly IPayseraService _payseraService;
+        private readonly IPaymentService _payseraService;
         private readonly ILogger<PaymentController> _logger;
+        private readonly IUserService _userService;
 
-        public PaymentController(IPayseraService payseraService, ILogger<PaymentController> logger)
+        public PaymentController(IPaymentService payseraService,IUserService userService, ILogger<PaymentController> logger)
         {
             _payseraService = payseraService;
+            _userService = userService;
             _logger = logger;
         }
 
         [HttpPost("create")]
-        public async Task<ActionResult<PaymentResponse>> CreatePayment([FromBody] PaymentRequest request)
+        [Authorize]
+        public async Task<ActionResult<PaymentResponse>> CreatePayment([FromBody] PaymentRequest request, CancellationToken cancellationToken)
         {
             try
             {
-                if(!ModelState.IsValid)
+                var userId = User.FindFirstValue("UserId");
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return Unauthorized("User ID not found in the token");
+                }
+
+                if (!ModelState.IsValid)
                 {
                     return BadRequest(ModelState);
                 }
 
-                var response = await _payseraService.CreatePaymentAsync(request);
+                var response = await _payseraService.CreatePaymentAsync(request, userId);
                 return Ok(response);
             }
             catch (PayseraException ex)

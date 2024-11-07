@@ -1,4 +1,6 @@
-﻿using Api24ContentAI.Domain.Models;
+﻿using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Domain.Models;
+using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Service;
 using EVP.WebToPay.ClientAPI;
 using Microsoft.Extensions.Logging;
@@ -13,31 +15,38 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class PayseraService : IPayseraService
+    public class PaymentService : IPaymentService
     {
         private readonly Client _payseraClient;
         private readonly PayseraOptions _options;
-        private readonly ILogger<PayseraService> _logger;
+        private readonly ILogger<PaymentService> _logger;
+        private static readonly Random _random = new Random();
+        private readonly IPaymentRepository _paymentRepository;
 
-        public PayseraService(IOptions<PayseraOptions> options, ILogger<PayseraService> logger)
+        public PaymentService(IOptions<PayseraOptions> options, ILogger<PaymentService> logger, IPaymentRepository paymentRepository)
         {
             _options = options.Value;
             _payseraClient = new Client(_options.ProjectId, _options.SignPassword);
             _logger = logger;
+            _paymentRepository = paymentRepository;
         }
 
-        public async Task<PaymentResponse> CreatePaymentAsync(PaymentRequest request)
+        public async Task<PaymentResponse> CreatePaymentAsync(PaymentRequest request, string userId)
         {
-            ValidateRequest(request);
+
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+            var orderId = $"ORDER-{timestamp}-{_random.Next(1000, 9999)}";
+
+            ValidateRequest(request, orderId);
 
             var macroRequest = _payseraClient.NewMacroRequest();
 
-            macroRequest.OrderId = request.OrderId;
+            macroRequest.OrderId = orderId;
             macroRequest.Amount = (int)(request.Amount * 100);
             macroRequest.Currency = request.Currency;
             macroRequest.Country = request.Country;
-            macroRequest.AcceptUrl = _options.AcceptUrl;
-            macroRequest.CancelUrl = _options.CancelUrl;
+            macroRequest.AcceptUrl = $"{_options.AcceptUrl}?orderid={orderId}";
+            macroRequest.CancelUrl = $"{_options.CancelUrl}?orderid={orderId}";
             macroRequest.CallbackUrl = _options.CallbackUrl;
 
             if (_options.IsTestMode)
@@ -46,13 +55,24 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             string redirectUrl = _payseraClient.BuildRequestUrl(macroRequest);
-            _logger.LogInformation("Payment request created for OrderId: {OrderId}", request.OrderId);
+            _logger.LogInformation("Payment request created for OrderId: {OrderId}", orderId);
+
+
+            await _paymentRepository.Create(new Payment()
+            {
+                OrderId = macroRequest.OrderId,
+                Amount = macroRequest.Amount,
+                Currency = macroRequest.Currency,
+                Country = macroRequest.Country,
+                Status = PaymentStatus.Pending,
+                UserId = userId
+            });
 
 
             return await Task.FromResult(new PaymentResponse
             {
                 RedirectUrl = redirectUrl,
-                OrderId = request.OrderId
+                OrderId = orderId
             });
         }
 
@@ -66,6 +86,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 _logger.LogInformation("Processing payment callback for OrderId: {OrderId}, Status: {Status}",
                 orderId, paymentStatus);
+
+                var payment = await _paymentRepository.GetByOrderId(orderId);
+                payment.Status = paymentStatus;
+                await _paymentRepository.SaveChanges();
 
                 return paymentStatus;
             }
@@ -122,9 +146,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _ => PaymentStatus.Failed
             };
 
-        private static void ValidateRequest(PaymentRequest request)
+        private static void ValidateRequest(PaymentRequest request, string orderId)
         {
-            if (string.IsNullOrEmpty(request.OrderId))
+            if (string.IsNullOrEmpty(orderId))
                 throw new PayseraException("OrderId is required");
 
             if (request.Amount <= 0)

@@ -19,6 +19,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
         public DbSet<User> Users { get; set; }
         public DbSet<Role> Roles { get; set; }
         public DbSet<UserBalance> UserBalances { get; set; }
+        public DbSet<Payment> Payments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -82,6 +83,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
 
             modelBuilder.Entity<UserBalance>().HasOne(x => x.User).WithOne(x => x.UserBalance).HasForeignKey<UserBalance>(x => x.UserId).IsRequired(false);
 
+            
         }
     }
 }

@@ -24,6 +24,7 @@ namespace Api24ContentAI.Infrastructure.Repository
 
         public static void AddRepositories(this IServiceCollection services)
         {
+            services.AddScoped<IPaymentRepository, PaymentRepository>();
             services.AddScoped<IProductCategoryRepository, ProductCategoryRepository>();
             services.AddScoped<ITemplateRepository, TemplateRepository>();
             services.AddScoped<ICustomTemplateRepository, CustomTemplateRepository>();
