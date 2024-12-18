@@ -18,6 +18,7 @@ using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using System.Text.RegularExpressions;
 using Api24ContentAI.Migrations;
+using iText.Layout.Borders;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -316,6 +317,66 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
+
+        public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId, CancellationToken cancellationToken)
+        {
+            var requestPrice = GetRequestPrice(RequestType.EnhanceTranslate);
+
+            var user = await _userRepository.GetById(userId, cancellationToken);
+
+            if (user != null && user.UserBalance.Balance < requestPrice)
+            {
+                throw new Exception("EnhanceTranslate რექვესთების ბალანსი ამოიწურა");
+            }
+
+            var targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
+            var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+
+            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, sourceLanguage.Name, request.UserInput, request.TranslateOutput);
+            var wholeRequest = new StringBuilder(templateText);
+            wholeRequest.AppendLine("-----------------------------------");
+            wholeRequest.AppendLine();
+            wholeRequest.AppendLine();
+            wholeRequest.AppendLine();
+            var contents = new List<ContentFile>();
+
+            var message = new ContentFile()
+            {
+                Type = "text",
+                Text = templateText
+            };
+            contents.Add(message);
+            var claudeRequest = new ClaudeRequestWithFile(contents);
+            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+            var response = new TranslateResponse
+            {
+                Text = claudResponsePlainText
+            };
+
+            await _requestLogService.Create(new CreateUserRequestLogModel
+            {
+                UserId = userId,
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
+                RequestType = RequestType.EnhanceTranslate
+
+            }, cancellationToken);
+
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+
+            return response;
+        }
+
         private decimal CalculateTranslateRequestPrice(UserTranslateRequest request, int pdfPageCount)
         {
             var defaultPrice = GetRequestPrice(RequestType.Translate);
@@ -574,9 +635,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       now you should continue translation from where last response is finished.
                       you should use translation rules from initial prompt";
         }
+        private string GetEnhanceTranslateTemplate(string targetLanguage, string sourceLanguage, string userInput, string TranslateOutput)
+        {
+            return @$"  <original_text>{userInput}</original_text>, 
+                        <translated_text>{TranslateOutput}</translated_text>
+                        
+                        Imagine you are a highly skilled Multilingual translator. You are given an original text written in {sourceLanguage} Language, and it's translated version in {targetLanguage} Language. 
+                        
+                        I want you to give me a text improvement suggestions enclosed in <suggestions> your response </suggestions> tags. Then apply suggestions to the translated_text and output it enclosed in <enhanced_text>text<enhanced_text> tags.
+                        Suggestions should be maximum 50 Characters long, and be in {sourceLanguage} Language.";
+        }
         private string GetTranslateTemplate(string targetLanguage, string description)
         {
-            return @$"<text_to_translate> {description} </text_to_translate
+            return @$"<text_to_translate> {description} </text_to_translate>
                       You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context. 
                       The target language for translation: <target_language>{targetLanguage}</target_language>.
                       Always Provide your translation inside <translation></translation> tags. End translation with closing tag when the full text is translated. 
@@ -649,6 +720,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType.Content => 1,
                 RequestType.Copyright => 1,
                 RequestType.Translate => 0.1m,
+                RequestType.EnhanceTranslate => 0.25m,
                 RequestType.VideoScript => 1,
                 RequestType.Email => 1,
                 _ => 0

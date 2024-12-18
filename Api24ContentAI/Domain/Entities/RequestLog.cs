@@ -26,5 +26,6 @@ namespace Api24ContentAI.Domain.Entities
         VideoScript = 4,
         Email = 5,
         Lawyer = 6,
+        EnhanceTranslate = 7,
     }
 }

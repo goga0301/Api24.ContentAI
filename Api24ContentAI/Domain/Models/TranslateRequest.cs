@@ -19,4 +19,12 @@ namespace Api24ContentAI.Domain.Models
         public List<IFormFile> Files { get; set; }
         public bool IsPdf { get; set; }
     }
+
+    public class UserTranslateEnhanceRequest
+    {
+        public string UserInput { get; set; }
+        public string TranslateOutput{ get; set; }
+        public int TargetLanguageId { get; set; }
+        public int SourceLanguageId { get; set; }
+    }
 }

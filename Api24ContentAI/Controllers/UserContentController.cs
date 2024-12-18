@@ -59,6 +59,26 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpPost("enhance-translate")]
+        public async Task<IActionResult> EnhanceTranslate([FromForm] UserTranslateEnhanceRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var userId = User.FindFirstValue("UserId");
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return Unauthorized("User ID not found in the token");
+                }
+                var result = await _userContentService.EnhanceTranslate(request, userId, cancellationToken);
+                return Ok(result);
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
+
         [HttpPost("copyright")]
         public async Task<IActionResult> Copyright([FromForm] UserCopyrightAIRequest request, IFormFile file, CancellationToken cancellationToken)
         {
