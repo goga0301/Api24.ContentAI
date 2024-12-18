@@ -43,6 +43,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = Guid.NewGuid(),
                 MarketplaceId = model.MarketplaceId,
                 RequestJson = model.Request,
+                ResponseJson = model.Response,
                 CreateTime = DateTime.UtcNow,
                 RequestType = model.RequestType,
             }, cancellationToken);
@@ -55,6 +56,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = x.Id,
                 MarketplaceId = x.MarketplaceId,
                 RequestJson = x.RequestJson,
+                ResponseJson = x.ResponseJson,
                 CreateTime = x.CreateTime,
                 RequestType = x.RequestType
             }).ToListAsync(cancellationToken);
@@ -68,6 +70,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = entity.Id,
                 MarketplaceId = entity.MarketplaceId,
                 RequestJson = entity.RequestJson,
+                ResponseJson = entity.ResponseJson,
                 CreateTime = entity.CreateTime,
                 RequestType = entity.RequestType
             };
@@ -80,6 +83,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Id = x.Id,
                 MarketplaceId = x.MarketplaceId,
                 RequestJson = x.RequestJson,
+                ResponseJson = x.ResponseJson,
                 CreateTime = x.CreateTime,
                 RequestType = x.RequestType
             }).ToListAsync(cancellationToken);

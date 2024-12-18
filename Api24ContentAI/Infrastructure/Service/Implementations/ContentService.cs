@@ -105,10 +105,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
+            var response =  new ContentAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
                 Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -127,10 +137,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
 
-            return new ContentAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         public async Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken)
@@ -168,10 +175,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText += "<br> Opisi izdelkov so prevedeni s pomočjo umetne inteligence.";
             }
 
+            var response = new TranslateResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
                 Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),                
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -189,10 +206,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Translate);
 
-            return new TranslateResponse
-            {
-                Text = claudResponseText
-            };
+
+            return response;
         }
 
         public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, CopyrightAIRequest request, CancellationToken cancellationToken)
@@ -248,10 +263,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
+            var response = new CopyrightAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
                 Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -270,10 +295,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Copyright);
 
-            return new CopyrightAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, VideoScriptAIRequest request, CancellationToken cancellationToken)
@@ -329,10 +351,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
+            var response = new VideoScriptAIResponse
+            {
+                Text = claudResponseText
+            };
+
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
                 Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -353,10 +385,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.VideoScript);
 
-            return new VideoScriptAIResponse
-            {
-                Text = claudResponseText
-            };
+            return response;
         }
 
         public async Task<LawyerResponse> Lawyer(LawyerRequest request, CancellationToken cancellationToken)
@@ -374,11 +403,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={request.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
-
+            var result  = new LawyerResponse
+            {
+                Text = response.Response
+            };
             await _requestLogService.Create(new CreateRequestLogModel
             {
                 MarketplaceId = request.UniqueKey,
                 Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(result, new JsonSerializerOptions()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
@@ -399,10 +436,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Lawyer);
 
-            return new LawyerResponse
-            {
-                Text = response.Response
-            };
+            return result;
         }
 
         private string ConvertAttributes(List<Domain.Models.Attribute> attributes)
