@@ -330,9 +330,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
-            var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
 
-            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, sourceLanguage.Name, request.UserInput, request.TranslateOutput);
+            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name,request.UserInput, request.TranslateOutput);
             var wholeRequest = new StringBuilder(templateText);
             wholeRequest.AppendLine("-----------------------------------");
             wholeRequest.AppendLine();
@@ -635,15 +634,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       now you should continue translation from where last response is finished.
                       you should use translation rules from initial prompt";
         }
-        private string GetEnhanceTranslateTemplate(string targetLanguage, string sourceLanguage, string userInput, string TranslateOutput)
+        private string GetEnhanceTranslateTemplate(string targetLanguage, string userInput, string TranslateOutput)
         {
             return @$"  <original_text>{userInput}</original_text>, 
                         <translated_text>{TranslateOutput}</translated_text>
                         
-                        Imagine you are a highly skilled Multilingual translator. You are given an original text written in {sourceLanguage} Language, and it's translated version in {targetLanguage} Language. 
+                        Imagine you are a highly skilled Multilingual translator. You are given an original text, and it's translated version in {targetLanguage} Language. 
                         
                         I want you to give me a text improvement suggestions enclosed in <suggestions> your response </suggestions> tags. Then apply suggestions to the translated_text and output it enclosed in <enhanced_text>text<enhanced_text> tags.
-                        Suggestions should be maximum 50 Characters long, and be in {sourceLanguage} Language.";
+                        Suggestions should be maximum 50 Characters long, and be in {targetLanguage} Language.";
         }
         private string GetTranslateTemplate(string targetLanguage, string description)
         {

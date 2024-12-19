@@ -25,6 +25,5 @@ namespace Api24ContentAI.Domain.Models
         public string UserInput { get; set; }
         public string TranslateOutput{ get; set; }
         public int TargetLanguageId { get; set; }
-        public int SourceLanguageId { get; set; }
     }
 }
