@@ -641,8 +641,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         
                         Imagine you are a highly skilled Multilingual translator. You are given an original text, and it's translated version in {targetLanguage} Language. 
                         
-                        I want you to give me a text improvement suggestions enclosed in <suggestions> your response </suggestions> tags. Then apply suggestions to the translated_text and output it enclosed in <enhanced_text>text<enhanced_text> tags.
-                        Suggestions should be maximum 50 Characters long, and be in {targetLanguage} Language.";
+                        I want you to give me a text improvement suggestions enclosed in <suggestions> your response </suggestions> tags. 
+                        Then apply suggestions to the translated_text and output it enclosed in <enhanced_text>text<enhanced_text> tags. 
+                        Separate this tags using single <hr> tag.
+                        Suggestions should not start with any introduction text. be maximum 50 Characters long, and be in {targetLanguage} Language.";
         }
         private string GetTranslateTemplate(string targetLanguage, string description)
         {
