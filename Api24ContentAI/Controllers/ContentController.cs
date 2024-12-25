@@ -51,6 +51,20 @@ namespace Api24ContentAI.Controllers
                 return BadRequest(new Error { ErrorText = ex.Message });
             }
         }
+        
+        [HttpPost("enhance-translate")]
+        public async Task<IActionResult> EnhanceTranslate([FromBody] EnhanceTranslateRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                return Ok(await _contentService.EnhanceTranslate(request, cancellationToken));
+
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new Error { ErrorText = ex.Message });
+            }
+        }
 
         [HttpPost("copyright")]
         public async Task<IActionResult> Copyright([FromForm] CopyrightAIRequest request, IFormFile file, CancellationToken cancellationToken)

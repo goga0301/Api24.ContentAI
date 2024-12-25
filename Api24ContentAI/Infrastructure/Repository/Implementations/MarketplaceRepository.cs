@@ -52,6 +52,10 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
                                             SET ""LawyerLimit"" = ""LawyerLimit"" - 1
                                             WHERE ""Id"" = @Id;",
 
+                        RequestType.EnhanceTranslate => @"UPDATE ""ContentDb"".""Marketplaces""
+                                            SET ""EnhanceTranslateLimit"" = ""EnhanceTranslateLimit"" - 1
+                                            WHERE ""Id"" = @Id;",
+
                         _ => throw new Exception("Incorect request type")
                     };
 

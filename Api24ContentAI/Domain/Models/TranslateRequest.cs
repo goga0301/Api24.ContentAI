@@ -9,7 +9,14 @@ namespace Api24ContentAI.Domain.Models
         public string Description { get; set; }
         public int LanguageId { get; set; }
         public Guid UniqueKey { get; set; }
-    }   
+    }
+    public class EnhanceTranslateRequest
+    {
+        public string UserInput { get; set; }
+        public string TranslateOutput { get; set; }
+        public int TargetLanguageId { get; set; }
+        public Guid UniqueKey { get; set; }
+    }
 
     public class UserTranslateRequest
     {
@@ -23,7 +30,7 @@ namespace Api24ContentAI.Domain.Models
     public class UserTranslateEnhanceRequest
     {
         public string UserInput { get; set; }
-        public string TranslateOutput{ get; set; }
+        public string TranslateOutput { get; set; }
         public int TargetLanguageId { get; set; }
     }
 }

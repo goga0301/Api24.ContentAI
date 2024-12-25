@@ -66,7 +66,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
             }
-            
+
             if (marketplace.ContentLimit <= 0)
             {
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
@@ -105,7 +105,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
             }
 
-            var response =  new ContentAIResponse
+            var response = new ContentAIResponse
             {
                 Text = claudResponseText
             };
@@ -187,7 +187,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),                
+                }),
                 Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -205,6 +205,63 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             //}, cancellationToken);
 
             await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Translate);
+
+
+            return response;
+        }
+
+        public async Task<TranslateResponse> EnhanceTranslate(EnhanceTranslateRequest request, CancellationToken cancellationToken)
+        {
+            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+
+            if (marketplace == null)
+            {
+                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+            }
+
+            if (marketplace.TranslateLimit <= 0)
+            {
+                throw new Exception("Translate რექვესთების ბალანსი ამოიწურა");
+            }
+
+            var targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
+
+            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
+
+            var claudeRequest = new ClaudeRequest(templateText);
+            var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+
+            var biblusi = Guid.Parse("7254d5ec-1f47-470c-91af-3086349d425f");
+
+            if (request.UniqueKey == biblusi && request.TargetLanguageId == 5) // slovenian
+            {
+                claudResponseText += "<br> Opisi izdelkov so prevedeni s pomočjo umetne inteligence.";
+            }
+
+            var response = new TranslateResponse
+            {
+                Text = claudResponseText
+            };
+
+            await _requestLogService.Create(new CreateRequestLogModel
+            {
+                MarketplaceId = request.UniqueKey,
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                RequestType = RequestType.EnhanceTranslate
+            }, cancellationToken);
+
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.EnhanceTranslate);
 
 
             return response;
@@ -403,7 +460,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={request.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
-            var result  = new LawyerResponse
+            var result = new LawyerResponse
             {
                 Text = response.Response
             };
@@ -452,6 +509,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private string GetTranslateTemplate(string language, string description)
         {
             return $"You are a multilingual AI translation assistant. Your task is to translate product descriptions from one language to another and output the result in HTML format. The source language for the product description is: <source_language> {{ENGLISH}} </source_language>. The target language for the product description is: <target_language> {language} </target_language>. Here is the product description text to translate: <product_description> {description} </product_description>. Please translate the product description text from {{ENGLISH}} to {language}. Output the translated text in HTML format, enclosed within <translated_description> tags. Do not include any other explanations, notes, or caveats in your output. Only provide the translated text in the specified HTML tags. if any type of separator are detected (for example -- 1 --) keep the original formating";
+        }
+
+        private string GetEnhanceTranslateTemplate(string targetLanguage, string userInput, string TranslateOutput)
+        {
+            return @$"  <original_text>{userInput}</original_text>, 
+                        <translated_text>{TranslateOutput}</translated_text>
+                        
+                        Imagine you are a highly skilled Multilingual translator. You are given an original text, and it's translated version in {targetLanguage} Language. 
+                        
+                        I want you to give me a text improvement suggestions enclosed in <suggestions> your response </suggestions> tags. 
+                        Then apply suggestions to the translated_text and output it enclosed in <enhanced_text>text<enhanced_text> tags. 
+                        Separate this tags using single <hr> tag.
+                        Suggestions should not start with any introduction text. be maximum 50 Characters long, and be in {targetLanguage} Language.";
         }
 
         private string GetCopyrightTemplate(string language, string productName)

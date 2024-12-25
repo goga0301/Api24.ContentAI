@@ -56,6 +56,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             entity.CopyrightLimit = marketplace.CopyrightLimit;
             entity.VideoScriptLimit = marketplace.VideoScriptLimit;
             entity.LawyerLimit = marketplace.LawyerLimit;
+            entity.EnhanceTranslateLimit = marketplace.EnhanceTranslateLimit;
 
             await _marketplaceRepository.Update(entity, cancellationToken);
         }
