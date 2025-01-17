@@ -7,6 +7,7 @@ namespace Api24ContentAI.Domain.Service
 {
     public interface IUserContentService
     {
+        Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken);
         Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId, CancellationToken cancellationToken);
         Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken);
         Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken);

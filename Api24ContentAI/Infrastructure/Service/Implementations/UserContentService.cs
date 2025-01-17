@@ -50,6 +50,34 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _languageService = languageService;
             _userRepository = userRepository;
         }
+
+        public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken)
+        {
+            var message = new ContentFile()
+            {
+                Type = "text",
+                Text = request.Message
+            };
+
+
+            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { message });
+            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+            var lastPeriod = claudResponseText.LastIndexOf('.');
+
+            if (lastPeriod != -1)
+            {
+                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+            }
+
+            var response = new CopyrightAIResponse
+            {
+                Text = claudResponseText
+            };
+
+            return response;
+        }
         public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken)
         {
             var requestPrice = GetRequestPrice(RequestType.Copyright);
