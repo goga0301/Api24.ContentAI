@@ -636,16 +636,34 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
         private string GetEnhanceTranslateTemplate(string targetLanguage, string userInput, string TranslateOutput)
         {
-            return @$"  <original_text>{userInput}</original_text>, 
+            return @$"<original_text>{userInput}</original_text>
                         <translated_text>{TranslateOutput}</translated_text>
-                        
-                        Imagine you are a highly skilled Multilingual translator. You are given an original text, and it's translated version in {targetLanguage} Language. 
-                        
-                        I want you to give me a text improvement suggestions enclosed in <suggestions> your response </suggestions> tags. 
-                        Then apply suggestions to the translated_text and output it enclosed in <enhanced_text>text<enhanced_text> tags. 
-                        Separate this tags using single <hr> tag.
-                        Suggestions should not start with any introduction text. be maximum 50 Characters long, and be in {targetLanguage} Language.";
+
+                        You are a professional translator specializing in {targetLanguage}. Your task is to enhance the provided machine translation while maintaining EXACT meaning and content - no summarization, no restructuring, no content addition or removal.
+
+                        Rules:
+                        1. Keep the exact same number of paragraphs, sentences, and information points
+                        2. Preserve all numbers, dates, contact information, and proper nouns exactly as they appear
+                        3. DO NOT add headings or restructure the content
+                        4. DO NOT summarize or condense the content
+                        5. Focus only on improving language fluency and accuracy in {targetLanguage}
+
+                        First, provide 2-3 brief improvement suggestions focused solely on language aspects:
+                        <suggestions>
+                        [Your language improvement suggestions in {targetLanguage}]
+                        </suggestions>
+
+                        <hr>
+
+                        Then provide the enhanced translation that maintains the exact structure and content:
+                        <enhanced_text>
+                        [Your enhanced translation]
+                        </enhanced_text>
+
+                        Remember: The enhanced translation must contain ALL information from the original text, in the same order and structure. No information should be added, removed, or reorganized.";
         }
+
+
         private string GetTranslateTemplate(string targetLanguage, string description)
         {
             return @$"<text_to_translate> {description} </text_to_translate>
