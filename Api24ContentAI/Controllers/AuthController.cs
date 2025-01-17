@@ -21,11 +21,21 @@ namespace Api24ContentAI.Controllers
     {
         private readonly IConfiguration _configuration;
         private readonly IAuthService _authService;
+        private readonly IUserContentService _userContentService;
 
-        public AuthController(IConfiguration configuration, IAuthService authService)
+        public AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService)
         {
             _configuration = configuration;
             _authService = authService;
+            _userContentService = userContentService;
+        }
+
+        [HttpPost("basic")]
+        [AllowAnonymous]
+        public async Task<IActionResult> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken)
+        {
+            var response = await _userContentService.BasicMessage(request, cancellationToken);
+            return Ok(response);
         }
 
         [HttpPost("token")]
