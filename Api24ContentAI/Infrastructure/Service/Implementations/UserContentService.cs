@@ -359,7 +359,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
 
-            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name,request.UserInput, request.TranslateOutput);
+            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
             var wholeRequest = new StringBuilder(templateText);
             wholeRequest.AppendLine("-----------------------------------");
             wholeRequest.AppendLine();
@@ -631,27 +631,76 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private string GetImageToTextTemplate(string sourceLanguage)
         {
             return $@"Here is the image you need to analyze: <image>{{IMAGE_TO_PROCESS}}</image>
-                      You are an advanced AI assistant capable of performing image-to-text processing. Your task is to analyze an image containing text in {sourceLanguage} and convert it into written text. This may include both printed and handwritten text.
+              You are an advanced AI assistant with OCR (Optical Character Recognition) capabilities specialized in extracting text from images. 
+              Your task is to analyze an image containing text in {sourceLanguage} and convert it into a properly formatted Markdown (.md) document. This may include both printed and handwritten text.
 
-                      Follow these steps to complete the task:
-                      1. Carefully examine the image, paying attention to all visible text elements.
-                      2. Identify and distinguish between printed and handwritten text if both are present.
-                      3. For handwritten text:
-                         - Focus on the shape and style of the characters
-                         - Consider context clues to help decipher unclear words
-                         - Be prepared to make educated guesses for ambiguous characters
-                      4. For printed text:
-                         - Recognize standard fonts and typefaces
-                         - Pay attention to formatting, such as bold or italic text
-                      5. Transcribe the text you see in the image, maintaining the original formatting as much as possible.
-                      6. If you encounter any text that is unclear or ambiguous, indicate this by placing the uncertain text in square brackets with a question mark, like this: [unclear word?]
-                      7. If there are multiple separate text elements or paragraphs in the image, preserve their relative positioning in your transcription.
-                      8. Include any relevant punctuation marks that you can identify in the image.
-                      9. If the image contains any non-text elements (e.g., logos, drawings), you can briefly mention their presence but do not describe them in detail.
-                      10. After transcribing the text, provide a brief note about the overall clarity and legibility of the text in the image.
-                      
-                      Present your transcription in <transcription></transcription> tags  and notes within <transcription_notes></transcription_notes> tags. Begin with the transcribed text, followed by any notes about clarity or uncertainty.
-                      Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image, whether it's printed or handwritten. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
+              Follow these steps to complete the OCR and text processing task:
+              1. Carefully examine the image using your OCR capabilities to detect all visible text elements.
+              2. Apply advanced OCR processing to handle various challenges:
+                 - Different font styles and sizes
+                 - Low contrast or poor image quality
+                 - Rotated or skewed text
+                 - Text on complex backgrounds
+                 - Handwritten characters with varying styles
+              3. Identify and distinguish between printed and handwritten text if both are present.
+              4. For handwritten text:
+                 - Focus on the shape and style of the characters
+                 - Consider context clues to help decipher unclear words
+                 - Be prepared to make educated guesses for ambiguous characters
+              5. For printed text:
+                 - Recognize standard fonts and typefaces
+                 - Pay attention to formatting, such as bold or italic text
+              6. Transcribe the text you see in the image, maintaining the original structure.
+              7. If you encounter any text that is unclear or ambiguous, indicate this by placing the uncertain text in square brackets with a question mark, like this: [unclear word?]
+              8. Format your transcription as a proper Markdown document:
+                 - Use # for main headings, ## for subheadings, etc.
+                 - Use **bold** and *italic* to represent formatting seen in the original text
+                 - Use proper Markdown list formatting (- or 1. 2. 3.) for any lists in the text
+                 - Use > for quoted text blocks
+                 - Use proper paragraph spacing
+                 - Use `code blocks` for any code or technical content
+                 - Use tables if tabular data is present
+              9. Include any relevant punctuation marks that you can identify in the image.
+              10. If the image contains non-text elements (e.g., logos, drawings), briefly mention them in [Image: description] format.
+              11. After completing the transcription, provide a brief note about the overall clarity and legibility as a comment at the end using <!-- comment --> syntax.
+              
+              Present your complete output as a properly formatted Markdown document that could be saved directly as a .md file.
+              Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image using your OCR capabilities, preserving the original formatting with Markdown syntax. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
+        }
+        
+        private string GetDocumentToMarkdownTemplate()
+        {
+            return $@"Here is the document you need to convert: <input_file>{{DOCUMENT_TO_PROCESS}}</input_file>
+              You are an AI assistant tasked with converting Word or PDF documents into Markdown format while preserving the original document's structure, formatting, and visual elements. Your goal is to create a Markdown file that, when compiled, will replicate the original document as closely as possible. This process is designed to facilitate a more fluid document translation flow.
+
+              Follow these steps to complete the conversion task:
+              1. Analyze the input file:
+                 Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
+              2. Process the document content:
+                 - Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
+                 - Identify and preserve any special formatting (bold, italic, underline, etc.).
+                 - Locate all tables and images within the document.
+              3. Handle tables and visual elements:
+                 - For tables, convert them into Markdown table format. If the tables are complex, consider using HTML table syntax within the Markdown file for better representation.
+                 - For images, extract them and save them as separate files. In the Markdown document, use the appropriate Markdown syntax to reference these images.
+              4. Convert to Markdown format:
+                 - Use appropriate Markdown syntax for headings, lists, emphasis, and links.
+                 - Ensure that the document's hierarchy and structure are maintained through proper use of Markdown headings (#, ##, ###, etc.).
+                 - Convert any footnotes or endnotes to Markdown format.
+              5. Preserve document structure and formatting:
+                 - Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
+                 - If certain formatting cannot be replicated exactly in Markdown, use HTML and CSS within the Markdown file to achieve a similar appearance.
+              6. Generate the output:
+                 Create a Markdown (.md) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
+              7. Review and format check:
+                 - Verify that all content from the original document has been transferred to the Markdown file.
+                 - Check that the Markdown syntax is correct and will render properly when compiled.
+                 - Ensure that the overall structure and appearance of the document are preserved as much as possible.
+
+              Your final output should be a well-formatted Markdown file that closely replicates the original document. Include only the converted Markdown content in your response, enclosed in <markdown_output> tags. Do not include any explanations or comments outside of these tags.
+              <markdown_output>
+              [Insert the converted Markdown content here]
+              </markdown_output>";
         }
 
         private string GetChainTranslateTemplate(string initialPrompt, string lastResponse)
