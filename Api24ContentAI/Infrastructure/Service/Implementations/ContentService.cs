@@ -2,6 +2,7 @@
 using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
@@ -29,6 +30,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IMarketplaceService _marketplaceService;
         private readonly ILanguageService _languageService;
         private readonly HttpClient _httpClient;
+        // NOTE: caching service
+        private readonly ICacheService _cacheService;
 
 
         private static readonly string[] SupportedFileExtensions = new string[]
@@ -40,6 +43,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         };
 
         public ContentService(IClaudeService claudeService,
+                              ICacheService cacheService,
                               ICustomTemplateService customTemplateService,
                               ITemplateService templateService,
                               IRequestLogService requestLogService,
@@ -49,6 +53,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                               HttpClient httpClient)
         {
             _claudeService = claudeService;
+            _cacheService = cacheService;
             _customTemplateService = customTemplateService;
             _templateService = templateService;
             _requestLogService = requestLogService;
@@ -60,72 +65,60 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
-            var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
 
-            if (marketplace == null)
-            {
-                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
-            }
+            // NOTE: it would be good to implement caching layer to reduce api requests
+            var cacheKey = GetCacheKey(request);
 
-            if (marketplace.ContentLimit <= 0)
-            {
-                throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
-            }
-            var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
+            return await _cacheService.GetOrCreateAsync<ContentAIResponse>(
+                cacheKey,
+                async () => {
+                    var marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+                    if (marketplace == null)
+                    {
+                    throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+                    }
 
-            var templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
+                    if (marketplace.ContentLimit <= 0)
+                    {
+                    throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
+                    }
+                   
+                    var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
 
-            var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
+                    var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
-            if (template != null)
-            {
-                templateText = template.Text;
-            }
+                    var templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
 
-            var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
+                    var template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
 
-            if (customTemplate != null)
-            {
-                templateText = customTemplate.Text;
-            }
+                    if (template != null)
+                    {
+                        templateText = template.Text;
+                    }
 
+                    var customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
 
-            var claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
+                    if (customTemplate != null)
+                    {
+                        templateText = customTemplate.Text;
+                    }
 
-            var claudeRequest = new ClaudeRequest(claudRequestContent);
+                    var claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
-            var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-            var lastPeriod = claudResponseText.LastIndexOf('.');
+                    var claudeRequest = new ClaudeRequest(claudRequestContent);
+                    var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+                    var claudResponseText = ProcessClaudeResponse(claudeResponse);
+                    var response = new ContentAIResponse{ Text = claudResponseText };
 
-            if (lastPeriod != -1)
-            {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
-            }
+                    await LogRequest(request, response, marketplace.Id, cancellationToken);
+                    await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
 
-            var response = new ContentAIResponse
-            {
-                Text = claudResponseText
-            };
-
-            await _requestLogService.Create(new CreateRequestLogModel
-            {
-                MarketplaceId = request.UniqueKey,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                RequestType = RequestType.Content
-
-            }, cancellationToken);
+                    return response;
+            },
+            TimeSpan.FromHours(24),
+            cancellationToken
+            );
 
             //await _marketplaceService.Update(new UpdateMarketplaceModel
             //{
@@ -135,9 +128,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             //    ContentLimit = marketplace.ContentLimit - 1,
             //}, cancellationToken);
 
-            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
-
-            return response;
         }
 
         public async Task<TranslateResponse> Translate(TranslateRequest request, CancellationToken cancellationToken)
@@ -551,6 +541,41 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 byte[] fileBytes = ms.ToArray();
                 return Convert.ToBase64String(fileBytes);
             }
+        }
+
+        private string GetCacheKey(ContentAIRequest request)
+        {
+            return $"content_ai_{request.UniqueKey}_{request.ProductCategoryId}_{request.LanguageId}_{request.ProductName}_{string.Join("_", request.Attributes)}";
+        }
+
+
+        private string ProcessClaudeResponse(ClaudeResponse claudeResponse)
+        {
+            var text = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            var lastPeriod = text.LastIndexOf('.');
+            if (lastPeriod != -1)
+            {
+                text = new string(text.Take(lastPeriod + 1).ToArray());
+            }
+            return text;
+        }
+
+        private async Task LogRequest(ContentAIRequest request, ContentAIResponse response,
+                Guid marketplaceId, CancellationToken cancellationToken)
+        {
+            var options = new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                Encoder = JavaScriptEncoder.Create(UnicodeRanges.All)
+            };
+
+            await _requestLogService.Create(new CreateRequestLogModel
+                    {
+                    MarketplaceId = marketplaceId,
+                    Request = JsonSerializer.Serialize(request, options),
+                    Response = JsonSerializer.Serialize(response, options),
+                    RequestType = RequestType.Content
+                    }, cancellationToken);
         }
 
     }

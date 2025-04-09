@@ -1,13 +1,10 @@
 ﻿using Api24ContentAI.Domain.Entities;
-using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
-using Api24ContentAI.Migrations;
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Npgsql;
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations

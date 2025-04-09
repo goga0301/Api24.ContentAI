@@ -33,6 +33,14 @@ namespace Api24ContentAI
         // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
+
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = Configuration.GetConnectionString("Redis");
+                options.InstanceName = "Api24ContentAI_";
+            });
+
+
             services.AddControllers();
 
             services.AddSwaggerGen(options =>
@@ -67,7 +75,7 @@ namespace Api24ContentAI
             services.AddRepositories();
             services.AddServices();
 
-            services.AddHttpClient<IClaudeService, ClaudeService>((client) =>
+services.AddHttpClient<IClaudeService, ClaudeService>((client) =>
             {
                 client.DefaultRequestHeaders.Add("x-api-key", Configuration.GetSection("Security:ClaudeApiKey").Value);
                 client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
