@@ -29,6 +29,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IProductCategoryService _productCategoryService;
         private readonly ILanguageService _languageService;
         private readonly IUserRepository _userRepository;
+        private readonly ICacheService _cacheService;
 
         private static readonly string[] SupportedFileExtensions = new string[]
         {
@@ -39,6 +40,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         };
 
         public UserContentService(IClaudeService claudeService,
+                              ICacheService cacheService,
                               IUserRequestLogService requestLogService,
                               IProductCategoryService productCategoryService,
                               ILanguageService languageService,
@@ -53,31 +55,41 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken)
         {
-            var message = new ContentFile()
-            {
-                Type = "text",
-                Text = request.Message
-            };
+
+            var cacheKey = $"basic_message_{request.Message.GetHashCode()}";
+
+            return await _cacheService.GetOrCreateAsync<CopyrightAIResponse>(
+                    cacheKey,
+                    async () => {
+                    var message = new ContentFile()
+                    {
+                    Type = "text",
+                    Text = request.Message
+                    };
 
 
-            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { message });
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+                    var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { message });
+                    var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                    var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-            var lastPeriod = claudResponseText.LastIndexOf('.');
+                    var lastPeriod = claudResponseText.LastIndexOf('.');
 
-            if (lastPeriod != -1)
-            {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
-            }
+                    if (lastPeriod != -1)
+                    {
+                    claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                    }
 
-            var response = new CopyrightAIResponse
-            {
-                Text = claudResponseText
-            };
+                    var response = new CopyrightAIResponse
+                    {
+                        Text = claudResponseText
+                    };
 
-            return response;
+                    return response;
+
+                    });
+
         }
+
         public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken)
         {
             var requestPrice = GetRequestPrice(RequestType.Copyright);
