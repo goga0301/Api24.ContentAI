@@ -6,6 +6,8 @@
 
 	<ItemGroup>
 		<PackageReference Include="Dapper" Version="2.1.35" />
+		<!--<PackageReference Include="DinkToPdf" Version="1.0.8" />
+		<PackageReference Include="IronPdf" Version="2025.4.4" />-->
 		<PackageReference Include="itext7" Version="8.0.4" />
 		<PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="5.0.17" />
 		<PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="5.0.17" />
@@ -18,6 +20,7 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="5.0.10" />
+		<PackageReference Include="Select.HtmlToPdf.NetCore" Version="25.1.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="5.6.3" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
 	</ItemGroup>

@@ -4,6 +4,7 @@ using System;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -35,7 +36,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, CancellationToken cancellationToken)
         {
-            var response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
+            var res= JsonSerializer.Serialize<ClaudeRequestWithFile>(request, new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            });
+            var response = await _httpClient.PostAsJsonAsync(Messages, request, new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+            }, cancellationToken);
 
             var str = await response.Content.ReadAsStringAsync();
             var result = JsonSerializer.Deserialize<ClaudeResponse>(str);

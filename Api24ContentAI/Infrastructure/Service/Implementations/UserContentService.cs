@@ -17,8 +17,7 @@ using System.Text;
 using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using System.Text.RegularExpressions;
-using Api24ContentAI.Migrations;
-using iText.Layout.Borders;
+using SelectPdf;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -210,6 +209,44 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
+
+
+        public async Task<string> TestTranslateTextAsync(IFormFile file, CancellationToken cancellationToken)
+        {
+
+            var templateText = GetDocumentToMarkdownTemplate1(file.FileName);
+            var contents = new List<ContentFile>();
+
+            var messageFile = new ContentFile()
+            {
+                Type = "document",
+                Source = new Source
+                {
+                    Type = "base64",
+                    MediaType = "application/pdf",
+                    Data = EncodeFileToBase64(file),
+                },
+            };
+
+            var message = new ContentFile
+            {
+                Type = "text",
+                Text = templateText,
+            };
+            contents.Add(messageFile);
+            contents.Add(message);
+
+            string systemPrompt = GetSystemPromptForPdfToHtml();
+            var claudeRequest = new ClaudeRequestWithFile(contents, systemPrompt);
+            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponsePlainText = claudeResponse.Content.Single().Text;
+
+            var start = claudResponsePlainText.IndexOf("<html_output>") + 13;
+            var end = claudResponsePlainText.IndexOf("</html_output>");
+
+            return claudResponsePlainText.Substring(start, end - start);
+        }
+
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
         {
             var pdfPageCount = 0;
@@ -284,8 +321,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     request.Description = textFromImage.ToString();
                 }
             }
+            else
+            {
+                request.Description = await TestTranslateTextAsync(request.Files.FirstOrDefault(), cancellationToken);
+            }
 
-            var requestPrice = CalculateTranslateRequestPriceNew(request.Description);
+            var requestPrice = CalculateTranslateRequestPriceNew(request.Description, request.IsPdf, pdfPageCount);
             var user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
@@ -293,6 +334,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("ბალანსი არ არის საკმარისი მოთხოვნის დასამუშავებლად!!!");
             }
             var chunks = GetChunksOfLargeText(request.Description);
+            if (request.IsPdf)
+            {
+                chunks = new List<string>() { request.Description };
+            }
             var chunkBuilder = new StringBuilder();
             var claudResponseText = new StringBuilder();
             var tasks = new List<Task<KeyValuePair<int, string>>>();
@@ -318,11 +363,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 claudResponseText.AppendLine(result);
             }
-            var chunksLog = chunkBuilder.ToString();
+
+            byte[] pdfBytes = ConvertHtmlToPdf(claudResponseText.Replace("<br>", ""));
 
             var response = new TranslateResponse
             {
-                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
+                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>"),
+                File = pdfBytes
             };
 
             await _requestLogService.Create(new CreateUserRequestLogModel
@@ -345,6 +392,33 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
+        private static byte[] ConvertHtmlToPdf(StringBuilder claudResponseText)
+        {
+            HtmlToPdf converter = new HtmlToPdf();
+
+            // Configure PDF settings
+            converter.Options.PdfPageSize = PdfPageSize.A4;
+            converter.Options.PdfPageOrientation = PdfPageOrientation.Portrait;
+            converter.Options.MarginLeft = 10;
+            converter.Options.MarginRight = 10;
+            converter.Options.MarginTop = 10;
+            converter.Options.MarginBottom = 10;
+
+            // Convert HTML to PDF
+            SelectPdf.PdfDocument pdfDocument = converter.ConvertHtmlString(claudResponseText.ToString());
+
+            // Get PDF as bytes
+            byte[] pdfBytes;
+            using (MemoryStream ms = new MemoryStream())
+            {
+                pdfDocument.Save(ms);
+                pdfBytes = ms.ToArray();
+            }
+
+            // Clean up
+            pdfDocument.Close();
+            return pdfBytes;
+        }
 
         public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId, CancellationToken cancellationToken)
         {
@@ -420,11 +494,56 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return request.Files.Count * 1.45m;
         }
-
-        private decimal CalculateTranslateRequestPriceNew(string description)
+        private string GetSystemPromptForPdfToHtml()
         {
-            var defaultPrice = GetRequestPrice(RequestType.Translate);
+            string systemPrompt = @"You are an AI assistant specialized in converting Word and PDF documents to HTML format. You maintain the original document's structure, formatting, and visual elements while ensuring compatibility with A4 page size (210mm x 297mm).
 
+Your conversion process follows these steps:
+
+1. Analyze the input file to determine its type (Word/PDF) and content structure
+2. Extract and preserve formatted text (headings, paragraphs, lists) with proper HTML tags
+3. Convert tables to HTML table format
+4. Handle images by extracting them and using appropriate <img> tags
+5. Implement proper HTML hierarchy (<h1>, <h2>, <p>, <ul>, etc.)
+6. Format footnotes/endnotes with <sup> and <a> tags
+7. Add CSS styling for A4 compatibility including:
+   - Page dimensions (210mm x 297mm)
+   - Appropriate margins and padding
+   - Print media queries
+   - Page breaks and layout preservation
+8. Generate a complete HTML file with proper syntax
+9. Ensure all content from the original is preserved in the output
+
+When responding, provide only the converted HTML content within <html_output> tags without any explanations or comments outside those tags.
+
+Example response format:
+<html_output>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Converted Document</title>
+    <style>
+        /* A4 formatting CSS here */
+    </style>
+</head>
+<body>
+    <!-- Converted content here -->
+</body>
+</html>
+</html_output>";
+
+            return systemPrompt;
+
+        }
+
+        private decimal CalculateTranslateRequestPriceNew(string description, bool isPdf, int pageCount)
+        {
+
+            var defaultPrice = GetRequestPrice(RequestType.Translate);
+            if (isPdf)
+            {
+                return defaultPrice * pageCount;
+            }
             return defaultPrice * ((description.Length / 250) + description.Length % 250 == 0 ? 0 : 1);
 
         }
@@ -667,40 +786,95 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
               Present your complete output as a properly formatted Markdown document that could be saved directly as a .md file.
               Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image using your OCR capabilities, preserving the original formatting with Markdown syntax. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
         }
-        
-        private string GetDocumentToMarkdownTemplate()
+
+        private string GetDocumentToMarkdownTemplate(string fileName)
         {
-            return $@"Here is the document you need to convert: <input_file>{{DOCUMENT_TO_PROCESS}}</input_file>
-              You are an AI assistant tasked with converting Word or PDF documents into Markdown format while preserving the original document's structure, formatting, and visual elements. Your goal is to create a Markdown file that, when compiled, will replicate the original document as closely as possible. This process is designed to facilitate a more fluid document translation flow.
+            return @$"You are an AI assistant tasked with converting Word or PDF documents into Markdown format while preserving the original document's structure, formatting, and visual elements. Your goal is to create a Markdown file that, when compiled, will replicate the original document as closely as possible. This process is designed to facilitate a more fluid document translation flow.
 
-              Follow these steps to complete the conversion task:
-              1. Analyze the input file:
-                 Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
-              2. Process the document content:
-                 - Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
-                 - Identify and preserve any special formatting (bold, italic, underline, etc.).
-                 - Locate all tables and images within the document.
-              3. Handle tables and visual elements:
-                 - For tables, convert them into Markdown table format. If the tables are complex, consider using HTML table syntax within the Markdown file for better representation.
-                 - For images, extract them and save them as separate files. In the Markdown document, use the appropriate Markdown syntax to reference these images.
-              4. Convert to Markdown format:
-                 - Use appropriate Markdown syntax for headings, lists, emphasis, and links.
-                 - Ensure that the document's hierarchy and structure are maintained through proper use of Markdown headings (#, ##, ###, etc.).
-                 - Convert any footnotes or endnotes to Markdown format.
-              5. Preserve document structure and formatting:
-                 - Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
-                 - If certain formatting cannot be replicated exactly in Markdown, use HTML and CSS within the Markdown file to achieve a similar appearance.
-              6. Generate the output:
-                 Create a Markdown (.md) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
-              7. Review and format check:
-                 - Verify that all content from the original document has been transferred to the Markdown file.
-                 - Check that the Markdown syntax is correct and will render properly when compiled.
-                 - Ensure that the overall structure and appearance of the document are preserved as much as possible.
+Here are the steps you should follow:
 
-              Your final output should be a well-formatted Markdown file that closely replicates the original document. Include only the converted Markdown content in your response, enclosed in <markdown_output> tags. Do not include any explanations or comments outside of these tags.
-              <markdown_output>
-              [Insert the converted Markdown content here]
-              </markdown_output>";
+1. Analyze the input file:
+<input_file> {fileName} </input_file>
+
+Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
+
+2. Process the document content:
+- Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
+- Identify and preserve any special formatting (bold, italic, underline, etc.).
+- Locate all tables and images within the document.
+
+3. Handle tables and visual elements:
+- For tables, convert them into Markdown table format. If the tables are complex, consider using HTML table syntax within the Markdown file for better representation.
+- For images, extract them and save them as separate files. In the Markdown document, use the appropriate Markdown syntax to reference these images.
+
+4. Convert to Markdown format:
+- Use appropriate Markdown syntax for headings, lists, emphasis, and links.
+- Ensure that the document's hierarchy and structure are maintained through proper use of Markdown headings (#, ##, ###, etc.).
+- Convert any footnotes or endnotes to Markdown format.
+
+5. Preserve document structure and formatting:
+- Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
+- If certain formatting cannot be replicated exactly in Markdown, use HTML and CSS within the Markdown file to achieve a similar appearance.
+
+6. Generate the output:
+Create a Markdown (.md) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
+
+7. Review and format check:
+- Verify that all content from the original document has been transferred to the Markdown file.
+- Check that the Markdown syntax is correct and will render properly when compiled.
+- Ensure that the overall structure and appearance of the document are preserved as much as possible.
+
+Your final output should be a well-formatted Markdown file that closely replicates the original document. Include only the converted Markdown content in your response, enclosed in <markdown_output> tags. Do not include any explanations or comments outside of these tags.
+
+<markdown_output>
+[Insert the converted Markdown content here]
+</markdown_output>";
+        }
+        private string GetDocumentToMarkdownTemplate1(string fileName)
+        {
+            return $@"You are an AI assistant tasked with converting Word or PDF documents into HTML format while preserving the original document's structure, formatting, and visual elements. Your goal is to create an HTML file that, when rendered, will replicate the original document as closely as possible. The resulting HTML should be formatted to fit an A4 page size to ensure compatibility with standard printing formats.
+
+Here are the steps you should follow:
+
+1. Analyze the input file:
+<input_file> {fileName} </input_file>
+
+Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
+
+2. Process the document content:
+- Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
+- Identify and preserve any special formatting (bold, italic, underline, etc.).
+- Locate all tables and images within the document.
+
+3. Handle tables and visual elements:
+- For tables, convert them into HTML table format.
+- For images, extract them and save them as separate files. In the HTML document, use the appropriate <img> tags to reference these images.
+
+4. Convert to HTML format:
+- Use appropriate HTML tags for headings, lists, emphasis, and links.
+- Ensure that the document's hierarchy and structure are maintained through proper use of HTML elements (<h1>, <h2>, <p>, <ul>, <ol>, etc.).
+- Convert any footnotes or endnotes to HTML format using appropriate tags such as <sup> and <a>.
+
+5. Ensure A4 Page Compatibility:
+- Use inline CSS or a <style> block to format the page for A4 size:
+  - Set the page dimensions to A4 size (210mm x 297mm).
+  - Include margins and padding to match standard print layout.
+  - Use @media print in the CSS to optimize the document for printing.
+- Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
+
+6. Generate the output:
+Create an HTML (.html) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
+
+7. Review and format check:
+- Verify that all content from the original document has been transferred to the HTML file.
+- Check that the HTML syntax is correct and will render properly when opened in a browser or printed.
+- Ensure that the overall structure and appearance of the document are preserved as much as possible, with adherence to A4 format.
+
+Your final output should be a well-formatted HTML file that closely replicates the original document. Include only the converted HTML content in your response, enclosed in <html_output> tags. Do not include any explanations or comments outside of these tags.
+
+<html_output>
+[Insert the converted HTML content here]
+</html_output>";
         }
 
         private string GetChainTranslateTemplate(string initialPrompt, string lastResponse)
@@ -833,7 +1007,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 using (var pdfReader = new PdfReader(stream))
                 {
-                    var pdf = new PdfDocument(pdfReader);
+                    var pdf = new iText.Kernel.Pdf.PdfDocument(pdfReader);
                     pageCount = pdf.GetNumberOfPages();
                     for (int i = 1; i <= pdf.GetNumberOfPages(); i++)
                     {

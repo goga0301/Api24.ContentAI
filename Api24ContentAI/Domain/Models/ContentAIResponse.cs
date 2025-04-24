@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using Microsoft.AspNetCore.Http;
+using System.Collections.Generic;
 
 namespace Api24ContentAI.Domain.Models
 {
@@ -10,6 +11,7 @@ namespace Api24ContentAI.Domain.Models
     public class TranslateResponse
     {
         public string Text { get; set; }
+        public byte[] File { get; set; }
     }
     public class ChunkForTranslateResponse
     {
