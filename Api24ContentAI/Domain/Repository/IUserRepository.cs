@@ -5,7 +5,7 @@ using System.Threading;
 
 namespace Api24ContentAI.Domain.Repository
 {
-    public interface IUserRepository 
+    public interface IUserRepository
     {
         IQueryable<User> GetAll();
 

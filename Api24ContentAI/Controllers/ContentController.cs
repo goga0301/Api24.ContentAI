@@ -12,17 +12,10 @@ namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class ContentController : ControllerBase
+    public class ContentController(IContentService contentService, HttpClient httpClient) : ControllerBase
     {
-        private readonly IContentService _contentService;
-        private readonly HttpClient _httpClient;
-
-        public ContentController(IContentService contentService, HttpClient httpClient)
-        {
-            _contentService = contentService;
-            _httpClient = httpClient;
-
-        }
+        private readonly IContentService _contentService = contentService;
+        private readonly HttpClient _httpClient = httpClient;
 
         [HttpPost]
         public async Task<IActionResult> Send([FromBody] ContentAIRequest request, CancellationToken cancellationToken)
@@ -51,7 +44,7 @@ namespace Api24ContentAI.Controllers
                 return BadRequest(new Error { ErrorText = ex.Message });
             }
         }
-        
+
         [HttpPost("enhance-translate")]
         public async Task<IActionResult> EnhanceTranslate([FromBody] EnhanceTranslateRequest request, CancellationToken cancellationToken)
         {
@@ -100,7 +93,7 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={prompt.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
+                PromptResponse response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={prompt.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
                 return Ok(response);
 
             }

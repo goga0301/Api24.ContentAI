@@ -39,7 +39,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<MarketplaceModel> GetById(Guid id, CancellationToken cancellationToken)
         {
-            var marketplace = await _marketplaceRepository.GetById(id, cancellationToken);
+            Marketplace marketplace = await _marketplaceRepository.GetById(id, cancellationToken);
             if (marketplace == null)
             {
                 throw new Exception("მარკეტფლეისი არ მოიძებნა");
@@ -49,7 +49,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task Update(UpdateMarketplaceModel marketplace, CancellationToken cancellationToken)
         {
-            var entity = await _marketplaceRepository.GetById(marketplace.Id, cancellationToken);
+            Marketplace entity = await _marketplaceRepository.GetById(marketplace.Id, cancellationToken);
             entity.Name = marketplace.Name;
             entity.TranslateLimit = marketplace.TranslateLimit;
             entity.ContentLimit = marketplace.ContentLimit;

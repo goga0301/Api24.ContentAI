@@ -38,7 +38,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<LanguageModel> GetById(int id, CancellationToken cancellationToken)
         {
-            var language = await _languageRepository.GetById(id, cancellationToken);
+            Domain.Entities.Language language = await _languageRepository.GetById(id, cancellationToken);
             if (language == null)
             {
                 throw new Exception("მითითებული ენა ვერ მოიძებნა");
@@ -48,7 +48,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task Update(UpdateLanguageModel language, CancellationToken cancellationToken)
         {
-            var entity = await _languageRepository.GetById(language.Id, cancellationToken);
+            Domain.Entities.Language entity = await _languageRepository.GetById(language.Id, cancellationToken);
             entity.Name = language.Name;
             entity.NameGeo = language.NameGeo;
 

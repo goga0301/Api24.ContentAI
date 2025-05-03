@@ -8,14 +8,9 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class LanguageRepository : ILanguageRepository
+    public class LanguageRepository(ContentDbContext dbContext) : ILanguageRepository
     {
-        private readonly ContentDbContext _dbContext;
-
-        public LanguageRepository(ContentDbContext dbContext)
-        {
-            _dbContext = dbContext;
-        }
+        private readonly ContentDbContext _dbContext = dbContext;
 
         public IQueryable<Language> GetAll()
         {
@@ -31,21 +26,21 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task Create(Language entity, CancellationToken cancellationToken)
         {
-            await _dbContext.Set<Language>().AddAsync(entity, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            _ = await _dbContext.Set<Language>().AddAsync(entity, cancellationToken);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         public async Task Update(Language entity, CancellationToken cancellationToken)
         {
-            _dbContext.Set<Language>().Update(entity);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            _ = _dbContext.Set<Language>().Update(entity);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         public async Task Delete(int id, CancellationToken cancellationToken)
         {
-            var entity = await GetById(id, cancellationToken);
-            _dbContext.Set<Language>().Remove(entity);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            Language entity = await GetById(id, cancellationToken);
+            _ = _dbContext.Set<Language>().Remove(entity);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 }

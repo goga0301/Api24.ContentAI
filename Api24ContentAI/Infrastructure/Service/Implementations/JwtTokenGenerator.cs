@@ -22,9 +22,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
         public string GenerateToken(IdentityUser applicationUser, IEnumerable<string> roles)
         {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_jwtOptions.Secret);
-            var claimList = new List<Claim>
+            JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
+            byte[] key = Encoding.ASCII.GetBytes(_jwtOptions.Secret);
+            List<Claim> claimList = new List<Claim>
             {
                 new Claim(JwtRegisteredClaimNames.Sub, applicationUser.Id),
                 new Claim(JwtRegisteredClaimNames.UniqueName, applicationUser.UserName),
@@ -33,7 +33,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
             claimList.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
 
-            var tokenDescriptor = new SecurityTokenDescriptor()
+            SecurityTokenDescriptor tokenDescriptor = new SecurityTokenDescriptor()
             {
                 Audience = _jwtOptions.Audience,
                 Issuer = _jwtOptions.Issuer,
@@ -43,15 +43,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha512Signature)
             };
 
-            var token = tokenHandler.CreateToken(tokenDescriptor);
+            SecurityToken token = tokenHandler.CreateToken(tokenDescriptor);
             return tokenHandler.WriteToken(token);
         }
 
         public (string AccessToken, string RefreshToken) GenerateTokens(IdentityUser applicationUser, IEnumerable<string> roles)
         {
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var key = Encoding.ASCII.GetBytes(_jwtOptions.Secret);
-            var claimList = new List<Claim>
+            JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
+            byte[] key = Encoding.ASCII.GetBytes(_jwtOptions.Secret);
+            List<Claim> claimList = new List<Claim>
     {
         new Claim(JwtRegisteredClaimNames.Sub, applicationUser.Id),
         new Claim(JwtRegisteredClaimNames.UniqueName, applicationUser.UserName),
@@ -59,7 +59,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         new Claim("UserId", applicationUser.Id),
     };
             claimList.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
-            var tokenDescriptor = new SecurityTokenDescriptor()
+            SecurityTokenDescriptor tokenDescriptor = new SecurityTokenDescriptor()
             {
                 Audience = _jwtOptions.Audience,
                 Issuer = _jwtOptions.Issuer,
@@ -67,15 +67,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Expires = DateTime.UtcNow.AddHours(1),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha512Signature)
             };
-            var token = tokenHandler.CreateToken(tokenDescriptor);
-            var accessToken = tokenHandler.WriteToken(token);
-            var refreshToken = GenerateRefreshToken();
+            SecurityToken token = tokenHandler.CreateToken(tokenDescriptor);
+            string accessToken = tokenHandler.WriteToken(token);
+            string refreshToken = GenerateRefreshToken();
 
             return (accessToken, refreshToken);
         }
         public (string AccessToken, string RefreshToken) RefreshToken(string accessToken, string refreshToken)
         {
-            var tokenValidationParameters = new TokenValidationParameters
+            TokenValidationParameters tokenValidationParameters = new TokenValidationParameters
             {
                 ValidateAudience = false,
                 ValidateIssuer = false,
@@ -84,17 +84,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ValidateLifetime = false
             };
 
-            var tokenHandler = new JwtSecurityTokenHandler();
+            JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
             SecurityToken securityToken;
-            var principal = tokenHandler.ValidateToken(accessToken, tokenValidationParameters, out securityToken);
-            var jwtSecurityToken = securityToken as JwtSecurityToken;
+            ClaimsPrincipal principal = tokenHandler.ValidateToken(accessToken, tokenValidationParameters, out securityToken);
+            JwtSecurityToken jwtSecurityToken = securityToken as JwtSecurityToken;
             if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha512, StringComparison.InvariantCultureIgnoreCase))
                 throw new SecurityTokenException("Invalid token");
 
             // Here you should validate the refresh token against the stored one in your database
             // For this example, we'll assume it's valid
 
-            var newAccessToken = GenerateTokens(new IdentityUser
+            (string AccessToken, string RefreshToken) newAccessToken = GenerateTokens(new IdentityUser
             {
                 Id = principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value,
                 UserName = principal.FindFirst(JwtRegisteredClaimNames.UniqueName)?.Value,
@@ -105,8 +105,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
         public string GenerateRefreshToken()
         {
-            var randomNumber = new byte[512];
-            using (var rng = RandomNumberGenerator.Create())
+            byte[] randomNumber = new byte[512];
+            using (RandomNumberGenerator rng = RandomNumberGenerator.Create())
             {
                 rng.GetBytes(randomNumber);
                 return Convert.ToBase64String(randomNumber);
@@ -116,7 +116,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public ClaimsPrincipal GetPrincipalFromExpiredToken(string token)
         {
-            var tokenValidationParameters = new TokenValidationParameters
+            TokenValidationParameters tokenValidationParameters = new TokenValidationParameters
             {
                 ValidateAudience = false,
                 ValidateIssuer = false,
@@ -125,10 +125,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ValidateLifetime = false
             };
 
-            var tokenHandler = new JwtSecurityTokenHandler();
+            JwtSecurityTokenHandler tokenHandler = new JwtSecurityTokenHandler();
             SecurityToken securityToken;
-            var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
-            var jwtSecurityToken = securityToken as JwtSecurityToken;
+            ClaimsPrincipal principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
+            JwtSecurityToken jwtSecurityToken = securityToken as JwtSecurityToken;
             if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha512, StringComparison.InvariantCultureIgnoreCase))
                 throw new SecurityTokenException("Invalid token");
 

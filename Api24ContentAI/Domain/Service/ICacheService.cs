@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Api24ContentAI.Infrastructure.Service
+namespace Api24ContentAI.Domain.Service
 {
     public interface ICacheService
     {

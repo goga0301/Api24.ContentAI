@@ -43,7 +43,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<CustomTemplateModel> GetByMarketplaceAndProductCategoryId(Guid marketplaceId, Guid productCategoryId, CancellationToken cancellationToken)
         {
-            var entity = await _customTemplateRepository.GetByMarketplaceAndProductCategoryId(marketplaceId, productCategoryId, cancellationToken);
+            Domain.Entities.CustomTemplate entity = await _customTemplateRepository.GetByMarketplaceAndProductCategoryId(marketplaceId, productCategoryId, cancellationToken);
             if (entity == null) return null;
             return entity.ToModel();
         }
@@ -57,7 +57,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task Update(UpdateCustomTemplateModel customTemplate, CancellationToken cancellationToken)
         {
-            var entity = await _customTemplateRepository.GetById(customTemplate.Id, cancellationToken);
+            Domain.Entities.CustomTemplate entity = await _customTemplateRepository.GetById(customTemplate.Id, cancellationToken);
             entity.Name = customTemplate.Name;
             entity.Text = customTemplate.Text;
             entity.MarketplaceId = customTemplate.MarketplaceId;

@@ -4,10 +4,7 @@ using Api24ContentAI.Infrastructure.Repository.DbContexts;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class ProductCategoryRepository : GenericRepository<ProductCategory>, IProductCategoryRepository
+    public class ProductCategoryRepository(ContentDbContext dbContext) : GenericRepository<ProductCategory>(dbContext), IProductCategoryRepository
     {
-        public ProductCategoryRepository(ContentDbContext dbContext) : base(dbContext)
-        {
-        }
     }
 }

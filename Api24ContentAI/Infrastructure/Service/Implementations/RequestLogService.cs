@@ -11,21 +11,16 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class RequestLogService : IRequestLogService
+    public class RequestLogService(IRequestLogRepository requestLogRepository) : IRequestLogService
     {
-        private readonly IRequestLogRepository _requestLogRepository;
-
-        public RequestLogService(IRequestLogRepository requestLogRepository)
-        {
-            _requestLogRepository = requestLogRepository;
-        }
+        private readonly IRequestLogRepository _requestLogRepository = requestLogRepository;
 
         public async Task<LogCountModel> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
-            var translateCount = await _requestLogRepository.CountTranslatesByMarketplaceId(marketplaceId, cancellationToken);
-            var contentCount = await _requestLogRepository.CountContentAIByMarketplaceId(marketplaceId, cancellationToken);
-            var copyrightCount = await _requestLogRepository.CountCopyrightAIByMarketplaceId(marketplaceId, cancellationToken);
-            var videoScriptCount = await _requestLogRepository.CountVideoScriptByMarketplaceId(marketplaceId, cancellationToken);
+            int translateCount = await _requestLogRepository.CountTranslatesByMarketplaceId(marketplaceId, cancellationToken);
+            int contentCount = await _requestLogRepository.CountContentAIByMarketplaceId(marketplaceId, cancellationToken);
+            int copyrightCount = await _requestLogRepository.CountCopyrightAIByMarketplaceId(marketplaceId, cancellationToken);
+            int videoScriptCount = await _requestLogRepository.CountVideoScriptByMarketplaceId(marketplaceId, cancellationToken);
 
             return new LogCountModel
             {
@@ -51,7 +46,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<RequestLogModel>> GetAll(CancellationToken cancellationToken)
         {
-            return await _requestLogRepository.GetAll().Select(x => new RequestLogModel
+            return await _requestLogRepository.GetAll().Select(static x => new RequestLogModel
             {
                 Id = x.Id,
                 MarketplaceId = x.MarketplaceId,
@@ -64,7 +59,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<RequestLogModel> GetById(Guid id, CancellationToken cancellationToken)
         {
-            var entity = await _requestLogRepository.GetById(id, cancellationToken);
+            RequestLog entity = await _requestLogRepository.GetById(id, cancellationToken);
             return new RequestLogModel
             {
                 Id = entity.Id,
@@ -78,7 +73,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<RequestLogModel>> GetByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
-            var t = await _requestLogRepository.GetByMarketplaceId(marketplaceId).Select(x => new RequestLogModel
+            List<RequestLogModel> t = await _requestLogRepository.GetByMarketplaceId(marketplaceId).Select(static x => new RequestLogModel
             {
                 Id = x.Id,
                 MarketplaceId = x.MarketplaceId,
@@ -92,21 +87,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
     }
 
-    public class UserRequestLogService : IUserRequestLogService
+    public class UserRequestLogService(IUserRequestLogRepository requestLogRepository) : IUserRequestLogService
     {
-        private readonly IUserRequestLogRepository _requestLogRepository;
-
-        public UserRequestLogService(IUserRequestLogRepository requestLogRepository)
-        {
-            _requestLogRepository = requestLogRepository;
-        }
+        private readonly IUserRequestLogRepository _requestLogRepository = requestLogRepository;
 
         public async Task<LogCountModel> CountByUserId(string UserId, CancellationToken cancellationToken)
         {
-            var translateCount = await _requestLogRepository.CountTranslatesByUserId(UserId, cancellationToken);
-            var contentCount = await _requestLogRepository.CountContentAIByUserId(UserId, cancellationToken);
-            var copyrightCount = await _requestLogRepository.CountCopyrightAIByUserId(UserId, cancellationToken);
-            var videoScriptCount = await _requestLogRepository.CountVideoScriptByUserId(UserId, cancellationToken);
+            int translateCount = await _requestLogRepository.CountTranslatesByUserId(UserId, cancellationToken);
+            int contentCount = await _requestLogRepository.CountContentAIByUserId(UserId, cancellationToken);
+            int copyrightCount = await _requestLogRepository.CountCopyrightAIByUserId(UserId, cancellationToken);
+            int videoScriptCount = await _requestLogRepository.CountVideoScriptByUserId(UserId, cancellationToken);
 
             return new LogCountModel
             {
@@ -132,7 +122,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<UserRequestLogModel>> GetAll(CancellationToken cancellationToken)
         {
-            return await _requestLogRepository.GetAll().Where(x => !string.IsNullOrWhiteSpace(x.ResponseJson)).Select(x => new UserRequestLogModel
+            return await _requestLogRepository.GetAll().Where(static x => !string.IsNullOrWhiteSpace(x.ResponseJson)).Select(static x => new UserRequestLogModel
             {
                 Id = x.Id,
                 UserId = x.UserId,
@@ -145,7 +135,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<UserRequestLogModel> GetById(Guid id, CancellationToken cancellationToken)
         {
-            var entity = await _requestLogRepository.GetById(id, cancellationToken);
+            UserRequestLog entity = await _requestLogRepository.GetById(id, cancellationToken);
             return new UserRequestLogModel
             {
                 Id = entity.Id,
@@ -159,7 +149,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<List<UserRequestLogModel>> GetByUserId(string UserId, CancellationToken cancellationToken)
         {
-            var t = await _requestLogRepository.GetByUserId(UserId).Where(x => !string.IsNullOrWhiteSpace(x.ResponseJson)).Select(x => new UserRequestLogModel
+            List<UserRequestLogModel> t = await _requestLogRepository.GetByUserId(UserId).Where(static x => !string.IsNullOrWhiteSpace(x.ResponseJson)).Select(static x => new UserRequestLogModel
             {
                 Id = x.Id,
                 UserId = x.UserId,

@@ -12,14 +12,9 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class UserController : ControllerBase
+    public class UserController(IUserService userService) : ControllerBase
     {
-        private readonly IUserService _userService;
-
-        public UserController(IUserService userService)
-        {
-            _userService = userService;
-        }
+        private readonly IUserService _userService = userService;
 
         [HttpGet]
         public async Task<List<UserModel>> GetAll(CancellationToken cancellationToken)
@@ -52,12 +47,8 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var result = await _userService.ChangePassword(model, cancellationToken);
-                if (result)
-                {
-                    return Ok(result);
-                }
-                return BadRequest("Changing password has failed. Current Password is not correct");
+                bool result = await _userService.ChangePassword(model, cancellationToken);
+                return result ? Ok(result) : BadRequest("Changing password has failed. Current Password is not correct");
             }
             catch (Exception ex)
             {

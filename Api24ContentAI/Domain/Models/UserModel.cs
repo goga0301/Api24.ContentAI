@@ -11,8 +11,8 @@
         public string RoleId { get; set; }
         public string RoleName { get; set; }
         public decimal Balance { get; set; }
-    }    
-    
+    }
+
     public class UpdateUserModel
     {
         public string Id { get; set; }
@@ -23,7 +23,7 @@
         public string LastName { get; set; }
         public string RoleId { get; set; }
         public decimal Balance { get; set; }
-    }    
+    }
     public class ChangeUserPasswordModel
     {
         public string Id { get; set; }

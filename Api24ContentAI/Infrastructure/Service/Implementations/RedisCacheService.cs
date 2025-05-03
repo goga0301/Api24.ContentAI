@@ -1,9 +1,9 @@
+using Api24ContentAI.Domain.Service;
 using Microsoft.Extensions.Caching.Distributed;
 using System;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Api24ContentAI.Domain.Service;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -23,37 +23,33 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<T> GetOrCreateAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiration = null, CancellationToken cancellationToken = default)
         {
-            var cached = await GetAsync<T>(key, cancellationToken);
+            T cached = await GetAsync<T>(key, cancellationToken);
             if (cached != null)
             {
                 return cached;
             }
 
-            var value = await factory();
+            T value = await factory();
             await SetAsync(key, value, expiration, cancellationToken);
             return value;
         }
 
         public async Task<T> GetAsync<T>(string key, CancellationToken cancellationToken = default)
         {
-            var cached = await _cache.GetAsync(key, cancellationToken);
-            if (cached == null)
-            {
-                return default;
-            }
+            byte[] cached = await _cache.GetAsync(key, cancellationToken);
 
-            return JsonSerializer.Deserialize<T>(cached);
+            return cached == null ? default : JsonSerializer.Deserialize<T>(cached);
         }
 
 
         public async Task SetAsync<T>(string key, T value, TimeSpan? expiration = null, CancellationToken cancellationToken = default)
         {
-            var options = new DistributedCacheEntryOptions
+            DistributedCacheEntryOptions options = new DistributedCacheEntryOptions
             {
                 AbsoluteExpirationRelativeToNow = expiration ?? _defaultOptions.AbsoluteExpirationRelativeToNow
             };
 
-            var serialized = JsonSerializer.SerializeToUtf8Bytes(value);
+            byte[] serialized = JsonSerializer.SerializeToUtf8Bytes(value);
             await _cache.SetAsync(key, serialized, options, cancellationToken);
         }
 

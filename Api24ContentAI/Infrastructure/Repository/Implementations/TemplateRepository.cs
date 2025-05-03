@@ -1,6 +1,6 @@
 ﻿using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Repository;
-using Api24ContentAI.Infrastructure.Service;
+using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -9,19 +9,15 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class TemplateRepository : GenericRepository<Template>, ITemplateRepository
+    public class TemplateRepository(ContentDbContext dbContext) : GenericRepository<Template>(dbContext), ITemplateRepository
     {
 
         private readonly ICacheService _cacheService;
 
-        public TemplateRepository(ContentDbContext dbContext) : base(dbContext)
-        {
-        }
-
         public async Task<Template> GetByProductCategoryId(Guid productCategoryId, CancellationToken cancellationToken)
         {
 
-            var cacheKey = $"template_category_{productCategoryId}";
+            string cacheKey = $"template_category_{productCategoryId}";
             return await _cacheService.GetOrCreateAsync(
                     cacheKey,
                     async () => await _dbContext.Set<Template>()

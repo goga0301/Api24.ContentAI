@@ -6,7 +6,7 @@ namespace Api24ContentAI.Domain.Entities
     {
         public string Name { get; set; }
         public string Text { get; set; }
-        public Guid ProductCategoryId { get; set; } 
+        public Guid ProductCategoryId { get; set; }
         public ProductCategory ProductCategory { get; set; }
     }
 }

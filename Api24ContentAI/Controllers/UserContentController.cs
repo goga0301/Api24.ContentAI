@@ -13,25 +13,19 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class UserContentController : ControllerBase
+    public class UserContentController(IUserContentService userContentService) : ControllerBase
     {
-        private readonly IUserContentService _userContentService;
-        public UserContentController(IUserContentService userContentService)
-        {
-            _userContentService = userContentService;
-        }
+        private readonly IUserContentService _userContentService = userContentService;
 
         [HttpPost]
         public async Task<IActionResult> Send([FromBody] UserContentAIRequest request, CancellationToken cancellationToken)
         {
             try
             {
-                var userId = User.FindFirstValue("UserId");
-                if (string.IsNullOrEmpty(userId))
-                {
-                    return Unauthorized("User ID not found in the token");
-                }
-                return Ok(await _userContentService.SendRequest(request, userId, cancellationToken));
+                string userId = User.FindFirstValue("UserId");
+                return string.IsNullOrEmpty(userId)
+                    ? Unauthorized("User ID not found in the token")
+                    : Ok(await _userContentService.SendRequest(request, userId, cancellationToken));
             }
             catch (Exception ex)
             {
@@ -44,12 +38,12 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var userId = User.FindFirstValue("UserId");
+                string userId = User.FindFirstValue("UserId");
                 if (string.IsNullOrEmpty(userId))
                 {
                     return Unauthorized("User ID not found in the token");
                 }
-                var result = await _userContentService.ChunkedTranslate(request, userId, cancellationToken);
+                TranslateResponse result = await _userContentService.ChunkedTranslate(request, userId, cancellationToken);
                 return Ok(result);
 
             }
@@ -64,12 +58,12 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var userId = User.FindFirstValue("UserId");
+                string userId = User.FindFirstValue("UserId");
                 if (string.IsNullOrEmpty(userId))
                 {
                     return Unauthorized("User ID not found in the token");
                 }
-                var result = await _userContentService.EnhanceTranslate(request, userId, cancellationToken);
+                TranslateResponse result = await _userContentService.EnhanceTranslate(request, userId, cancellationToken);
                 return Ok(result);
 
             }
@@ -84,13 +78,10 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var userId = User.FindFirstValue("UserId");
-                if (string.IsNullOrEmpty(userId))
-                {
-                    return Unauthorized("User ID not found in the token");
-                }
-                return Ok(await _userContentService.CopyrightAI(file, request, userId, cancellationToken));
-
+                string userId = User.FindFirstValue("UserId");
+                return string.IsNullOrEmpty(userId)
+                    ? Unauthorized("User ID not found in the token")
+                    : Ok(await _userContentService.CopyrightAI(file, request, userId, cancellationToken));
             }
             catch (Exception ex)
             {
@@ -103,13 +94,10 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var userId = User.FindFirstValue("UserId");
-                if (string.IsNullOrEmpty(userId))
-                {
-                    return Unauthorized("User ID not found in the token");
-                }
-                return Ok(await _userContentService.Email(request, userId, cancellationToken));
-
+                string userId = User.FindFirstValue("UserId");
+                return string.IsNullOrEmpty(userId)
+                    ? Unauthorized("User ID not found in the token")
+                    : Ok(await _userContentService.Email(request, userId, cancellationToken));
             }
             catch (Exception ex)
             {
@@ -122,13 +110,10 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var userId = User.FindFirstValue("UserId");
-                if (string.IsNullOrEmpty(userId))
-                {
-                    return Unauthorized("User ID not found in the token");
-                }
-                return Ok(await _userContentService.VideoScript(file, request, userId, cancellationToken));
-
+                string userId = User.FindFirstValue("UserId");
+                return string.IsNullOrEmpty(userId)
+                    ? Unauthorized("User ID not found in the token")
+                    : Ok(await _userContentService.VideoScript(file, request, userId, cancellationToken));
             }
             catch (Exception ex)
             {

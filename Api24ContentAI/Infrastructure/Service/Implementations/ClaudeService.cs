@@ -22,9 +22,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             try
             {
-                var response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
+                HttpResponseMessage response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
 
-                var str = await response.Content.ReadAsStringAsync();
+                string str = await response.Content.ReadAsStringAsync();
                 return JsonSerializer.Deserialize<ClaudeResponse>(str);
             }
             catch (Exception ex)
@@ -35,10 +35,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, CancellationToken cancellationToken)
         {
-            var response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
+            HttpResponseMessage response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
 
-            var str = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<ClaudeResponse>(str);
+            string str = await response.Content.ReadAsStringAsync();
+            ClaudeResponse result = JsonSerializer.Deserialize<ClaudeResponse>(str);
             if (result.Content == null)
             {
                 throw new Exception(str);

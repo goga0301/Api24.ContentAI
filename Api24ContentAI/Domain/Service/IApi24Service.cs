@@ -7,6 +7,6 @@ namespace Api24ContentAI.Domain.Service
 {
     public interface IApi24Service
     {
-        public Task<List<CategoryResponse>> GetCategories(CancellationToken cancellationToken);
+        Task<List<CategoryResponse>> GetCategories(CancellationToken cancellationToken);
     }
 }

@@ -41,7 +41,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task Update(UpdateUserModel user, CancellationToken cancellationToken)
         {
 
-            var entity = await _userRepository.GetById(user.Id, cancellationToken);
+            User entity = await _userRepository.GetById(user.Id, cancellationToken);
             if (entity == null)
             {
                 throw new System.Exception($"User not found by id: {user.Id}");
@@ -58,8 +58,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
         public async Task<bool> ChangePassword(ChangeUserPasswordModel model, CancellationToken cancellationToken)
         {
-            var user = await _userRepository.GetById(model.Id, cancellationToken);
-            var result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
+            User user = await _userRepository.GetById(model.Id, cancellationToken);
+            IdentityResult result = await _userManager.ChangePasswordAsync(user, model.CurrentPassword, model.NewPassword);
             return result.Succeeded;
         }
     }

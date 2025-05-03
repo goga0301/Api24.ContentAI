@@ -12,14 +12,9 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class CustomTemplateController : ControllerBase
+    public class CustomTemplateController(ICustomTemplateService customTemplateService) : ControllerBase
     {
-        private readonly ICustomTemplateService _customTemplateService;
-
-        public CustomTemplateController(ICustomTemplateService customTemplateService)
-        {
-            _customTemplateService = customTemplateService;
-        }
+        private readonly ICustomTemplateService _customTemplateService = customTemplateService;
 
         [HttpGet]
         public async Task<List<CustomTemplateModel>> GetAll(CancellationToken cancellationToken)

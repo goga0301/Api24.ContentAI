@@ -10,31 +10,22 @@ using System.Threading.Tasks;
 using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Domain.Models;
 using System.Threading;
-using System.Net.Http;
-using Newtonsoft.Json;
 
 namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class AuthController : ControllerBase
+    public class AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService) : ControllerBase
     {
-        private readonly IConfiguration _configuration;
-        private readonly IAuthService _authService;
-        private readonly IUserContentService _userContentService;
-
-        public AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService)
-        {
-            _configuration = configuration;
-            _authService = authService;
-            _userContentService = userContentService;
-        }
+        private readonly IConfiguration _configuration = configuration;
+        private readonly IAuthService _authService = authService;
+        private readonly IUserContentService _userContentService = userContentService;
 
         [HttpPost("basic")]
         [AllowAnonymous]
         public async Task<IActionResult> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken)
         {
-            var response = await _userContentService.BasicMessage(request, cancellationToken);
+            CopyrightAIResponse response = await _userContentService.BasicMessage(request, cancellationToken);
             return Ok(response);
         }
 
@@ -48,18 +39,18 @@ namespace Api24ContentAI.Controllers
                 return Unauthorized();
             }
 
-            var claims = new[] { new Claim(JwtRegisteredClaimNames.Sub, username) };
+            Claim[] claims = [new Claim(JwtRegisteredClaimNames.Sub, username)];
 
-            var tokenDescriptor = new SecurityTokenDescriptor
+            SecurityTokenDescriptor tokenDescriptor = new()
             {
                 Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.UtcNow.AddMinutes(60),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration.GetSection("Security:SecretKey").Value)), SecurityAlgorithms.HmacSha256Signature),
             };
 
-            var tokenHandler = new JwtSecurityTokenHandler();
-            var securityToken = tokenHandler.CreateToken(tokenDescriptor);
-            var token = tokenHandler.WriteToken(securityToken);
+            JwtSecurityTokenHandler tokenHandler = new();
+            SecurityToken securityToken = tokenHandler.CreateToken(tokenDescriptor);
+            string token = tokenHandler.WriteToken(securityToken);
 
             return Ok(new { Token = token });
         }
@@ -69,7 +60,7 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var user = await _authService.Login(loginRequestDTO, cancellationToken);
+                LoginResponse user = await _authService.Login(loginRequestDTO, cancellationToken);
                 return Ok(user);
             }
             catch (Exception ex)
@@ -83,7 +74,7 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var user = await _authService.LoginWithFacebook(credential, cancellationToken);
+                LoginResponse user = await _authService.LoginWithFacebook(credential, cancellationToken);
                 return Ok(user);
             }
             catch (Exception ex)
@@ -97,7 +88,7 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                var user = await _authService.RefreshToken(tokenModel, cancellationToken);
+                LoginResponse user = await _authService.RefreshToken(tokenModel, cancellationToken);
                 return Ok(user);
             }
             catch (Exception ex)

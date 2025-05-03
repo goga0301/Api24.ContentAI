@@ -9,59 +9,51 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class MarketplaceRepository : GenericRepository<Marketplace>, IMarketplaceRepository
+    public class MarketplaceRepository(ContentDbContext dbContext, IConfiguration configuration) : GenericRepository<Marketplace>(dbContext), IMarketplaceRepository
     {
-        private readonly string connectionString;
-
-        public MarketplaceRepository(ContentDbContext dbContext, IConfiguration configuration) : base(dbContext)
-        {
-            connectionString = configuration.GetSection("DatabaseOptions:ConnectionString").Value ?? "";
-
-        }
+        private readonly string connectionString = configuration.GetSection("DatabaseOptions:ConnectionString").Value ?? "";
 
         public async Task UpdateBalance(Guid uniqueKey, RequestType requestType)
         {
-            using (var connection = new NpgsqlConnection(connectionString))
-            {
-                await connection.OpenAsync();
+            using NpgsqlConnection connection = new(connectionString);
+            await connection.OpenAsync();
 
-                try
+            try
+            {
+                string updateQuery = requestType switch
                 {
-                    var updateQuery = requestType switch
-                    {
-                        RequestType.Content => @"UPDATE ""ContentDb"".""Marketplaces""
+                    RequestType.Content => @"UPDATE ""ContentDb"".""Marketplaces""
                                              SET ""ContentLimit"" = ""ContentLimit"" - 1
                                              WHERE ""Id"" = @Id;",
 
-                        RequestType.Translate => @"UPDATE ""ContentDb"".""Marketplaces""
+                    RequestType.Translate => @"UPDATE ""ContentDb"".""Marketplaces""
                                                SET ""TranslateLimit"" = ""TranslateLimit"" - 1
                                                WHERE ""Id"" = @Id;",
 
-                        RequestType.Copyright => @"UPDATE ""ContentDb"".""Marketplaces""
+                    RequestType.Copyright => @"UPDATE ""ContentDb"".""Marketplaces""
                                                SET ""CopyrightLimit"" = ""CopyrightLimit"" - 1
                                                WHERE ""Id"" = @Id;",
 
-                        RequestType.VideoScript => @"UPDATE ""ContentDb"".""Marketplaces""
+                    RequestType.VideoScript => @"UPDATE ""ContentDb"".""Marketplaces""
                                                  SET ""VideoScriptLimit"" = ""VideoScriptLimit"" - 1
                                                  WHERE ""Id"" = @Id;",
 
-                        RequestType.Lawyer => @"UPDATE ""ContentDb"".""Marketplaces""
+                    RequestType.Lawyer => @"UPDATE ""ContentDb"".""Marketplaces""
                                             SET ""LawyerLimit"" = ""LawyerLimit"" - 1
                                             WHERE ""Id"" = @Id;",
 
-                        RequestType.EnhanceTranslate => @"UPDATE ""ContentDb"".""Marketplaces""
+                    RequestType.EnhanceTranslate => @"UPDATE ""ContentDb"".""Marketplaces""
                                             SET ""EnhanceTranslateLimit"" = ""EnhanceTranslateLimit"" - 1
                                             WHERE ""Id"" = @Id;",
+                    RequestType.Email => throw new NotImplementedException(),
+                    _ => throw new Exception("Incorect request type")
+                };
 
-                        _ => throw new Exception("Incorect request type")
-                    };
-
-                    await connection.ExecuteAsync(updateQuery, new { Id = uniqueKey });
-                }
-                finally
-                {
-                    await connection.CloseAsync();
-                }
+                _ = await connection.ExecuteAsync(updateQuery, new { Id = uniqueKey });
+            }
+            finally
+            {
+                await connection.CloseAsync();
             }
         }
     }
