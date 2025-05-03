@@ -19,6 +19,7 @@ using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
 
+
 namespace Api24ContentAI
 {
     public class Startup(IConfiguration configuration)
