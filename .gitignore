@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 /Api24ContentAI/appsettings.json
 /Api24ContentAI/appsettings.Development.json
+
+# remove rider files
+.idea/
