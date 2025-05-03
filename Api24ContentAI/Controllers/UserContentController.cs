@@ -18,7 +18,8 @@ namespace Api24ContentAI.Controllers
         private readonly IUserContentService _userContentService = userContentService;
 
         [HttpPost]
-        public async Task<IActionResult> Send([FromBody] UserContentAIRequest request, CancellationToken cancellationToken)
+        public async Task<IActionResult> Send([FromBody] UserContentAIRequest request,
+                CancellationToken cancellationToken)
         {
             try
             {

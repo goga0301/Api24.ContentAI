@@ -20,68 +20,54 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class ContentService : IContentService
+    public class ContentService(IClaudeService claudeService,
+                          ICacheService cacheService,
+                          ICustomTemplateService customTemplateService,
+                          ITemplateService templateService,
+                          IRequestLogService requestLogService,
+                          IProductCategoryService productCategoryService,
+                          IMarketplaceService marketplaceService,
+                          ILanguageService languageService,
+                          HttpClient httpClient) : IContentService
     {
-        private readonly IClaudeService _claudeService;
-        private readonly ICustomTemplateService _customTemplateService;
-        private readonly ITemplateService _templateService;
-        private readonly IRequestLogService _requestLogService;
-        private readonly IProductCategoryService _productCategoryService;
-        private readonly IMarketplaceService _marketplaceService;
-        private readonly ILanguageService _languageService;
-        private readonly HttpClient _httpClient;
-        // NOTE: caching service
-        private readonly ICacheService _cacheService;
+        private readonly IClaudeService _claudeService = claudeService;
+        private readonly ICustomTemplateService _customTemplateService = customTemplateService;
+        private readonly ITemplateService _templateService = templateService;
+        private readonly IRequestLogService _requestLogService = requestLogService;
+        private readonly IProductCategoryService _productCategoryService = productCategoryService;
+        private readonly IMarketplaceService _marketplaceService = marketplaceService;
+        private readonly ILanguageService _languageService = languageService;
+        private readonly HttpClient _httpClient = httpClient;
+        private readonly ICacheService _cacheService = cacheService;
 
 
-        private static readonly string[] SupportedFileExtensions = new string[]
-        {
+        private static readonly string[] SupportedFileExtensions =
+        [
             "jpeg",
             "png",
             "gif",
             "webp"
-        };
-
-        public ContentService(IClaudeService claudeService,
-                              ICacheService cacheService,
-                              ICustomTemplateService customTemplateService,
-                              ITemplateService templateService,
-                              IRequestLogService requestLogService,
-                              IProductCategoryService productCategoryService,
-                              IMarketplaceService marketplaceService,
-                              ILanguageService languageService,
-                              HttpClient httpClient)
-        {
-            _claudeService = claudeService;
-            _cacheService = cacheService;
-            _customTemplateService = customTemplateService;
-            _templateService = templateService;
-            _requestLogService = requestLogService;
-            _productCategoryService = productCategoryService;
-            _marketplaceService = marketplaceService;
-            _languageService = languageService;
-            _httpClient = httpClient;
-        }
+        ];
 
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
 
-            // NOTE: it would be good to implement caching layer to reduce api requests
             string cacheKey = GetCacheKey(request);
 
-            return await _cacheService.GetOrCreateAsync<ContentAIResponse>(
+            return await _cacheService.GetOrCreateAsync(
                 cacheKey,
-                async () => {
+                async () =>
+                {
                     MarketplaceModel marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
 
                     if (marketplace == null)
                     {
-                    throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+                        throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
                     }
 
                     if (marketplace.ContentLimit <= 0)
                     {
-                    throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
+                        throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
                     }
 
                     ProductCategoryModel productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
@@ -109,13 +95,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     ClaudeRequest claudeRequest = new ClaudeRequest(claudRequestContent);
                     ClaudeResponse claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
                     string claudResponseText = ProcessClaudeResponse(claudeResponse);
-                    ContentAIResponse response = new ContentAIResponse{ Text = claudResponseText };
+                    ContentAIResponse response = new ContentAIResponse { Text = claudResponseText };
 
                     await LogRequest(request, response, marketplace.Id, cancellationToken);
                     await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
 
                     return response;
-            },
+                },
             TimeSpan.FromHours(24),
             cancellationToken
             );
@@ -299,7 +285,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             };
 
-            ClaudeRequestWithFile claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { fileMessage, message });
+            ClaudeRequestWithFile claudeRequest = new ClaudeRequestWithFile([fileMessage, message]);
             ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
@@ -307,7 +293,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             if (lastPeriod != -1)
             {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
             }
 
             CopyrightAIResponse response = new CopyrightAIResponse
@@ -387,7 +373,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             };
 
-            ClaudeRequestWithFile claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { fileMessage, message });
+            ClaudeRequestWithFile claudeRequest = new ClaudeRequestWithFile([fileMessage, message]);
             ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
@@ -395,7 +381,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             if (lastPeriod != -1)
             {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
             }
 
             VideoScriptAIResponse response = new VideoScriptAIResponse
@@ -555,7 +541,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             int lastPeriod = text.LastIndexOf('.');
             if (lastPeriod != -1)
             {
-                text = new string(text.Take(lastPeriod + 1).ToArray());
+                text = new string([.. text.Take(lastPeriod + 1)]);
             }
             return text;
         }
@@ -570,12 +556,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
 
             await _requestLogService.Create(new CreateRequestLogModel
-                    {
-                    MarketplaceId = marketplaceId,
-                    Request = JsonSerializer.Serialize(request, options),
-                    Response = JsonSerializer.Serialize(response, options),
-                    RequestType = RequestType.Content
-                    }, cancellationToken);
+            {
+                MarketplaceId = marketplaceId,
+                Request = JsonSerializer.Serialize(request, options),
+                Response = JsonSerializer.Serialize(response, options),
+                RequestType = RequestType.Content
+            }, cancellationToken);
         }
 
     }

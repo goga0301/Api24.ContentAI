@@ -6,7 +6,7 @@ namespace Api24ContentAI.Infrastructure.Service
 {
     public static class Extentions
     {
-        public static void  AddServices(this IServiceCollection services)
+        public static void AddServices(this IServiceCollection services)
         {
             services.AddScoped<ICacheService, RedisCacheService>();
             services.AddScoped<ITemplateService, TemplateService>();
@@ -16,7 +16,7 @@ namespace Api24ContentAI.Infrastructure.Service
             services.AddScoped<IRequestLogService, RequestLogService>();
             services.AddScoped<IUserRequestLogService, UserRequestLogService>();
             services.AddScoped<ILanguageService, LanguageService>();
-            
+
             services.AddScoped<IClaudeService, ClaudeService>();
             services.AddScoped<IContentService, ContentService>();
             services.AddScoped<IUserContentService, UserContentService>();
