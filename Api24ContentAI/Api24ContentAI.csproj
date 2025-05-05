@@ -2,7 +2,8 @@
 
 	<PropertyGroup>
 		<TargetFramework>net9.0</TargetFramework>
-	</PropertyGroup>
+	  <UserSecretsId>f436c5f8-4caa-4f6b-afec-114d57e7a0b9</UserSecretsId>
+  </PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Dapper" Version="2.1.35" />

@@ -74,7 +74,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                         return response;
 
-                    }, cancellationToken: cancellationToken);
+                    }, TimeSpan.FromHours(24), cancellationToken);
 
         }
 
@@ -292,33 +292,44 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 throw new Exception("ბალანსი არ არის საკმარისი მოთხოვნის დასამუშავებლად!!!");
             }
+
+            string translationId = Guid.NewGuid().ToString();
+
             List<string> chunks = GetChunksOfLargeText(request.Description);
             StringBuilder chunkBuilder = new();
             StringBuilder claudResponseText = new();
-            List<Task<KeyValuePair<int, string>>> tasks = [];
-            int index = 0;
+            // List<Task<KeyValuePair<int, string>>> tasks = [];
+            List<Task<KeyValuePair<int, ClaudeResponse>>> tasks = [];
+            List<ClaudeResponse> allResponses = [];
 
-            foreach (string chunk in chunks)
+            for (int i = 0; i < chunks.Count; i++)
             {
+                string chunk = chunks[i];
+
                 chunkBuilder.AppendLine(chunk);
                 chunkBuilder.AppendLine("-----------------------------------------");
 
-                int currentIndex = index;
-                Task<KeyValuePair<int, string>> task = TranslateTextAsync(currentIndex, chunk, language.Name, cancellationToken);
-
+                Task<KeyValuePair<int, ClaudeResponse>> task = TranslateTextWithResponceAsync(i, chunk, language.Name, translationId, cancellationToken);
                 tasks.Add(task);
-                index++;
             }
 
-            KeyValuePair<int, string>[] results = await Task.WhenAll(tasks);
+            KeyValuePair<int, ClaudeResponse>[] results = await Task.WhenAll(tasks);
 
-            IEnumerable<string> orderedResults = results.OrderBy(r => r.Key).Select(r => r.Value);
 
-            foreach (string result in orderedResults)
+            IEnumerable<KeyValuePair<int, ClaudeResponse>> orderedResults = results.OrderBy(r => r.Key);
+
+            foreach (KeyValuePair<int, ClaudeResponse> kvp in orderedResults)
             {
-                claudResponseText.AppendLine(result);
+                ClaudeResponse respons = kvp.Value;
+                string fullText = respons.Content.Single().Text;
+
+                claudResponseText.AppendLine(fullText);
+                allResponses.Add(respons);
             }
-            string chunksLog = chunkBuilder.ToString();
+
+            List<string> responseKeys = await StoreChunkedTranslationResponses(allResponses, translationId, cancellationToken);
+
+
 
             TranslateResponse response = new()
             {
@@ -440,6 +451,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             contents.Add(message);
             ClaudeRequestWithFile claudeRequest = new(contents);
             ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+
             string claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
             int start = claudResponsePlainText.IndexOf("<translation>") + 13;
@@ -855,6 +867,219 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _ => "Neutral"
             };
         }
+
+
+
+        private async Task<KeyValuePair<int, ClaudeResponse>> TranslateTextWithResponceAsync(int order, string text, string language, string translationId, CancellationToken cancellationToken)
+        {
+            string templateText = GetTranslateTemplate(language, text);
+            List<ContentFile> contents =
+            [
+                new ContentFile
+                {
+                    Type = "text",
+                    Text = templateText
+                }
+            ];
+
+            ClaudeRequestWithFile claudeRequest = new(contents);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+
+            return new KeyValuePair<int, ClaudeResponse>(order, claudeResponse);
+        }
+
+        private async Task<List<string>> StoreChunkedTranslationResponses(List<ClaudeResponse> responses, string translationId, CancellationToken cancellationToken)
+        {
+            if (responses == null || responses.Count == 0)
+            {
+                throw new ArgumentException("No responses to store", nameof(responses));
+            }
+
+            List<string> responceKeys = [];
+
+            for (int i = 0; i < responses.Count; i++)
+            {
+
+                string responceKey = $"claude_response_{translationId}_chunk_{i}_{Guid.NewGuid()}";
+
+                string serializedResponse;
+                try
+                {
+                    serializedResponse = JsonSerializer.Serialize(responses[i], new JsonSerializerOptions
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                        WriteIndented = false
+                    });
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Failed to serialize Claude response for chunk {i}: {ex.Message}");
+                }
+
+                await _cacheService.SetAsync(responceKey, serializedResponse, TimeSpan.FromHours(1), cancellationToken);
+                responceKeys.Add(responceKey);
+            }
+
+            string keysListKey = $"claude_response_keys_{translationId}";
+            await _cacheService.SetAsync(keysListKey, responceKeys, TimeSpan.FromHours(1), cancellationToken);
+
+            return responceKeys;
+        }
+
+        // this method is not callude yet we will need another AI to send claude responses
+        // to verify correctness of response
+        private async Task<VerificationResult> VerifyTranslationBatch(string translationId, string userId, CancellationToken cancellationToken)
+        {
+            string keysListKey = $"claude_response_keys_{translationId}";
+            List<string> responceKeys = await _cacheService.GetAsync<List<string>>(keysListKey, cancellationToken);
+
+            if (responceKeys == null || responceKeys.Count == 0)
+            {
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = "Translation response keys not found or expired",
+                    UserId = userId,
+                    TranslationId = translationId
+                };
+            }
+
+            try
+            {
+                List<ClaudeResponse> responses = [];
+                List<string> missingChunks = [];
+                for (int i = 0; i < responceKeys.Count; i++)
+                {
+                    string key = responceKeys[i];
+                    string serializedResponse = await _cacheService.GetAsync<string>(key, cancellationToken);
+
+                    if (string.IsNullOrEmpty(serializedResponse))
+                    {
+                        missingChunks.Add($"Chunk {i}");
+                        continue;
+                    }
+
+                    try
+                    {
+                        ClaudeResponse claudeResponse = JsonSerializer.Deserialize<ClaudeResponse>(serializedResponse);
+                        if (claudeResponse != null)
+                        {
+                            responses.Add(claudeResponse);
+                        }
+                        else
+                        {
+                            missingChunks.Add($"Chunk {i} (null after deserialization)");
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        missingChunks.Add($"Chunk {i} (deserialization error: {ex.Message})");
+                    }
+
+                }
+
+                if (missingChunks.Count > 0)
+                {
+                    return new VerificationResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"Missing or corrupted chunks: {string.Join(", ", missingChunks)}",
+                        UserId = userId,
+                        TranslationId = translationId,
+                        RecoveredChunks = responses.Count
+                    };
+                }
+
+                VerificationResult verificationResult = await VerifyCompleteTranslation(responses, userId, translationId, cancellationToken);
+
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(new { TranslationId = translationId }),
+                    Response = JsonSerializer.Serialize(verificationResult),
+                    RequestType = RequestType.TranslateVerification
+                }, cancellationToken);
+
+                return verificationResult;
+            }
+            catch (Exception ex)
+            {
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(new { TranslationId = translationId }),
+                    Response = JsonSerializer.Serialize(new { Error = ex.Message }),
+                    RequestType = RequestType.TranslateVerification
+                }, cancellationToken);
+
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Verification failed: {ex.Message}",
+                    UserId = userId,
+                    TranslationId = translationId
+                };
+            }
+        }
+
+        // NOTE: this method can be used for another AI to verify ClaudeResponces
+        private async Task<VerificationResult> VerifyCompleteTranslation(List<ClaudeResponse> responses, string userId, string translationId, CancellationToken cancellationToken)
+        {
+            if (responses == null || responses.Count == 0)
+            {
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = "No responses to verify",
+                    UserId = userId,
+                    TranslationId = translationId
+                };
+            }
+
+            try
+            {
+                List<string> translatedTexts = [];
+                foreach (ClaudeResponse response in responses)
+                {
+                    string fullText = response.Content.Single().Text;
+                    int start = fullText.IndexOf("<translation>") + 13;
+                    int end = fullText.IndexOf("</translation>");
+
+                    if (start >= 13 && end > start)
+                    {
+                        translatedTexts.Add(fullText[start..end]);
+                    }
+                    else
+                    {
+                        translatedTexts.Add("ERROR: Missing translation tags in response");
+                    }
+                }
+
+                // this could call another AI service
+
+                // For now, returning a placeholder success result
+                // In a real implementation, you would process the verification results
+                return new VerificationResult
+                {
+                    Success = true,
+                    UserId = userId,
+                    TranslationId = translationId,
+                    VerifiedChunks = responses.Count
+                };
+            }
+            catch (Exception ex)
+            {
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Verification process error: {ex.Message}",
+                    UserId = userId,
+                    TranslationId = translationId
+                };
+            }
+        }
+
     }
 
     public enum EmailSpeechForm

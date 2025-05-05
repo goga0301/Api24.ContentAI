@@ -9,14 +9,10 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class ClaudeService : IClaudeService
+    public class ClaudeService(HttpClient httpClient) : IClaudeService
     {
-        private readonly HttpClient _httpClient;
+        private readonly HttpClient _httpClient = httpClient;
         private const string Messages = "messages";
-        public ClaudeService(HttpClient httpClient)
-        {
-            _httpClient = httpClient;
-        }
 
         public async Task<ClaudeResponse> SendRequest(ClaudeRequest request, CancellationToken cancellationToken)
         {
@@ -24,7 +20,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 HttpResponseMessage response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
 
-                string str = await response.Content.ReadAsStringAsync();
+                string str = await response.Content.ReadAsStringAsync(cancellationToken);
                 return JsonSerializer.Deserialize<ClaudeResponse>(str);
             }
             catch (Exception ex)
@@ -37,14 +33,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             HttpResponseMessage response = await _httpClient.PostAsJsonAsync(Messages, request, cancellationToken);
 
-            string str = await response.Content.ReadAsStringAsync();
+            string str = await response.Content.ReadAsStringAsync(cancellationToken);
             ClaudeResponse result = JsonSerializer.Deserialize<ClaudeResponse>(str);
-            if (result.Content == null)
-            {
-                throw new Exception(str);
-            }
-            return result;
-
+            return result.Content == null ? throw new Exception(str) : result;
         }
     }
 }

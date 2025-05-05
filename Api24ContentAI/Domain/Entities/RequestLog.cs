@@ -28,5 +28,6 @@ namespace Api24ContentAI.Domain.Entities
         Email = 5,
         Lawyer = 6,
         EnhanceTranslate = 7,
+        TranslateVerification = 8
     }
 }
