@@ -10,12 +10,6 @@
 *.userosscache
 *.sln.docstates
 
-# User-specific files (MonoDevelop/Xamarin Studio)
-*.userprefs
-
-# Mono auto generated files
-mono_crash.*
-
 # Build results
 [Dd]ebug/
 [Dd]ebugPublic/
@@ -32,6 +26,78 @@ bld/
 [Oo]ut/
 [Ll]og/
 [Ll]ogs/
+
+# Visual Studio files
+.vs/
+.vscode/
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# Rider files
+.idea/
+*.sln.iml
+*.DotSettings
+
+# User secrets
+**/appsettings.*.json
+**/appsettings.json
+**/secrets.json
+**/launchSettings.json
+**/Properties/launchSettings.json
+
+# Database files
+*.mdf
+*.ldf
+*.ndf
+
+# Temporary files
+*.tmp
+*.log
+*.vspscc
+*.vssscc
+.builds
+*.pidb
+*.svclog
+*.scc
+
+# Test Results
+TestResults/
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Cache files
+.cache/
+.npm/
+.yarn/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Certificates and keys
+*.pfx
+*.key
+*.pem
+*.crt
+*.cer
+
+# Redis dump file
+dump.rdb
+
+# Backup files
+*~
+*.bak
+*.swp
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
