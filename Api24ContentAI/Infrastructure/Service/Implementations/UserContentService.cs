@@ -279,7 +279,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                     foreach (string result in orderedImageResults)
                     {
-                        textFromImage.Append(result);
+                        _ = textFromImage.Append(result);
                     }
                     request.Description = textFromImage.ToString();
                 }
@@ -306,8 +306,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 string chunk = chunks[i];
 
-                chunkBuilder.AppendLine(chunk);
-                chunkBuilder.AppendLine("-----------------------------------------");
+                _ = chunkBuilder.AppendLine(chunk);
+                _ = chunkBuilder.AppendLine("-----------------------------------------");
 
                 Task<KeyValuePair<int, ClaudeResponse>> task = TranslateTextWithResponceAsync(i, chunk, language.Name, translationId, cancellationToken);
                 tasks.Add(task);
@@ -323,7 +323,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ClaudeResponse respons = kvp.Value;
                 string fullText = respons.Content.Single().Text;
 
-                claudResponseText.AppendLine(fullText);
+                _ = claudResponseText.AppendLine(fullText);
                 allResponses.Add(respons);
             }
 
@@ -372,10 +372,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             string templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
             StringBuilder wholeRequest = new(templateText);
-            wholeRequest.AppendLine("-----------------------------------");
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine("-----------------------------------");
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
             List<ContentFile> contents = [];
 
             ContentFile message = new()
@@ -437,10 +437,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             string templateText = GetTranslateTemplate(language, text);
             StringBuilder wholeRequest = new(templateText);
-            wholeRequest.AppendLine("-----------------------------------");
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine("-----------------------------------");
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
             List<ContentFile> contents = [];
 
             ContentFile message = new()
@@ -472,10 +472,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 if (currentChunk.Length + sentence.Length > chunkSize && currentChunk.Length > 0)
                 {
                     chunks.Add(currentChunk.ToString().Trim());
-                    currentChunk.Clear();
+                    _ = currentChunk.Clear();
                 }
 
-                currentChunk.Append(sentence + " ");
+                _ = currentChunk.Append(sentence + " ");
             }
 
             if (currentChunk.Length > 0)
@@ -627,7 +627,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             StringBuilder resultBuilder = new();
             foreach (Domain.Models.Attribute attribute in attributes)
             {
-                resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
+                _ = resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
             }
             return resultBuilder.ToString();
         }
@@ -843,7 +843,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     PdfPage page = pdf.GetPage(i);
                     string text = PdfTextExtractor.GetTextFromPage(page);
-                    builder.Append(text);
+                    _ = builder.Append(text);
                 }
             }
             return (builder.ToString(), pageCount);
