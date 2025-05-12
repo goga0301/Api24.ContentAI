@@ -257,8 +257,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
 
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
-        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId,
-            CancellationToken cancellationToken)
+
         {
             int pdfPageCount = 0;
             if (request.IsPdf)
@@ -360,11 +359,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             string translationId = Guid.NewGuid().ToString();
 
-            List<string> chunks = GetChunksOfLargeText(request.Description);
-            StringBuilder chunkBuilder = new();
-            StringBuilder translatedText = new();
+            //List<string> chunks = GetChunksOfLargeText(request.Description);
+            //StringBuilder chunkBuilder = new();
+            //StringBuilder translatedText = new();
 
-            List<Task<KeyValuePair<int, string>>> tasks = [];
+            //List<Task<KeyValuePair<int, string>>> tasks = [];
 
             for (int i = 0; i < chunks.Count; i++)
             {
@@ -381,11 +380,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             IEnumerable<KeyValuePair<int, string>> orderedResults = results.OrderBy(r => r.Key);
 
-            foreach (KeyValuePair<int, string> kvp in orderedResults)
-            {
-                string translatedChunk = kvp.Value;
-                _ = translatedText.AppendLine(translatedChunk);
-            }
+            //foreach (KeyValuePair<int, string> kvp in orderedResults)
+            //{
+            //    string translatedChunk = kvp.Value;
+            //    _ = translatedText.AppendLine(translatedChunk);
+            //}
 
             byte[] pdfBytes = ConvertHtmlToPdf(claudResponseText.Replace("<br>", ""));
 
@@ -557,10 +556,8 @@ Example response format:
         }
 
         private decimal CalculateTranslateRequestPriceNew(string description, bool isPdf, int pageCount)
-        private static decimal CalculateTranslateRequestPriceNew(string description)
+        //private static decimal CalculateTranslateRequestPriceNew(string description)
         {
-            var defaultPrice = GetRequestPrice(RequestType.Translate);
-
             var defaultPrice = GetRequestPrice(RequestType.Translate);
             if (isPdf)
             {
@@ -814,7 +811,7 @@ Example response format:
               Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image using your OCR capabilities, preserving the original formatting with Markdown syntax. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
         }
 
-        private static string GetDocumentToMarkdownTemplate()
+        private static string GetDocumentToMarkdownTemplate(string fileName)
         {
             return @$"You are an AI assistant tasked with converting Word or PDF documents into Markdown format while preserving the original document's structure, formatting, and visual elements. Your goal is to create a Markdown file that, when compiled, will replicate the original document as closely as possible. This process is designed to facilitate a more fluid document translation flow.
 

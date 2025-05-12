@@ -76,12 +76,12 @@ namespace Api24ContentAI.Domain.Models
         }
     }
 
-    public class ClaudeRequest
+    public class ClaudeRequest(string messageContent)
     {
         [JsonPropertyName("model")]
         public string Model { get; } = "claude-3-5-sonnet-20240620";
         [JsonPropertyName("max_tokens")]
-        public int MaxTokens { get; }
+        public int MaxTokens { get; } = 4096;
         [JsonPropertyName("messages")]
         public List<Message> Messages { get; } = [new Message("user", messageContent)];
     }

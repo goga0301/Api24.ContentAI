@@ -130,16 +130,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 _httpClient.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
             }
-        public async Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, CancellationToken cancellationToken)
-        {
-            var res= JsonSerializer.Serialize<ClaudeRequestWithFile>(request, new JsonSerializerOptions
-            {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            });
-            var response = await _httpClient.PostAsJsonAsync(Messages, request, new JsonSerializerOptions
-            {
-                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-            }, cancellationToken);
 
             if (!_httpClient.DefaultRequestHeaders.Contains("anthropic-beta"))
             {

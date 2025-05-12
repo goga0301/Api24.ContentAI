@@ -24,6 +24,7 @@
 		<PackageReference Include="PuppeteerSharp" Version="13.0.2" />
 		<PackageReference Include="DocumentFormat.OpenXml" Version="3.0.1" />
 		<PackageReference Include="Markdig" Version="0.35.0" />
+		<PackageReference Include="Select.HtmlToPdf.NetCore" Version="25.1.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="5.6.3" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
 		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="5.0.1" />
