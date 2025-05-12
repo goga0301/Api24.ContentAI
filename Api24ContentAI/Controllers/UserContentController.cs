@@ -76,33 +76,6 @@ namespace Api24ContentAI.Controllers
             {
                 var htmlString = await _userContentService.TestTranslateTextAsync(file, cancellationToken);
 
-                //---------------
-                // Convert HTML to PDF using IronPDF
-                //var renderer = new IronPdf.ChromePdfRenderer();
-                //var pdf = renderer.RenderHtmlAsPdf(htmlString);
-                //byte[] pdfBytes = pdf.BinaryData;
-
-                //---------------
-                //    var converter = new SynchronizedConverter(new PdfTools());
-
-                //    // Configure PDF settings
-                //    var doc = new HtmlToPdfDocument()
-                //    {
-                //        GlobalSettings = {
-                //    ColorMode = ColorMode.Color,
-                //    Orientation = Orientation.Portrait,
-                //    PaperSize = PaperKind.A4,
-                //    Margins = new MarginSettings { Top = 10, Bottom = 10, Left = 10, Right = 10 }
-                //},
-                //        Objects = {
-                //    new ObjectSettings() {
-                //        HtmlContent = htmlString,
-                //        WebSettings = { DefaultEncoding = "utf-8" }
-                //    }
-                //}
-                //    };
-                //    // Get the PDF as a byte array
-                //    byte[] pdfBytes = converter.Convert(doc);
                 HtmlToPdf converter = new HtmlToPdf();
 
                 // Configure PDF settings
