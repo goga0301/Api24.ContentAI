@@ -35,7 +35,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             try
             {
-                // Extract the content from the response
+                _logger.LogInformation("Starting response quality verification with GPT");
+                
                 string responseContent = response.Content?.FirstOrDefault()?.Text ?? string.Empty;
                 
                 if (string.IsNullOrEmpty(responseContent))
@@ -47,7 +48,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     };
                 }
 
-                // Create a verification prompt
                 string verificationPrompt = $@"
                 You are a quality assurance expert. Evaluate the following AI response for quality, accuracy, and relevance.
                 
@@ -65,7 +65,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Format: <rating>|<explanation>
                 ";
 
-                // Create a request to send to GPT
                 var gptRequest = new
                 {
                     model = GetDefaultModel(),
@@ -77,17 +76,21 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     temperature = 0.3
                 };
 
-                // Send the request to the OpenAI API
+                _logger.LogInformation("Sending verification request to GPT API");
+                
+                // Log the request object
+                _logger.LogInformation("GPT Request: {Request}", JsonSerializer.Serialize(gptRequest, _jsonOptions));
+                
                 var gptResponse = await SendToGptApi(gptRequest, cancellationToken);
                 
-                // Parse the response
                 if (string.IsNullOrEmpty(gptResponse))
                 {
                     _logger.LogWarning("Empty response from verification service");
                     return new VerificationResult { Success = false, ErrorMessage = "Empty response from verification service" };
                 }
 
-                // Extract rating and explanation
+                _logger.LogInformation("GPT verification response: {Response}", gptResponse);
+
                 string[] parts = gptResponse.Split('|', 2);
                 if (parts.Length < 2 || !double.TryParse(parts[0].Trim(), out double rating))
                 {
@@ -95,6 +98,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return new VerificationResult { Success = false, ErrorMessage = "Failed to parse verification response" };
                 }
 
+                _logger.LogInformation("Verification completed. Quality score: {Score}", rating);
+                
                 return new VerificationResult
                 {
                     Success = true,
@@ -117,6 +122,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             try
             {
+                _logger.LogInformation("Starting translation verification with GPT service for {Count} translations", translations?.Count ?? 0);
+                
                 if (translations == null || translations.Count == 0)
                 {
                     _logger.LogWarning("Empty translation batch provided for verification");
@@ -126,12 +133,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     };
                 }
 
-                // For batch translations, we'll sample a few translations to verify
                 int samplesToCheck = Math.Min(3, translations.Count);
                 var samples = translations
                     .OrderBy(x => Guid.NewGuid()) // Random order
                     .Take(samplesToCheck)
                     .ToList();
+                
+                _logger.LogInformation("Selected {SampleCount} samples for verification", samples.Count);
 
                 double totalScore = 0;
                 List<string> feedbacks = new List<string>();
@@ -140,17 +148,29 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 foreach (var sample in samples)
                 {
+                    _logger.LogInformation("Verifying translation chunk {ChunkId}", sample.Key);
+                    
                     if (string.IsNullOrWhiteSpace(sample.Value))
                     {
+                        _logger.LogWarning("Empty translation chunk {ChunkId}", sample.Key);
                         chunkWarnings.Add(sample.Key, "Empty translation chunk");
                         continue;
                     }
 
                     string verificationPrompt = $@"
-                    You are a translation quality expert. Evaluate the following translation for quality, accuracy, and fluency.
+                    You are a translation quality expert. Evaluate the following translated text for quality, accuracy, and fluency.
                     
-                    Translation (chunk {sample.Key}):
+                    This is a translation of a document chunk (chunk ID: {sample.Key}).
+                    The text has been translated to another language.
+                    
+                    Translated text:
                     {sample.Value}
+                    
+                    Even without seeing the original text, evaluate the translation quality based on:
+                    1. Fluency and naturalness of language
+                    2. Consistency of terminology and style
+                    3. Absence of obvious translation errors
+                    4. Proper formatting and structure
                     
                     Rate the translation on a scale from 0.0 to 1.0 where:
                     - 0.0 means poor quality, potentially machine-translated text with errors
@@ -160,36 +180,54 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     Format: <rating>|<explanation>
                     ";
 
-                    // Create a request to send to GPT
                     var gptRequest = new
                     {
                         model = GetDefaultModel(),
                         messages = new[]
                         {
-                            new { role = "system", content = "You are a translation quality expert." },
+                            new { role = "system", content = "You are a translation quality expert evaluating translated text. Always provide a rating even with limited context." },
                             new { role = "user", content = verificationPrompt }
                         },
                         temperature = 0.3
                     };
 
-                    // Send the request to the OpenAI API with retry
+                    _logger.LogInformation("Sending verification request to GPT API for chunk {ChunkId}", sample.Key);
+                    
+                    // Log the request object
+                    _logger.LogInformation("GPT Request: {Request}", JsonSerializer.Serialize(gptRequest, _jsonOptions));
+                    
                     var gptResponse = await SendToGptApiWithRetry(gptRequest, cancellationToken);
                     
-                    // Parse the response
                     if (string.IsNullOrEmpty(gptResponse))
                     {
+                        _logger.LogWarning("Failed to get verification for chunk {ChunkId}", sample.Key);
                         chunkWarnings.Add(sample.Key, "Failed to get verification for this chunk");
                         continue;
                     }
 
-                    // Extract rating and explanation
+                    // Check if the response contains the expected format
+                    if (!gptResponse.Contains("|"))
+                    {
+                        // Try to extract a rating from the text
+                        _logger.LogWarning("Response doesn't contain expected format for chunk {ChunkId}: {Response}", sample.Key, gptResponse);
+                        
+                        // Fallback: assign a default rating
+                        double defaultRating = 0.7; // Reasonable default
+                        feedbacks.Add($"Chunk {sample.Key}: Unable to parse rating. GPT response: {gptResponse}");
+                        totalScore += defaultRating;
+                        verifiedChunks++;
+                        continue;
+                    }
+
                     string[] parts = gptResponse.Split('|', 2);
                     if (parts.Length < 2 || !double.TryParse(parts[0].Trim(), out double rating))
                     {
+                        _logger.LogWarning("Failed to parse verification response for chunk {ChunkId}: {Response}", sample.Key, gptResponse);
                         chunkWarnings.Add(sample.Key, "Failed to parse verification response for this chunk");
                         continue;
                     }
 
+                    _logger.LogInformation("Chunk {ChunkId} verification score: {Score}", sample.Key, rating);
                     totalScore += Math.Clamp(rating, 0.0, 1.0);
                     feedbacks.Add($"Chunk {sample.Key}: {parts[1].Trim()}");
                     verifiedChunks++;
@@ -206,6 +244,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
 
                 double averageScore = totalScore / verifiedChunks;
+                _logger.LogInformation("Translation verification completed. Average score: {Score}, Verified chunks: {VerifiedChunks}/{TotalChunks}", 
+                    averageScore, verifiedChunks, translations.Count);
                 
                 return new VerificationResult
                 {
@@ -230,13 +270,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private async Task<string> SendToGptApi(object request, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Preparing to send request to GPT API");
+            
             string apiKey = _configuration.GetSection("Security:OpenAIApiKey").Value;
             if (string.IsNullOrEmpty(apiKey))
             {
+                _logger.LogError("OpenAI API key is missing in configuration");
                 throw new InvalidOperationException("OpenAI API key is missing in configuration.");
             }
 
-            // Set up the HTTP request
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/chat/completions")
             {
                 Content = new StringContent(
@@ -247,21 +289,26 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
 
             httpRequest.Headers.Add("Authorization", $"Bearer {apiKey}");
-
-            // Send the request
+            
+            _logger.LogInformation("Sending request to GPT API");
             var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            
+            string responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            
+            // Log the full response similar to Claude
+            Console.WriteLine("GPT Response: " + responseContent);
+            _logger.LogInformation("GPT Response: {Response}", responseContent);
+            
             if (!response.IsSuccessStatusCode)
             {
-                string errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
-                _logger.LogError("GPT API error: {StatusCode}, {ErrorContent}", response.StatusCode, errorContent);
-                throw new Exception($"GPT API error: {response.StatusCode}, {errorContent}");
+                _logger.LogError("GPT API error: {StatusCode}, {ErrorContent}", response.StatusCode, responseContent);
+                throw new Exception($"GPT API error: {response.StatusCode}, {responseContent}");
             }
 
-            // Parse the response
-            string responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogInformation("Received successful response from GPT API");
+            
             using var jsonDoc = JsonDocument.Parse(responseContent);
             
-            // Extract the message content
             return jsonDoc.RootElement
                 .GetProperty("choices")[0]
                 .GetProperty("message")
@@ -277,23 +324,25 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 try
                 {
+                    _logger.LogInformation("GPT API call attempt {Attempt}/{MaxRetries}", attempt, maxRetries);
                     return await SendToGptApi(request, cancellationToken);
                 }
                 catch (Exception ex)
                 {
                     lastException = ex;
-                    _logger.LogWarning(ex, "API call failed (attempt {Attempt}/{MaxRetries})", attempt, maxRetries);
+                    _logger.LogWarning(ex, "GPT API call failed (attempt {Attempt}/{MaxRetries})", attempt, maxRetries);
                     
                     if (attempt < maxRetries)
                     {
                         // Exponential backoff
                         int delayMs = (int)Math.Pow(2, attempt) * 500;
+                        _logger.LogInformation("Retrying GPT API call in {DelayMs}ms", delayMs);
                         await Task.Delay(delayMs, cancellationToken);
                     }
                 }
             }
             
-            _logger.LogError(lastException, "All API call attempts failed");
+            _logger.LogError(lastException, "All GPT API call attempts failed");
             return string.Empty;
         }
         

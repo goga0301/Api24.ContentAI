@@ -14,10 +14,12 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Infrastructure.Middleware;
 using Microsoft.Extensions.Hosting;
 
@@ -30,6 +32,8 @@ namespace Api24ContentAI
 
         public void ConfigureServices(IServiceCollection services)
         {
+
+            JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
             _ = services.AddStackExchangeRedisCache(options =>
             {
                 string redisConnection = Configuration.GetConnectionString("Redis");
@@ -178,6 +182,16 @@ namespace Api24ContentAI
                 });
             });
 
+            services.AddScoped<IDocumentTranslationService>(sp => 
+                new DocumentTranslationService(
+                    sp.GetRequiredService<IClaudeService>(),
+                    sp.GetRequiredService<ILanguageService>(),
+                    sp.GetRequiredService<IUserRepository>(),
+                    sp.GetRequiredService<IRequestLogService>(),
+                    sp.GetRequiredService<IGptService>()
+                )
+            );
+            services.AddScoped<IGptService, GptService>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
