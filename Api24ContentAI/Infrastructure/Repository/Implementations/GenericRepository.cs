@@ -9,14 +9,9 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class GenericRepository<TEntity> : IGenericRepository<TEntity> where TEntity : BaseEntity
+    public class GenericRepository<TEntity>(ContentDbContext dbContext) : IGenericRepository<TEntity> where TEntity : BaseEntity
     {
-        protected readonly ContentDbContext _dbContext;
-
-        public GenericRepository(ContentDbContext dbContext)
-        {
-            _dbContext = dbContext;
-        }
+        protected readonly ContentDbContext _dbContext = dbContext;
 
         public IQueryable<TEntity> GetAll()
         {
@@ -32,22 +27,22 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task<Guid> Create(TEntity entity, CancellationToken cancellationToken)
         {
-            await _dbContext.Set<TEntity>().AddAsync(entity, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            _ = await _dbContext.Set<TEntity>().AddAsync(entity, cancellationToken);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
             return entity.Id;
         }
 
         public async Task Update(TEntity entity, CancellationToken cancellationToken)
         {
-            _dbContext.Set<TEntity>().Update(entity);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            _ = _dbContext.Set<TEntity>().Update(entity);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         public async Task Delete(Guid id, CancellationToken cancellationToken)
         {
-            var entity = await GetById(id, cancellationToken);
-            _dbContext.Set<TEntity>().Remove(entity);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            TEntity entity = await GetById(id, cancellationToken);
+            _ = _dbContext.Set<TEntity>().Remove(entity);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 }

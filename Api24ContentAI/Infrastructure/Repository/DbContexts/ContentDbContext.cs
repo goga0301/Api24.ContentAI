@@ -3,12 +3,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace Api24ContentAI.Infrastructure.Repository.DbContexts
 {
-    public class ContentDbContext : DbContext
+    public class ContentDbContext(DbContextOptions<ContentDbContext> options) : DbContext(options)
     {
-        public ContentDbContext(DbContextOptions<ContentDbContext> options) : base(options)
-        {
-        }
-
         public DbSet<CustomTemplate> CustomTemplates { get; set; }
         public DbSet<Marketplace> Marketplaces { get; set; }
         public DbSet<ProductCategory> ProductCategories { get; set; }
@@ -22,65 +18,65 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
-            modelBuilder.HasDefaultSchema("ContentDb");
-            modelBuilder.Entity<CustomTemplate>()
-                .HasOne(ct => ct.Marketplace)
+            _ = modelBuilder.HasDefaultSchema("ContentDb");
+            _ = modelBuilder.Entity<CustomTemplate>()
+                .HasOne(static ct => ct.Marketplace)
                 .WithMany()
-                .HasForeignKey(ct => ct.MarketplaceId)
+                .HasForeignKey(static ct => ct.MarketplaceId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<CustomTemplate>()
-                .HasOne(ct => ct.ProductCategory)
+            _ = modelBuilder.Entity<CustomTemplate>()
+                .HasOne(static ct => ct.ProductCategory)
                 .WithMany()
-                .HasForeignKey(ct => ct.ProductCategoryId)
+                .HasForeignKey(static ct => ct.ProductCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<CustomTemplate>().HasIndex(x => new { x.MarketplaceId, x.ProductCategoryId }).IsUnique();
+            _ = modelBuilder.Entity<CustomTemplate>().HasIndex(static x => new { x.MarketplaceId, x.ProductCategoryId }).IsUnique();
 
-            modelBuilder.Entity<Template>()
-                .HasOne(t => t.ProductCategory)
+            _ = modelBuilder.Entity<Template>()
+                .HasOne(static t => t.ProductCategory)
                 .WithMany()
-                .HasForeignKey(t => t.ProductCategoryId)
+                .HasForeignKey(static t => t.ProductCategoryId)
                 .OnDelete(DeleteBehavior.Restrict);
 
-            modelBuilder.Entity<Template>().HasIndex(x => new { x.ProductCategoryId }).IsUnique();
+            _ = modelBuilder.Entity<Template>().HasIndex(static x => new { x.ProductCategoryId }).IsUnique();
 
-            modelBuilder.Entity<RequestLog>()
+            _ = modelBuilder.Entity<RequestLog>()
                 .HasOne<Marketplace>()
                 .WithMany()
-                .HasForeignKey(ct => ct.MarketplaceId)
+                .HasForeignKey(static ct => ct.MarketplaceId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            modelBuilder.Entity<User>()
+            _ = modelBuilder.Entity<User>()
                 .HasMany<UserRequestLog>()
                 .WithOne()
-                .HasForeignKey(ct => ct.UserId)
+                .HasForeignKey(static ct => ct.UserId)
                 .OnDelete(DeleteBehavior.NoAction);
 
-            modelBuilder.Entity<User>()
+            _ = modelBuilder.Entity<User>()
                 .ToTable("Users");
 
-            modelBuilder.Entity<User>()
-                .Property(c => c.FirstName)
+            _ = modelBuilder.Entity<User>()
+                .Property(static c => c.FirstName)
                 .IsRequired();
 
-            modelBuilder.Entity<User>()
-                .Property(c => c.LastName)
+            _ = modelBuilder.Entity<User>()
+                .Property(static c => c.LastName)
                 .IsRequired();
 
-            modelBuilder.Entity<User>()
-                .Property(c => c.UserType)
+            _ = modelBuilder.Entity<User>()
+                .Property(static c => c.UserType)
                 .HasDefaultValue(UserType.Normal)
                 .IsRequired();
 
-            modelBuilder.Entity<User>().HasIndex(x => x.NormalizedUserName).IsUnique();
+            _ = modelBuilder.Entity<User>().HasIndex(static x => x.NormalizedUserName).IsUnique();
 
-            modelBuilder.Entity<Role>()
+            _ = modelBuilder.Entity<Role>()
                 .ToTable("Roles");
 
-            modelBuilder.Entity<User>().HasOne(x => x.Role).WithMany().HasForeignKey(x => x.RoleId);
+            _ = modelBuilder.Entity<User>().HasOne(static x => x.Role).WithMany().HasForeignKey(static x => x.RoleId);
 
-            modelBuilder.Entity<UserBalance>().HasOne(x => x.User).WithOne(x => x.UserBalance).HasForeignKey<UserBalance>(x => x.UserId).IsRequired(false);
+            _ = modelBuilder.Entity<UserBalance>().HasOne(static x => x.User).WithOne(static x => x.UserBalance).HasForeignKey<UserBalance>(static x => x.UserId).IsRequired(false);
 
         }
     }

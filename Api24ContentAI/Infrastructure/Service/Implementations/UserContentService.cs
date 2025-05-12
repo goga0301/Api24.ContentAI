@@ -21,90 +21,96 @@ using SelectPdf;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class UserContentService : IUserContentService
+    public class UserContentService(
+        IClaudeService claudeService,
+        ICacheService cacheService,
+        IUserRequestLogService requestLogService,
+        IProductCategoryService productCategoryService,
+        ILanguageService languageService,
+        IUserRepository userRepository) : IUserContentService
     {
-        private readonly IClaudeService _claudeService;
-        private readonly IUserRequestLogService _requestLogService;
-        private readonly IProductCategoryService _productCategoryService;
-        private readonly ILanguageService _languageService;
-        private readonly IUserRepository _userRepository;
+        private readonly IClaudeService _claudeService = claudeService;
+        private readonly IUserRequestLogService _requestLogService = requestLogService;
+        private readonly IProductCategoryService _productCategoryService = productCategoryService;
+        private readonly ILanguageService _languageService = languageService;
+        private readonly IUserRepository _userRepository = userRepository;
+        private readonly ICacheService _cacheService = cacheService;
 
-        private static readonly string[] SupportedFileExtensions = new string[]
-        {
+        private static readonly string[] SupportedFileExtensions =
+        [
             "jpeg",
             "png",
             "gif",
             "webp"
-        };
+        ];
 
-        public UserContentService(IClaudeService claudeService,
-                              IUserRequestLogService requestLogService,
-                              IProductCategoryService productCategoryService,
-                              ILanguageService languageService,
-                              IUserRepository userRepository)
+        public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request,
+            CancellationToken cancellationToken)
         {
-            _claudeService = claudeService;
-            _requestLogService = requestLogService;
-            _productCategoryService = productCategoryService;
-            _languageService = languageService;
-            _userRepository = userRepository;
+
+            string cacheKey = $"basic_message_{request.Message.GetHashCode()}";
+
+            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
+            {
+                ContentFile message = new()
+                {
+                    Type = "text",
+                    Text = request.Message
+                };
+
+
+                ClaudeRequestWithFile claudeRequest = new([message]);
+                ClaudeResponse claudeResponse =
+                    await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+                int lastPeriod = claudResponseText.LastIndexOf('.');
+
+                if (lastPeriod != -1)
+                {
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                }
+
+                CopyrightAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
+
+                return response;
+
+            }, TimeSpan.FromHours(24), cancellationToken);
+
         }
 
-        public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken)
+        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request,
+            string userId, CancellationToken cancellationToken)
         {
-            var message = new ContentFile()
-            {
-                Type = "text",
-                Text = request.Message
-            };
-
-
-            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { message });
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            var lastPeriod = claudResponseText.LastIndexOf('.');
-
-            if (lastPeriod != -1)
-            {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
-            }
-
-            var response = new CopyrightAIResponse
-            {
-                Text = claudResponseText
-            };
-
-            return response;
-        }
-        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken)
-        {
-            var requestPrice = GetRequestPrice(RequestType.Copyright);
-            var user = await _userRepository.GetById(userId, cancellationToken);
+            decimal requestPrice = GetRequestPrice(RequestType.Copyright);
+            User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
                 throw new Exception("CopyrightAI რექვესთების ბალანსი ამოიწურა");
             }
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
 
-            var templateText = GetCopyrightTemplate(language.Name, request.ProductName);
+            string templateText = GetCopyrightTemplate(language.Name, request.ProductName);
 
-            var message = new ContentFile()
+            ContentFile message = new()
             {
                 Type = "text",
                 Text = templateText
             };
 
-            var extention = file.FileName.Split('.').Last();
+            string extention = file.FileName.Split('.').Last();
             if (!SupportedFileExtensions.Contains(extention))
             {
                 throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
             }
 
-            var fileMessage = new ContentFile()
+            ContentFile fileMessage = new()
             {
                 Type = "image",
                 Source = new Source()
@@ -115,18 +121,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             };
 
-            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { fileMessage, message });
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            ClaudeRequestWithFile claudeRequest = new([fileMessage, message]);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-            var lastPeriod = claudResponseText.LastIndexOf('.');
+            int lastPeriod = claudResponseText.LastIndexOf('.');
 
             if (lastPeriod != -1)
             {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
             }
 
-            var response = new CopyrightAIResponse
+            CopyrightAIResponse response = new()
             {
                 Text = claudResponseText
             };
@@ -152,37 +158,40 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
-        public async Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId,
+            CancellationToken cancellationToken)
         {
-            var requestPrice = GetRequestPrice(RequestType.Copyright);
+            decimal requestPrice = GetRequestPrice(RequestType.Copyright);
 
-            var user = await _userRepository.GetById(userId, cancellationToken);
+            User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
 
-            var productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
+            ProductCategoryModel productCategory =
+                await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
-            var templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
+            string templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
 
-            var claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
+            string claudRequestContent =
+                $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
-            var claudeRequest = new ClaudeRequest(claudRequestContent);
+            ClaudeRequest claudeRequest = new(claudRequestContent);
 
-            var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-            var lastPeriod = claudResponseText.LastIndexOf('.');
+            ClaudeResponse claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            int lastPeriod = claudResponseText.LastIndexOf('.');
 
             if (lastPeriod != -1)
             {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
             }
 
-            var response = new ContentAIResponse
+            ContentAIResponse response = new()
             {
                 Text = claudResponseText
             };
@@ -248,32 +257,34 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
 
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId,
+            CancellationToken cancellationToken)
         {
-            var pdfPageCount = 0;
+            int pdfPageCount = 0;
             if (request.IsPdf)
             {
                 (request.Description, pdfPageCount) = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
             }
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
-            var textFromImage = new StringBuilder();
+            StringBuilder textFromImage = new();
             if (!request.IsPdf)
             {
                 if (string.IsNullOrWhiteSpace(request.Description) && request.Files != null)
                 {
-                    var tasksForImages = new List<Task<KeyValuePair<int, string>>>();
+                    List<Task<KeyValuePair<int, string>>> tasksForImages = [];
                     int indexForImages = 0;
 
-                    foreach (var file in request.Files)
+                    foreach (IFormFile file in request.Files)
                     {
-                        var extention = file.FileName.Split('.').Last();
+                        string extention = file.FileName.Split('.').Last();
                         if (!SupportedFileExtensions.Contains(extention))
                         {
                             throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
                         }
 
-                        var fileMessage = new ContentFile()
+                        ContentFile fileMessage = new()
                         {
                             Type = "image",
                             Source = new Source()
@@ -284,25 +295,28 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             }
                         };
 
-                        var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-                        var templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
-                        var messageImageToText = new ContentFile()
+                        LanguageModel sourceLanguage =
+                            await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+                        string templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
+                        ContentFile messageImageToText = new()
                         {
                             Type = "text",
                             Text = templateTextForImageToText
                         };
 
-                        var continueReq = new List<ContentFile>() { fileMessage, messageImageToText };
-                        var claudeRequestImageToText = new ClaudeRequestWithFile(continueReq);
+                        List<ContentFile> continueReq = [fileMessage, messageImageToText];
+                        ClaudeRequestWithFile claudeRequestImageToText = new(continueReq);
 
                         int currentIndex = indexForImages;
-                        var task = Task.Run(async () =>
+                        Task<KeyValuePair<int, string>> task = Task.Run(async () =>
                         {
-                            var claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-                            var claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
-                            var start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
-                            var endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
-                            var result = claudResponseTextContinueImageToText.Substring(start, endt - start);
+                            ClaudeResponse claudeResponseContinueImageToText =
+                                await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+                            string claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content
+                                .Single().Text.Replace("\n", "<br>");
+                            int start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
+                            int endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+                            string result = claudResponseTextContinueImageToText[start..endt];
                             return new KeyValuePair<int, string>(currentIndex, result);
                         });
 
@@ -310,14 +324,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         indexForImages++;
                     }
 
-                    var imageResults = await Task.WhenAll(tasksForImages);
+                    KeyValuePair<int, string>[] imageResults = await Task.WhenAll(tasksForImages);
 
-                    var orderedImageResults = imageResults.OrderBy(r => r.Key).Select(r => r.Value);
+                    IEnumerable<string> orderedImageResults = imageResults.OrderBy(r => r.Key).Select(r => r.Value);
 
-                    foreach (var result in orderedImageResults)
+                    foreach (string result in orderedImageResults)
                     {
-                        textFromImage.Append(result);
+                        _ = textFromImage.Append(result);
                     }
+
                     request.Description = textFromImage.ToString();
                 }
             }
@@ -343,30 +358,38 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var tasks = new List<Task<KeyValuePair<int, string>>>();
             int index = 0;
 
-            foreach (var chunk in chunks)
+            string translationId = Guid.NewGuid().ToString();
+
+            List<string> chunks = GetChunksOfLargeText(request.Description);
+            StringBuilder chunkBuilder = new();
+            StringBuilder translatedText = new();
+
+            List<Task<KeyValuePair<int, string>>> tasks = [];
+
+            for (int i = 0; i < chunks.Count; i++)
             {
-                chunkBuilder.AppendLine(chunk);
-                chunkBuilder.AppendLine("-----------------------------------------");
+                string chunk = chunks[i];
 
-                int currentIndex = index;
-                var task = TranslateTextAsync(currentIndex, chunk, language.Name, cancellationToken);
+                _ = chunkBuilder.AppendLine(chunk);
+                _ = chunkBuilder.AppendLine("-----------------------------------------");
 
+                Task<KeyValuePair<int, string>> task = TranslateTextAsync(i, chunk, language.Name, cancellationToken);
                 tasks.Add(task);
-                index++;
             }
 
-            var results = await Task.WhenAll(tasks);
+            KeyValuePair<int, string>[] results = await Task.WhenAll(tasks);
 
-            var orderedResults = results.OrderBy(r => r.Key).Select(r => r.Value);
+            IEnumerable<KeyValuePair<int, string>> orderedResults = results.OrderBy(r => r.Key);
 
-            foreach (var result in orderedResults)
+            foreach (KeyValuePair<int, string> kvp in orderedResults)
             {
-                claudResponseText.AppendLine(result);
+                string translatedChunk = kvp.Value;
+                _ = translatedText.AppendLine(translatedChunk);
             }
 
             byte[] pdfBytes = ConvertHtmlToPdf(claudResponseText.Replace("<br>", ""));
 
-            var response = new TranslateResponse
+            TranslateResponse response = new()
             {
                 Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>"),
                 File = pdfBytes
@@ -420,38 +443,40 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return pdfBytes;
         }
 
-        public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId,
+            CancellationToken cancellationToken)
         {
-            var requestPrice = GetRequestPrice(RequestType.EnhanceTranslate);
+            decimal requestPrice = GetRequestPrice(RequestType.EnhanceTranslate);
 
-            var user = await _userRepository.GetById(userId, cancellationToken);
+            User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
                 throw new Exception("EnhanceTranslate რექვესთების ბალანსი ამოიწურა");
             }
 
-            var targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
+            LanguageModel targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
 
-            var templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
-            var wholeRequest = new StringBuilder(templateText);
-            wholeRequest.AppendLine("-----------------------------------");
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
-            var contents = new List<ContentFile>();
+            string templateText =
+                GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
+            StringBuilder wholeRequest = new(templateText);
+            _ = wholeRequest.AppendLine("-----------------------------------");
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
+            List<ContentFile> contents = [];
 
-            var message = new ContentFile()
+            ContentFile message = new()
             {
                 Type = "text",
                 Text = templateText
             };
             contents.Add(message);
-            var claudeRequest = new ClaudeRequestWithFile(contents);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            ClaudeRequestWithFile claudeRequest = new(contents);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            string claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-            var response = new TranslateResponse
+            TranslateResponse response = new()
             {
                 Text = claudResponsePlainText
             };
@@ -478,21 +503,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
-        private decimal CalculateTranslateRequestPrice(UserTranslateRequest request, int pdfPageCount)
+        private static decimal CalculateTranslateRequestPrice(UserTranslateRequest request, int pdfPageCount)
         {
-            var defaultPrice = GetRequestPrice(RequestType.Translate);
+            decimal defaultPrice = GetRequestPrice(RequestType.Translate);
 
-            if (!string.IsNullOrWhiteSpace(request.Description) && (request.Files == null || !request.Files.Any()))
-            {
-                return defaultPrice * ((request.Description.Length / 250) + request.Description.Length % 250 == 0 ? 0 : 1);
-            }
-
-            if (request.Files != null && request.Files.Count == 1 && request.IsPdf)
-            {
-                return pdfPageCount * 0.9m;
-            }
-
-            return request.Files.Count * 1.45m;
+            return !string.IsNullOrWhiteSpace(request.Description) &&
+                   (request.Files == null || request.Files.Count == 0)
+                ? defaultPrice * ((request.Description.Length / 250) + (request.Description.Length % 250 == 0 ? 0 : 1))
+                : request.Files != null && request.Files.Count == 1 && request.IsPdf
+                    ? pdfPageCount * 0.9m
+                    : request.Files.Count * 1.45m;
         }
         private string GetSystemPromptForPdfToHtml()
         {
@@ -537,7 +557,9 @@ Example response format:
         }
 
         private decimal CalculateTranslateRequestPriceNew(string description, bool isPdf, int pageCount)
+        private static decimal CalculateTranslateRequestPriceNew(string description)
         {
+            var defaultPrice = GetRequestPrice(RequestType.Translate);
 
             var defaultPrice = GetRequestPrice(RequestType.Translate);
             if (isPdf)
@@ -548,49 +570,51 @@ Example response format:
 
         }
 
-        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
+        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language,
+            CancellationToken cancellationToken)
         {
 
-            var templateText = GetTranslateTemplate(language, text);
-            var wholeRequest = new StringBuilder(templateText);
-            wholeRequest.AppendLine("-----------------------------------");
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
-            wholeRequest.AppendLine();
-            var contents = new List<ContentFile>();
+            string templateText = GetTranslateTemplate(language, text);
+            StringBuilder wholeRequest = new(templateText);
+            _ = wholeRequest.AppendLine("-----------------------------------");
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
+            _ = wholeRequest.AppendLine();
+            List<ContentFile> contents = [];
 
-            var message = new ContentFile()
+            ContentFile message = new()
             {
                 Type = "text",
                 Text = templateText
             };
             contents.Add(message);
-            var claudeRequest = new ClaudeRequestWithFile(contents);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            ClaudeRequestWithFile claudeRequest = new(contents);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
 
-            var start = claudResponsePlainText.IndexOf("<translation>") + 13;
-            var end = claudResponsePlainText.IndexOf("</translation>");
+            string claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-            return new KeyValuePair<int, string>(order, claudResponsePlainText.Substring(start, end - start));
+            int start = claudResponsePlainText.IndexOf("<translation>") + 13;
+            int end = claudResponsePlainText.IndexOf("</translation>");
+
+            return new KeyValuePair<int, string>(order, claudResponsePlainText[start..end]);
         }
 
-        private List<string> GetChunksOfLargeText(string text, int chunkSize = 2000)
+        private static List<string> GetChunksOfLargeText(string text, int chunkSize = 2000)
         {
-            List<string> chunks = new List<string>();
+            List<string> chunks = [];
             string[] sentences = Regex.Split(text, @"(?<=[.!?])\s+");
 
-            StringBuilder currentChunk = new StringBuilder();
+            StringBuilder currentChunk = new();
 
             foreach (string sentence in sentences)
             {
                 if (currentChunk.Length + sentence.Length > chunkSize && currentChunk.Length > 0)
                 {
                     chunks.Add(currentChunk.ToString().Trim());
-                    currentChunk.Clear();
+                    _ = currentChunk.Clear();
                 }
 
-                currentChunk.Append(sentence + " ");
+                _ = currentChunk.Append(sentence + " ");
             }
 
             if (currentChunk.Length > 0)
@@ -601,35 +625,36 @@ Example response format:
             return chunks;
         }
 
-        public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request,
+            string userId, CancellationToken cancellationToken)
         {
-            var requestPrice = GetRequestPrice(RequestType.Copyright);
+            decimal requestPrice = GetRequestPrice(RequestType.Copyright);
 
-            var user = await _userRepository.GetById(userId, cancellationToken);
+            User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
                 throw new Exception("VideoScriptAI რექვესთების ბალანსი ამოიწურა");
             }
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
 
-            var templateText = GetVideoScriptTemplate(language.Name, request.ProductName);
+            string templateText = GetVideoScriptTemplate(language.Name, request.ProductName);
 
-            var message = new ContentFile()
+            ContentFile message = new()
             {
                 Type = "text",
                 Text = templateText
             };
 
-            var extention = file.FileName.Split('.').Last();
+            string extention = file.FileName.Split('.').Last();
             if (!SupportedFileExtensions.Contains(extention))
             {
                 throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
             }
 
-            var fileMessage = new ContentFile()
+            ContentFile fileMessage = new()
             {
                 Type = "image",
                 Source = new Source()
@@ -640,18 +665,18 @@ Example response format:
                 }
             };
 
-            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { fileMessage, message });
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            ClaudeRequestWithFile claudeRequest = new([fileMessage, message]);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-            var lastPeriod = claudResponseText.LastIndexOf('.');
+            int lastPeriod = claudResponseText.LastIndexOf('.');
 
             if (lastPeriod != -1)
             {
-                claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
             }
 
-            var response = new VideoScriptAIResponse
+            VideoScriptAIResponse response = new()
             {
                 Text = claudResponseText
             };
@@ -677,41 +702,42 @@ Example response format:
             return response;
         }
 
-        public async Task<EmailAIResponse> Email(UserEmailRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<EmailAIResponse> Email(UserEmailRequest request, string userId,
+            CancellationToken cancellationToken)
         {
-            var requestPrice = GetRequestPrice(RequestType.Email);
-            var user = await _userRepository.GetById(userId, cancellationToken);
+            decimal requestPrice = GetRequestPrice(RequestType.Email);
+            User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
                 throw new Exception("EmailAI რექვესთების ბალანსი ამოიწურა");
             }
 
-            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
 
-            var templateText = GetEmailTemplate(request.Email, language.Name, request.Form);
+            string templateText = GetEmailTemplate(request.Email, language.Name, request.Form);
 
-            var message = new ContentFile()
+            ContentFile message = new()
             {
                 Type = "text",
                 Text = templateText
             };
-            var claudeRequest = new ClaudeRequestWithFile(new List<ContentFile>() { message });
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            ClaudeRequestWithFile claudeRequest = new([message]);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
             if (!claudResponseText.Contains("</response>"))
             {
-                var lastPeriod = claudResponseText.LastIndexOf('.');
+                int lastPeriod = claudResponseText.LastIndexOf('.');
 
                 if (lastPeriod != -1)
                 {
-                    claudResponseText = new string(claudResponseText.Take(lastPeriod + 1).ToArray());
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
                 }
             }
 
-            var response = new EmailAIResponse
+            EmailAIResponse response = new()
             {
                 Text = claudResponseText
             };
@@ -737,17 +763,18 @@ Example response format:
             return response;
         }
 
-        private string ConvertAttributes(List<Domain.Models.Attribute> attributes)
+        private static string ConvertAttributes(List<Domain.Models.Attribute> attributes)
         {
-            var resultBuilder = new StringBuilder();
-            foreach (var attribute in attributes)
+            StringBuilder resultBuilder = new();
+            foreach (Domain.Models.Attribute attribute in attributes)
             {
-                resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
+                _ = resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
             }
+
             return resultBuilder.ToString();
         }
 
-        private string GetImageToTextTemplate(string sourceLanguage)
+        private static string GetImageToTextTemplate(string sourceLanguage)
         {
             return $@"Here is the image you need to analyze: <image>{{IMAGE_TO_PROCESS}}</image>
               You are an advanced AI assistant with OCR (Optical Character Recognition) capabilities specialized in extracting text from images. 
@@ -787,7 +814,7 @@ Example response format:
               Remember, your primary goal is to accurately transcribe the {sourceLanguage} text from the image using your OCR capabilities, preserving the original formatting with Markdown syntax. Strive for the highest possible accuracy while also indicating any areas of uncertainty.";
         }
 
-        private string GetDocumentToMarkdownTemplate(string fileName)
+        private static string GetDocumentToMarkdownTemplate()
         {
             return @$"You are an AI assistant tasked with converting Word or PDF documents into Markdown format while preserving the original document's structure, formatting, and visual elements. Your goal is to create a Markdown file that, when compiled, will replicate the original document as closely as possible. This process is designed to facilitate a more fluid document translation flow.
 
@@ -877,7 +904,7 @@ Your final output should be a well-formatted HTML file that closely replicates t
 </html_output>";
         }
 
-        private string GetChainTranslateTemplate(string initialPrompt, string lastResponse)
+        private static string GetChainTranslateTemplate(string initialPrompt, string lastResponse)
         {
             return $@"you should continue translation of previously given text.
                       initial prompt is here <initial_prompt>{initialPrompt}</initial_prompt>
@@ -885,7 +912,9 @@ Your final output should be a well-formatted HTML file that closely replicates t
                       now you should continue translation from where last response is finished.
                       you should use translation rules from initial prompt";
         }
-        private string GetEnhanceTranslateTemplate(string targetLanguage, string userInput, string TranslateOutput)
+
+        private static string GetEnhanceTranslateTemplate(string targetLanguage, string userInput,
+            string TranslateOutput)
         {
             return @$"<original_text>{userInput}</original_text>
                         <translated_text>{TranslateOutput}</translated_text>
@@ -915,7 +944,7 @@ Your final output should be a well-formatted HTML file that closely replicates t
         }
 
 
-        private string GetTranslateTemplate(string targetLanguage, string description)
+        private static string GetTranslateTemplate(string targetLanguage, string description)
         {
             return @$"<text_to_translate> {description} </text_to_translate>
                       You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context. 
@@ -931,18 +960,20 @@ Your final output should be a well-formatted HTML file that closely replicates t
                       Begin your translation now.";
         }
 
-        private string GetCopyrightTemplate(string language, string productName)
+        private static string GetCopyrightTemplate(string language, string productName)
         {
-            return @$"Your task is to generate an engaging and effective Facebook advertisement text based on a provided image and an optional product name. 
+            return
+                @$"Your task is to generate an engaging and effective Facebook advertisement text based on a provided image and an optional product name. 
                     The advertisement text should include relevant emojis and attention catching details to attract potential customers. 
                     I attached image that you should use and here is the optional product name (if not provided, leave blank):{productName}.
                     Do not make any promotional offer if not stated in the photo. Output text in {language} Language. 
                     Write minimum of 50 words long.";
         }
 
-        private string GetEmailTemplate(string mail, string language, EmailSpeechForm form)
+        private static string GetEmailTemplate(string mail, string language, EmailSpeechForm form)
         {
-            return $@"You are an AI assistant tasked with responding to emails. You will be given a received email and a preferred speech form (either formal, neutral or familiar). 
+            return
+                $@"You are an AI assistant tasked with responding to emails. You will be given a received email and a preferred speech form (either formal, neutral or familiar). 
                     Your job is to craft an appropriate response. Here is the received email: <received_email> {mail} </received_email> The preferred speech form for the response is: {form}.
                     Follow these steps to complete the task: Carefully read and analyze the received email. Pay attention to the content, tone, and any specific questions or requests. 
                     Craft an appropriate response, keeping in mind the following guidelines: Use the specified speech form (formal, neutral or familiar) consistently throughout the response. 
@@ -951,9 +982,10 @@ Your final output should be a well-formatted HTML file that closely replicates t
                     Remember to adjust your language and tone based on the specified speech form.";
         }
 
-        private string GetVideoScriptTemplate(string language, string productName)
+        private static string GetVideoScriptTemplate(string language, string productName)
         {
-            return @$"You are an AI assistant that specializes in creating engaging advertising video scripts and descriptions for social media platforms like TikTok, Instagram Reels, and YouTube Shorts. 
+            return
+                @$"You are an AI assistant that specializes in creating engaging advertising video scripts and descriptions for social media platforms like TikTok, Instagram Reels, and YouTube Shorts. 
                     Your task is to generate a video script and description in {language} based on a provided product photo and optional product name. 
                     I have attached product photo And here is the product name (if provided):{productName}. First, carefully analyze the product photo. 
                     Take note of the product's appearance, key features, and any text or branding visible. If a product name was provided, consider how it relates to the product's appearance and potential benefits. 
@@ -963,9 +995,10 @@ Your final output should be a well-formatted HTML file that closely replicates t
                     Let your creativity shine while keeping the script and description concise and relevant.";
         }
 
-        private string GetDefaultTemplate(string productCategoryName, string language)
+        private static string GetDefaultTemplate(string productCategoryName, string language)
         {
-            return @$"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. 
+            return
+                @$"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. 
                     Output should be in paragraphs and in {language}. Output pure annotation formatted in HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n. 
                     Do not start with 'Here is the annotation of the products..', give only description text.";
         }
@@ -973,14 +1006,14 @@ Your final output should be a well-formatted HTML file that closely replicates t
         private static string EncodeFileToBase64(IFormFile file)
         {
             if (file == null || file.Length == 0)
-                return string.Empty;
-
-            using (var ms = new MemoryStream())
             {
-                file.CopyTo(ms);
-                byte[] fileBytes = ms.ToArray();
-                return Convert.ToBase64String(fileBytes);
+                return string.Empty;
             }
+
+            using MemoryStream ms = new();
+            file.CopyTo(ms);
+            byte[] fileBytes = ms.ToArray();
+            return Convert.ToBase64String(fileBytes);
         }
 
         private static decimal GetRequestPrice(RequestType requestType)
@@ -993,11 +1026,12 @@ Your final output should be a well-formatted HTML file that closely replicates t
                 RequestType.EnhanceTranslate => 0.25m,
                 RequestType.VideoScript => 1,
                 RequestType.Email => 1,
+                RequestType.Lawyer => throw new NotImplementedException(),
                 _ => 0
             };
         }
 
-        private async Task<(string, int)> GetPdfContentInStringAsync(IFormFile file)
+        private static async Task<(string, int)> GetPdfContentInStringAsync(IFormFile file)
         {
 
             var builder = new StringBuilder();
@@ -1021,13 +1055,11 @@ Your final output should be a well-formatted HTML file that closely replicates t
 
         }
 
-        private async Task<byte[]> PdfToByteArrayAsync(IFormFile file)
+        private static async Task<byte[]> PdfToByteArrayAsync(IFormFile file)
         {
-            using (var memoryStream = new MemoryStream())
-            {
-                await file.CopyToAsync(memoryStream);
-                return memoryStream.ToArray();
-            }
+            using MemoryStream memoryStream = new();
+            await file.CopyToAsync(memoryStream);
+            return memoryStream.ToArray();
         }
 
         private static string GetEmailSpeechForm(EmailSpeechForm form)
@@ -1040,6 +1072,68 @@ Your final output should be a well-formatted HTML file that closely replicates t
                 _ => "Neutral"
             };
         }
+
+
+
+        private async Task<KeyValuePair<int, ClaudeResponse>> TranslateTextWithResponceAsync(int order, string text,
+            string language, string translationId, CancellationToken cancellationToken)
+        {
+            string templateText = GetTranslateTemplate(language, text);
+            List<ContentFile> contents =
+            [
+                new ContentFile
+                {
+                    Type = "text",
+                    Text = templateText
+                }
+            ];
+
+            ClaudeRequestWithFile claudeRequest = new(contents);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+
+            return new KeyValuePair<int, ClaudeResponse>(order, claudeResponse);
+        }
+
+        private async Task<List<string>> StoreChunkedTranslationResponses(List<ClaudeResponse> responses,
+            string translationId, CancellationToken cancellationToken)
+        {
+            if (responses == null || responses.Count == 0)
+            {
+                throw new ArgumentException("No responses to store", nameof(responses));
+            }
+
+            List<string> responceKeys = [];
+
+            for (int i = 0; i < responses.Count; i++)
+            {
+
+                string responceKey = $"claude_response_{translationId}_chunk_{i}_{Guid.NewGuid()}";
+
+                string serializedResponse;
+                try
+                {
+                    serializedResponse = JsonSerializer.Serialize(responses[i], new JsonSerializerOptions
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                        WriteIndented = false
+                    });
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Failed to serialize Claude response for chunk {i}: {ex.Message}");
+                }
+
+                await _cacheService.SetAsync(responceKey, serializedResponse, TimeSpan.FromHours(1), cancellationToken);
+                responceKeys.Add(responceKey);
+            }
+
+            string keysListKey = $"claude_response_keys_{translationId}";
+            await _cacheService.SetAsync(keysListKey, responceKeys, TimeSpan.FromHours(1), cancellationToken);
+
+            return responceKeys;
+        }
+
     }
 
     public enum EmailSpeechForm

@@ -9,25 +9,20 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class RequestLogRepository : IRequestLogRepository
+    public class RequestLogRepository(ContentDbContext dbContext) : IRequestLogRepository
     {
-        private readonly ContentDbContext _dbContext;
-
-        public RequestLogRepository(ContentDbContext dbContext)
-        {
-            _dbContext = dbContext;
-        }
+        private readonly ContentDbContext _dbContext = dbContext;
 
         public async Task<int> CountByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
             return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId).CountAsync(cancellationToken);
         }
-        
+
         public async Task<int> CountTranslatesByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
             return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.Translate).CountAsync(cancellationToken);
         }
-              
+
         public async Task<int> CountContentAIByMarketplaceId(Guid marketplaceId, CancellationToken cancellationToken)
         {
             return await _dbContext.RequestLogs.Where(x => x.MarketplaceId == marketplaceId && x.RequestType == RequestType.Content).CountAsync(cancellationToken);
@@ -45,8 +40,8 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task Create(RequestLog entity, CancellationToken cancellationToken)
         {
-            await _dbContext.Set<RequestLog>().AddAsync(entity, cancellationToken);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            _ = await _dbContext.Set<RequestLog>().AddAsync(entity, cancellationToken);
+            _ = await _dbContext.SaveChangesAsync(cancellationToken);
         }
 
         public IQueryable<RequestLog> GetAll()

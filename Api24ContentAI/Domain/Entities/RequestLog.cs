@@ -9,8 +9,8 @@ namespace Api24ContentAI.Domain.Entities
         public string ResponseJson { get; set; }
         public DateTime CreateTime { get; set; }
         public RequestType RequestType { get; set; }
-    }  
-    
+    }
+
     public class UserRequestLog : BaseEntity
     {
         public string UserId { get; set; }
@@ -28,5 +28,7 @@ namespace Api24ContentAI.Domain.Entities
         Email = 5,
         Lawyer = 6,
         EnhanceTranslate = 7,
+        TranslateVerification = 8,
+        Error = 9
     }
 }

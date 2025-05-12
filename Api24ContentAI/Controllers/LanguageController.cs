@@ -11,14 +11,9 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class LanguageController : Controller
+    public class LanguageController(ILanguageService LanguageService) : Controller
     {
-        private readonly ILanguageService _LanguageService;
-
-        public LanguageController(ILanguageService LanguageService)
-        {
-            _LanguageService = LanguageService;
-        }
+        private readonly ILanguageService _LanguageService = LanguageService;
 
         [HttpGet]
         public async Task<List<LanguageModel>> GetAll(CancellationToken cancellationToken)

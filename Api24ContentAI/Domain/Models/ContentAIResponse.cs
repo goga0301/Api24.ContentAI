@@ -36,4 +36,18 @@ namespace Api24ContentAI.Domain.Models
     {
         public string Text { get; set; }
     }
+
+    public class VerificationResult
+    {
+        public bool Success { get; set; }
+        public string ErrorMessage { get; set; }
+        public string UserId { get; set; }
+        public string TranslationId { get; set; }
+        public int RecoveredChunks { get; set; }
+        public int VerifiedChunks { get; set; }
+        public Dictionary<int, string> ChunkWarnings { get; set; } = [];
+        public double? QualityScore { get; set; }
+        
+        public string Feedback { get; set; }
+    }
 }

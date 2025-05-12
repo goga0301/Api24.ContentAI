@@ -10,11 +10,14 @@ namespace Api24ContentAI
             CreateHostBuilder(args).Build().Run();
         }
 
-        public static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureWebHostDefaults(webBuilder =>
+
+        public static IHostBuilder CreateHostBuilder(string[] args)
+        {
+            return Host.CreateDefaultBuilder(args)
+                .ConfigureWebHostDefaults(static webBuilder =>
                 {
-                    webBuilder.UseStartup<Startup>();
+                    _ = webBuilder.UseStartup<Startup>();
                 });
+        }
     }
 }

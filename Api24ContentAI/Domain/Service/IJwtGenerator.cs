@@ -6,9 +6,9 @@ namespace Api24ContentAI.Domain.Service
 {
     public interface IJwtGenerator
     {
-        public string GenerateToken(IdentityUser applicationUser, IEnumerable<string> roles);
-        public (string AccessToken, string RefreshToken) GenerateTokens(IdentityUser applicationUser, IEnumerable<string> roles);
-        public ClaimsPrincipal GetPrincipalFromExpiredToken(string token);
+        string GenerateToken(IdentityUser applicationUser, IEnumerable<string> roles);
+        (string AccessToken, string RefreshToken) GenerateTokens(IdentityUser applicationUser, IEnumerable<string> roles);
+        ClaimsPrincipal GetPrincipalFromExpiredToken(string token);
 
 
     }

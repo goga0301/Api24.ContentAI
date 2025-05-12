@@ -18,24 +18,41 @@ using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Infrastructure.Middleware;
+using Microsoft.Extensions.Hosting;
+
 
 namespace Api24ContentAI
 {
-    public class Startup
+    public class Startup(IConfiguration configuration)
     {
-        public Startup(IConfiguration configuration)
-        {
-            Configuration = configuration;
-        }
+        public IConfiguration Configuration { get; } = configuration;
 
-        public IConfiguration Configuration { get; }
-
-        // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-            services.AddControllers();
+            _ = services.AddStackExchangeRedisCache(options =>
+            {
+                string redisConnection = Configuration.GetConnectionString("Redis");
+                
+                if (string.IsNullOrWhiteSpace(redisConnection))
+                {
+                    redisConnection = "localhost:6379";
+                }
+                
+                options.Configuration = redisConnection;
+                options.InstanceName = "Api24ContentAI_";
+                
+                options.ConfigurationOptions = new StackExchange.Redis.ConfigurationOptions
+                {
+                    AbortOnConnectFail = false,
+                    ConnectRetry = 5,
+                    ConnectTimeout = 5000
+                };
+            });
 
-            services.AddSwaggerGen(options =>
+            _ = services.AddControllers();
+
+            _ = services.AddSwaggerGen(options =>
             {
                 options.SwaggerDoc("v1", new OpenApiInfo { Title = "Api24ContentAI", Version = "v1" });
                 options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
@@ -67,25 +84,34 @@ namespace Api24ContentAI
             services.AddRepositories();
             services.AddServices();
 
-            services.AddHttpClient<IClaudeService, ClaudeService>((client) =>
-            {
-                client.DefaultRequestHeaders.Add("x-api-key", Configuration.GetSection("Security:ClaudeApiKey").Value);
-                client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
-                //client.DefaultRequestHeaders.Add("anthropic-beta", "max-tokens-3-5-sonnet-2024-07-15");
+            string apiKey = Configuration.GetSection("Security:ClaudeApiKey").Value;
 
-                client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
-            })
-            .ConfigurePrimaryHttpMessageHandler(() =>
+            if (string.IsNullOrEmpty(apiKey))
             {
-                return new SocketsHttpHandler()
-                {
-                    PooledConnectionLifetime = TimeSpan.FromMinutes(15)
-                };
-            })
+                throw new InvalidOperationException("Claude API Key is missing in configuration.");
+            }
+
+            _ = services.AddHttpClient<IClaudeService, ClaudeService>((client) =>
+                    {
+                        client.DefaultRequestHeaders.Clear();
+                        client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+                        client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
+                        client.DefaultRequestHeaders.Add("anthropic-beta", "max-tokens-3-5-sonnet-2024-07-15");
+                        client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                        client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
+                    })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                    {
+                        return new SocketsHttpHandler()
+                        {
+                            PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+                        };
+                    })
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
 
-            services.AddHttpClient<IApi24Service, Api24Service>((client) =>
+            _ = services.AddHttpClient<IApi24Service, Api24Service>((client) =>
             {
                 client.DefaultRequestHeaders.Add("AccessToken", Configuration.GetSection("Security:Api24AccessToken").Value);
 
@@ -100,10 +126,10 @@ namespace Api24ContentAI
             })
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
-            services.Configure<JwtOptions>(Configuration.GetSection("ApiSettings:JwtOptions"));
-            services.Configure<FbOptions>(Configuration.GetSection("ApiSettings:FbOptions"));
+            _ = services.Configure<JwtOptions>(Configuration.GetSection("ApiSettings:JwtOptions"));
+            _ = services.Configure<FbOptions>(Configuration.GetSection("ApiSettings:FbOptions"));
 
-            services.AddIdentity<User, Role>(Options =>
+            _ = services.AddIdentity<User, Role>(Options =>
             {
                 Options.Password.RequiredLength = 3;
                 Options.Password.RequireNonAlphanumeric = false;
@@ -116,12 +142,12 @@ namespace Api24ContentAI
              .AddEntityFrameworkStores<ContentDbContext>()
              .AddDefaultTokenProviders();
 
-            var secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
-            var issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
-            var audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
-            var key = Encoding.ASCII.GetBytes(secret);
+            string secret = Configuration.GetValue<string>("ApiSettings:JwtOptions:Secret");
+            string issuer = Configuration.GetValue<string>("ApiSettings:JwtOptions:Issuer");
+            string audience = Configuration.GetValue<string>("ApiSettings:JwtOptions:Audience");
+            byte[] key = Encoding.ASCII.GetBytes(secret);
 
-            services.AddAuthentication(options =>
+            _ = services.AddAuthentication(options =>
             {
                 options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
                 options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -141,14 +167,14 @@ namespace Api24ContentAI
                 };
             });
 
-            services.AddHttpClient();
-            services.AddAuthorization();
+            _ = services.AddHttpClient();
+            _ = services.AddAuthorization();
 
-            services.AddCors(options =>
+            _ = services.AddCors(options =>
             {
                 options.AddDefaultPolicy(builder =>
                 {
-                    builder.AllowAnyHeader().AllowAnyOrigin().AllowAnyMethod();
+                    _ = builder.AllowAnyHeader().AllowAnyOrigin().AllowAnyMethod();
                 });
             });
 
@@ -157,23 +183,21 @@ namespace Api24ContentAI
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-            //if (env.IsDevelopment())
-            //{
-            app.UseDeveloperExceptionPage();
-            app.UseSwagger();
-            app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Api24ContentAI v1"));
-            //}
+            _ = env.IsDevelopment() ? app.UseDeveloperExceptionPage() : app.UseGlobalExceptionHandling();
+            _ = app.UseDeveloperExceptionPage();
+            _ = app.UseSwagger();
+            _ = app.UseSwaggerUI(static c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Api24ContentAI v1"));
 
-            app.UseHttpsRedirection();
+            _ = app.UseHttpsRedirection();
 
-            app.UseRouting();
-            app.UseCors();
-            app.UseAuthentication();
-            app.UseAuthorization();
-            
-            app.UseEndpoints(endpoints =>
+            _ = app.UseRouting();
+            _ = app.UseCors();
+            _ = app.UseAuthentication();
+            _ = app.UseAuthorization();
+
+            _ = app.UseEndpoints(static endpoints =>
             {
-                endpoints.MapControllers();
+                _ = endpoints.MapControllers();
             });
         }
     }

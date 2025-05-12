@@ -41,10 +41,10 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task Delete(string id, CancellationToken cancellationToken)
         {
-            var balancEntity = await _context.UserBalances.SingleOrDefaultAsync(x => x.UserId == id);
+            UserBalance balancEntity = await _context.UserBalances.SingleOrDefaultAsync(x => x.UserId == id);
             _context.UserBalances.Remove(balancEntity);
 
-            var entity = await _context.Users.SingleOrDefaultAsync(x => x.Id == id);
+            User entity = await _context.Users.SingleOrDefaultAsync(x => x.Id == id);
             _context.Users.Remove(entity);
 
             await _context.SaveChangesAsync();
@@ -75,17 +75,17 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task UpdateUserBalance(string userId, decimal price, CancellationToken cancellationToken)
         {
-            using (var connection = new NpgsqlConnection(connectionString))
+            using (NpgsqlConnection connection = new NpgsqlConnection(connectionString))
             {
                 await connection.OpenAsync();
 
-                var balance = await connection.QuerySingleOrDefaultAsync<UserBalance>(
+                UserBalance balance = await connection.QuerySingleOrDefaultAsync<UserBalance>(
                     @"select ""UserId"" from ""ContentDb"".""UserBalances"" WHERE ""UserId"" = @UserId",
                     new { UserId = userId });
 
                 if (balance != null)
                 {
-                    var updateQuery = @"UPDATE ""ContentDb"".""UserBalances""
+                    string updateQuery = @"UPDATE ""ContentDb"".""UserBalances""
                                     	SET ""Balance""=""Balance"" - @Price
                                     	WHERE ""UserId"" = @UserId";
 

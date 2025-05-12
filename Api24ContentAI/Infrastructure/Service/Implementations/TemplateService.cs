@@ -11,18 +11,13 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class TemplateService : ITemplateService
+    public class TemplateService(ITemplateRepository templateRepository) : ITemplateService
     {
-        private readonly ITemplateRepository _templateRepository;
-
-        public TemplateService(ITemplateRepository templateRepository)
-        {
-            _templateRepository = templateRepository;
-        }
+        private readonly ITemplateRepository _templateRepository = templateRepository;
 
         public async Task<Guid> Create(CreateTemplateModel template, CancellationToken cancellationToken)
         {
-           return await _templateRepository.Create(template.ToEntity(), cancellationToken);
+            return await _templateRepository.Create(template.ToEntity(), cancellationToken);
         }
 
         public async Task Delete(Guid id, CancellationToken cancellationToken)
@@ -33,7 +28,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<List<TemplateModel>> GetAll(CancellationToken cancellationToken)
         {
             return await _templateRepository.GetAll()
-                            .Select(x => x.ToModel()).ToListAsync(cancellationToken);
+                            .Select(static x => x.ToModel()).ToListAsync(cancellationToken);
         }
 
         public async Task<TemplateModel> GetById(Guid id, CancellationToken cancellationToken)
@@ -43,9 +38,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<TemplateModel> GetByProductCategoryId(Guid productCategoryId, CancellationToken cancellationToken)
         {
-            var template = await _templateRepository.GetByProductCategoryId(productCategoryId, cancellationToken);
-            if (template == null) return null;
-            return template.ToModel();
+            Domain.Entities.Template template = await _templateRepository.GetByProductCategoryId(productCategoryId, cancellationToken);
+            return template?.ToModel();
         }
 
         //public async Task<TemplateModel> GetByProductCategoryIdAndLanguage(Guid productCategoryId, string language, CancellationToken cancellationToken)
@@ -57,7 +51,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task Update(UpdateTemplateModel template, CancellationToken cancellationToken)
         {
-            var entity = await _templateRepository.GetById(template.Id, cancellationToken);
+            Domain.Entities.Template entity = await _templateRepository.GetById(template.Id, cancellationToken);
             entity.Name = template.Name;
             entity.Text = template.Text;
             entity.ProductCategoryId = template.ProductCategoryId;

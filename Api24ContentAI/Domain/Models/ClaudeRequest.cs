@@ -4,32 +4,20 @@ using System.Text.Json.Serialization;
 namespace Api24ContentAI.Domain.Models
 {
 
-    public class Message
+    public class Message(string role, string content)
     {
         [JsonPropertyName("role")]
-        public string Role { get; }
+        public string Role { get; } = role;
         [JsonPropertyName("content")]
-        public string Content { get; }
-
-        public Message(string role, string content)
-        {
-            Role = role;
-            Content = content;
-        }
+        public string Content { get; } = content;
     }
 
-    public class MessageWithFile
+    public class MessageWithFile(string role, List<ContentFile> content)
     {
         [JsonPropertyName("role")]
-        public string Role { get; }
+        public string Role { get; } = role;
         [JsonPropertyName("content")]
-        public List<ContentFile> Content { get; set; }
-
-        public MessageWithFile(string role, List<ContentFile> content)
-        {
-            Role = role;
-            Content = content;
-        }
+        public List<ContentFile> Content { get; set; } = content;
     }
 
     public class ContentFile
@@ -91,17 +79,10 @@ namespace Api24ContentAI.Domain.Models
     public class ClaudeRequest
     {
         [JsonPropertyName("model")]
-        public string Model { get; }
+        public string Model { get; } = "claude-3-5-sonnet-20240620";
         [JsonPropertyName("max_tokens")]
         public int MaxTokens { get; }
         [JsonPropertyName("messages")]
-        public List<Message> Messages { get; }
-
-        public ClaudeRequest(string messageContent)
-        {
-            Model = "claude-3-5-sonnet-20240620";
-            MaxTokens = 4096;
-            Messages = new List<Message> { new Message("user", messageContent) };
-        }
+        public List<Message> Messages { get; } = [new Message("user", messageContent)];
     }
 }

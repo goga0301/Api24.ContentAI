@@ -6,6 +6,6 @@ namespace Api24ContentAI.Domain.Repository
 {
     public interface IMarketplaceRepository : IGenericRepository<Marketplace>
     {
-        public Task UpdateBalance(Guid uniqueKey, RequestType requestType);
+        Task UpdateBalance(Guid uniqueKey, RequestType requestType);
     }
 }
