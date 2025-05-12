@@ -9,10 +9,10 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class TemplateRepository(ContentDbContext dbContext) : GenericRepository<Template>(dbContext), ITemplateRepository
+    public class TemplateRepository(ContentDbContext dbContext, ICacheService cacheService) : GenericRepository<Template>(dbContext), ITemplateRepository
     {
 
-        private readonly ICacheService _cacheService;
+        private readonly ICacheService _cacheService = cacheService;
 
         public async Task<Template> GetByProductCategoryId(Guid productCategoryId, CancellationToken cancellationToken)
         {

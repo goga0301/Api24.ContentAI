@@ -63,7 +63,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             try
             {
+                await EnsureRolesExistsAsync(_customerRole);
+
                 Role role = await _roleManager.FindByNameAsync(_customerRole);
+
                 user.RoleId = role.Id;
 
                 IdentityResult result = await _userManager.CreateAsync(user, registrationRequest.Password);
@@ -79,6 +82,53 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             catch (Exception ex)
             {
                 throw new Exception(ex.Message);
+            }
+        }
+        
+
+        public async Task RegisterWithPhone(RegisterWIthPhoneRequest request, CancellationToken cancellationToken, UserType userType = UserType.Normal)
+        {
+            string uniqueEmail = $"phone_{request.PhoneNUmber}_{Guid.NewGuid()}@example.com"; // temporary
+            
+            User user = new()
+            {
+                UserName = request.PhoneNUmber,
+                FirstName = request.PhoneNUmber, // temporary
+                LastName = request.PhoneNUmber, // temporary
+                NormalizedUserName = request.PhoneNUmber.ToUpper(),
+                Email = uniqueEmail,
+                NormalizedEmail = uniqueEmail.ToUpper(),
+                PhoneNumber = request.PhoneNUmber,
+                EmailConfirmed = true,
+                PhoneNumberConfirmed = true,
+                UserType = userType,
+                SecurityStamp = Guid.NewGuid().ToString()
+            };
+
+            try
+            {
+                await EnsureRolesExistsAsync(_customerRole);
+
+                Role role = await _roleManager.FindByNameAsync(_customerRole);
+                user.RoleId = role.Id;
+
+                IdentityResult result = await _userManager.CreateAsync(user, request.Password);
+                if (!result.Succeeded)
+                {
+                    string errors = string.Join(", ", result.Errors.Select(e => $"{e.Code}: {e.Description}"));
+                    throw new Exception($"Failed to create user: {errors}");
+                }
+
+                User createdUser = await _userRepository.GetByUserName(user.UserName, cancellationToken);
+                await _userRepository.CreateUserBalance(createdUser.Id, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Exception innerException = ex.InnerException;
+                string innerExceptionMessage = innerException != null ? 
+                    $" Inner exception: {innerException.Message}" : "";
+                
+                throw new Exception($"Registration failed: {ex.Message}{innerExceptionMessage}", ex);
             }
         }
 
@@ -119,6 +169,30 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 throw new Exception(ex.Message);
             }
+        }
+
+        public async Task<LoginResponse> LoginWithPhone(LoginRequest loginRequest, CancellationToken cancellationToken)
+        {
+            User user = await _userManager.FindByNameAsync(loginRequest.UserName);
+            if (user == null)
+            {
+                throw new Exception($"User not found by username {loginRequest.UserName}");
+            }
+            bool isValid = await _userManager.CheckPasswordAsync(user, loginRequest.Password);
+            if (!isValid)
+            {
+                throw new Exception("Password is not correct");
+            }
+            Role role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
+            (string accessToken, string refreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string>() { role.NormalizedName });
+            user.RefreshToken = refreshToken;
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1);
+            await _userManager.UpdateAsync(user);
+            return new LoginResponse()
+            {
+                Token = accessToken,
+                RefreshToken = refreshToken
+            };
         }
 
         public async Task<LoginResponse> LoginWithFacebook(string credentials, CancellationToken cancellationToken)
@@ -231,6 +305,21 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             await _userManager.UpdateAsync(user);
 
             return new LoginResponse { Token = newAccessToken, RefreshToken = newRefreshToken };
+        }
+        
+
+        private async Task EnsureRolesExistsAsync(string roleName)
+        {
+            Role role = await _roleManager.FindByNameAsync(roleName);
+            if (role == null)
+            {
+                role = new Role(roleName);
+                IdentityResult roleResult = await _roleManager.CreateAsync(role);
+                if (!roleResult.Succeeded)
+                {
+                    throw new Exception($"Failed to create role '{roleName}': {roleResult.Errors.FirstOrDefault()?.Description}");
+                }
+            }
         }
     }
 }

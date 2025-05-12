@@ -20,12 +20,13 @@ using System.Text.RegularExpressions;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class UserContentService(IClaudeService claudeService,
-                          ICacheService cacheService,
-                          IUserRequestLogService requestLogService,
-                          IProductCategoryService productCategoryService,
-                          ILanguageService languageService,
-                          IUserRepository userRepository) : IUserContentService
+    public class UserContentService(
+        IClaudeService claudeService,
+        ICacheService cacheService,
+        IUserRequestLogService requestLogService,
+        IProductCategoryService productCategoryService,
+        ILanguageService languageService,
+        IUserRepository userRepository) : IUserContentService
     {
         private readonly IClaudeService _claudeService = claudeService;
         private readonly IUserRequestLogService _requestLogService = requestLogService;
@@ -42,43 +43,46 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             "webp"
         ];
 
-        public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request, CancellationToken cancellationToken)
+        public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request,
+            CancellationToken cancellationToken)
         {
 
             string cacheKey = $"basic_message_{request.Message.GetHashCode()}";
 
             return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
-                    {
-                        ContentFile message = new()
-                        {
-                            Type = "text",
-                            Text = request.Message
-                        };
+            {
+                ContentFile message = new()
+                {
+                    Type = "text",
+                    Text = request.Message
+                };
 
 
-                        ClaudeRequestWithFile claudeRequest = new([message]);
-                        ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-                        string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+                ClaudeRequestWithFile claudeRequest = new([message]);
+                ClaudeResponse claudeResponse =
+                    await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-                        int lastPeriod = claudResponseText.LastIndexOf('.');
+                int lastPeriod = claudResponseText.LastIndexOf('.');
 
-                        if (lastPeriod != -1)
-                        {
-                            claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
-                        }
+                if (lastPeriod != -1)
+                {
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                }
 
-                        CopyrightAIResponse response = new()
-                        {
-                            Text = claudResponseText
-                        };
+                CopyrightAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
 
-                        return response;
+                return response;
 
-                    }, TimeSpan.FromHours(24), cancellationToken);
+            }, TimeSpan.FromHours(24), cancellationToken);
 
         }
 
-        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request,
+            string userId, CancellationToken cancellationToken)
         {
             decimal requestPrice = GetRequestPrice(RequestType.Copyright);
             User user = await _userRepository.GetById(userId, cancellationToken);
@@ -153,7 +157,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
-        public async Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId,
+            CancellationToken cancellationToken)
         {
             decimal requestPrice = GetRequestPrice(RequestType.Copyright);
 
@@ -164,13 +169,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
 
-            ProductCategoryModel productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
+            ProductCategoryModel productCategory =
+                await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
 
             LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
             string templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
 
-            string claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
+            string claudRequestContent =
+                $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
             ClaudeRequest claudeRequest = new(claudRequestContent);
 
@@ -210,7 +217,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
-        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId,
+            CancellationToken cancellationToken)
         {
             int pdfPageCount = 0;
             if (request.IsPdf)
@@ -247,7 +255,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             }
                         };
 
-                        LanguageModel sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+                        LanguageModel sourceLanguage =
+                            await _languageService.GetById(request.SourceLanguageId, cancellationToken);
                         string templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
                         ContentFile messageImageToText = new()
                         {
@@ -261,8 +270,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         int currentIndex = indexForImages;
                         Task<KeyValuePair<int, string>> task = Task.Run(async () =>
                         {
-                            ClaudeResponse claudeResponseContinueImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-                            string claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content.Single().Text.Replace("\n", "<br>");
+                            ClaudeResponse claudeResponseContinueImageToText =
+                                await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+                            string claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content
+                                .Single().Text.Replace("\n", "<br>");
                             int start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
                             int endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
                             string result = claudResponseTextContinueImageToText[start..endt];
@@ -281,6 +292,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     {
                         _ = textFromImage.Append(result);
                     }
+
                     request.Description = textFromImage.ToString();
                 }
             }
@@ -297,10 +309,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             List<string> chunks = GetChunksOfLargeText(request.Description);
             StringBuilder chunkBuilder = new();
-            StringBuilder claudResponseText = new();
-            // List<Task<KeyValuePair<int, string>>> tasks = [];
-            List<Task<KeyValuePair<int, ClaudeResponse>>> tasks = [];
-            List<ClaudeResponse> allResponses = [];
+            StringBuilder translatedText = new();
+
+            List<Task<KeyValuePair<int, string>>> tasks = [];
 
             for (int i = 0; i < chunks.Count; i++)
             {
@@ -309,31 +320,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _ = chunkBuilder.AppendLine(chunk);
                 _ = chunkBuilder.AppendLine("-----------------------------------------");
 
-                Task<KeyValuePair<int, ClaudeResponse>> task = TranslateTextWithResponceAsync(i, chunk, language.Name, translationId, cancellationToken);
+                Task<KeyValuePair<int, string>> task = TranslateTextAsync(i, chunk, language.Name, cancellationToken);
                 tasks.Add(task);
             }
 
-            KeyValuePair<int, ClaudeResponse>[] results = await Task.WhenAll(tasks);
+            KeyValuePair<int, string>[] results = await Task.WhenAll(tasks);
 
+            IEnumerable<KeyValuePair<int, string>> orderedResults = results.OrderBy(r => r.Key);
 
-            IEnumerable<KeyValuePair<int, ClaudeResponse>> orderedResults = results.OrderBy(r => r.Key);
-
-            foreach (KeyValuePair<int, ClaudeResponse> kvp in orderedResults)
+            foreach (KeyValuePair<int, string> kvp in orderedResults)
             {
-                ClaudeResponse respons = kvp.Value;
-                string fullText = respons.Content.Single().Text;
-
-                _ = claudResponseText.AppendLine(fullText);
-                allResponses.Add(respons);
+                string translatedChunk = kvp.Value;
+                _ = translatedText.AppendLine(translatedChunk);
             }
-
-            List<string> responseKeys = await StoreChunkedTranslationResponses(allResponses, translationId, cancellationToken);
-
-
 
             TranslateResponse response = new()
             {
-                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
+                Text = translatedText.ToString().Replace("\n", "<br>").Replace("\r", "<br>")
             };
 
             await _requestLogService.Create(new CreateUserRequestLogModel
@@ -357,7 +360,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
 
 
-        public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId,
+            CancellationToken cancellationToken)
         {
             decimal requestPrice = GetRequestPrice(RequestType.EnhanceTranslate);
 
@@ -370,7 +374,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             LanguageModel targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
 
-            string templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
+            string templateText =
+                GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
             StringBuilder wholeRequest = new(templateText);
             _ = wholeRequest.AppendLine("-----------------------------------");
             _ = wholeRequest.AppendLine();
@@ -419,9 +424,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             decimal defaultPrice = GetRequestPrice(RequestType.Translate);
 
-            return !string.IsNullOrWhiteSpace(request.Description) && (request.Files == null || request.Files.Count == 0)
+            return !string.IsNullOrWhiteSpace(request.Description) &&
+                   (request.Files == null || request.Files.Count == 0)
                 ? defaultPrice * ((request.Description.Length / 250) + (request.Description.Length % 250 == 0 ? 0 : 1))
-                : request.Files != null && request.Files.Count == 1 && request.IsPdf ? pdfPageCount * 0.9m : request.Files.Count * 1.45m;
+                : request.Files != null && request.Files.Count == 1 && request.IsPdf
+                    ? pdfPageCount * 0.9m
+                    : request.Files.Count * 1.45m;
         }
 
         private static decimal CalculateTranslateRequestPriceNew(string description)
@@ -432,7 +440,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         }
 
-        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language, CancellationToken cancellationToken)
+        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language,
+            CancellationToken cancellationToken)
         {
 
             string templateText = GetTranslateTemplate(language, text);
@@ -486,7 +495,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return chunks;
         }
 
-        public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request,
+            string userId, CancellationToken cancellationToken)
         {
             decimal requestPrice = GetRequestPrice(RequestType.Copyright);
 
@@ -562,7 +572,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
-        public async Task<EmailAIResponse> Email(UserEmailRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<EmailAIResponse> Email(UserEmailRequest request, string userId,
+            CancellationToken cancellationToken)
         {
             decimal requestPrice = GetRequestPrice(RequestType.Email);
             User user = await _userRepository.GetById(userId, cancellationToken);
@@ -629,6 +640,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 _ = resultBuilder.Append($"{attribute.Key}: {attribute.Value}; \n");
             }
+
             return resultBuilder.ToString();
         }
 
@@ -715,7 +727,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       now you should continue translation from where last response is finished.
                       you should use translation rules from initial prompt";
         }
-        private static string GetEnhanceTranslateTemplate(string targetLanguage, string userInput, string TranslateOutput)
+
+        private static string GetEnhanceTranslateTemplate(string targetLanguage, string userInput,
+            string TranslateOutput)
         {
             return @$"<original_text>{userInput}</original_text>
                         <translated_text>{TranslateOutput}</translated_text>
@@ -763,7 +777,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static string GetCopyrightTemplate(string language, string productName)
         {
-            return @$"Your task is to generate an engaging and effective Facebook advertisement text based on a provided image and an optional product name. 
+            return
+                @$"Your task is to generate an engaging and effective Facebook advertisement text based on a provided image and an optional product name. 
                     The advertisement text should include relevant emojis and attention catching details to attract potential customers. 
                     I attached image that you should use and here is the optional product name (if not provided, leave blank):{productName}.
                     Do not make any promotional offer if not stated in the photo. Output text in {language} Language. 
@@ -772,7 +787,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static string GetEmailTemplate(string mail, string language, EmailSpeechForm form)
         {
-            return $@"You are an AI assistant tasked with responding to emails. You will be given a received email and a preferred speech form (either formal, neutral or familiar). 
+            return
+                $@"You are an AI assistant tasked with responding to emails. You will be given a received email and a preferred speech form (either formal, neutral or familiar). 
                     Your job is to craft an appropriate response. Here is the received email: <received_email> {mail} </received_email> The preferred speech form for the response is: {form}.
                     Follow these steps to complete the task: Carefully read and analyze the received email. Pay attention to the content, tone, and any specific questions or requests. 
                     Craft an appropriate response, keeping in mind the following guidelines: Use the specified speech form (formal, neutral or familiar) consistently throughout the response. 
@@ -783,7 +799,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static string GetVideoScriptTemplate(string language, string productName)
         {
-            return @$"You are an AI assistant that specializes in creating engaging advertising video scripts and descriptions for social media platforms like TikTok, Instagram Reels, and YouTube Shorts. 
+            return
+                @$"You are an AI assistant that specializes in creating engaging advertising video scripts and descriptions for social media platforms like TikTok, Instagram Reels, and YouTube Shorts. 
                     Your task is to generate a video script and description in {language} based on a provided product photo and optional product name. 
                     I have attached product photo And here is the product name (if provided):{productName}. First, carefully analyze the product photo. 
                     Take note of the product's appearance, key features, and any text or branding visible. If a product name was provided, consider how it relates to the product's appearance and potential benefits. 
@@ -795,7 +812,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static string GetDefaultTemplate(string productCategoryName, string language)
         {
-            return @$"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. 
+            return
+                @$"For {productCategoryName} generate creative annotation/description containing the product consistency, how to use, brand information, recommendations and other information. 
                     Output should be in paragraphs and in {language}. Output pure annotation formatted in HTML Language (Small Bold headers, Bullet points, paragraphs, various tags and etc), use br tags instead of \\n. 
                     Do not start with 'Here is the annotation of the products..', give only description text.";
         }
@@ -846,6 +864,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     _ = builder.Append(text);
                 }
             }
+
             return (builder.ToString(), pageCount);
 
         }
@@ -870,7 +889,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
 
 
-        private async Task<KeyValuePair<int, ClaudeResponse>> TranslateTextWithResponceAsync(int order, string text, string language, string translationId, CancellationToken cancellationToken)
+        private async Task<KeyValuePair<int, ClaudeResponse>> TranslateTextWithResponceAsync(int order, string text,
+            string language, string translationId, CancellationToken cancellationToken)
         {
             string templateText = GetTranslateTemplate(language, text);
             List<ContentFile> contents =
@@ -888,7 +908,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return new KeyValuePair<int, ClaudeResponse>(order, claudeResponse);
         }
 
-        private async Task<List<string>> StoreChunkedTranslationResponses(List<ClaudeResponse> responses, string translationId, CancellationToken cancellationToken)
+        private async Task<List<string>> StoreChunkedTranslationResponses(List<ClaudeResponse> responses,
+            string translationId, CancellationToken cancellationToken)
         {
             if (responses == null || responses.Count == 0)
             {
@@ -925,159 +946,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             await _cacheService.SetAsync(keysListKey, responceKeys, TimeSpan.FromHours(1), cancellationToken);
 
             return responceKeys;
-        }
-
-        // this method is not callude yet we will need another AI to send claude responses
-        // to verify correctness of response
-        private async Task<VerificationResult> VerifyTranslationBatch(string translationId, string userId, CancellationToken cancellationToken)
-        {
-            string keysListKey = $"claude_response_keys_{translationId}";
-            List<string> responceKeys = await _cacheService.GetAsync<List<string>>(keysListKey, cancellationToken);
-
-            if (responceKeys == null || responceKeys.Count == 0)
-            {
-                return new VerificationResult
-                {
-                    Success = false,
-                    ErrorMessage = "Translation response keys not found or expired",
-                    UserId = userId,
-                    TranslationId = translationId
-                };
-            }
-
-            try
-            {
-                List<ClaudeResponse> responses = [];
-                List<string> missingChunks = [];
-                for (int i = 0; i < responceKeys.Count; i++)
-                {
-                    string key = responceKeys[i];
-                    string serializedResponse = await _cacheService.GetAsync<string>(key, cancellationToken);
-
-                    if (string.IsNullOrEmpty(serializedResponse))
-                    {
-                        missingChunks.Add($"Chunk {i}");
-                        continue;
-                    }
-
-                    try
-                    {
-                        ClaudeResponse claudeResponse = JsonSerializer.Deserialize<ClaudeResponse>(serializedResponse);
-                        if (claudeResponse != null)
-                        {
-                            responses.Add(claudeResponse);
-                        }
-                        else
-                        {
-                            missingChunks.Add($"Chunk {i} (null after deserialization)");
-                        }
-                    }
-                    catch (JsonException ex)
-                    {
-                        missingChunks.Add($"Chunk {i} (deserialization error: {ex.Message})");
-                    }
-
-                }
-
-                if (missingChunks.Count > 0)
-                {
-                    return new VerificationResult
-                    {
-                        Success = false,
-                        ErrorMessage = $"Missing or corrupted chunks: {string.Join(", ", missingChunks)}",
-                        UserId = userId,
-                        TranslationId = translationId,
-                        RecoveredChunks = responses.Count
-                    };
-                }
-
-                VerificationResult verificationResult = await VerifyCompleteTranslation(responses, userId, translationId, cancellationToken);
-
-                await _requestLogService.Create(new CreateUserRequestLogModel
-                {
-                    UserId = userId,
-                    Request = JsonSerializer.Serialize(new { TranslationId = translationId }),
-                    Response = JsonSerializer.Serialize(verificationResult),
-                    RequestType = RequestType.TranslateVerification
-                }, cancellationToken);
-
-                return verificationResult;
-            }
-            catch (Exception ex)
-            {
-                await _requestLogService.Create(new CreateUserRequestLogModel
-                {
-                    UserId = userId,
-                    Request = JsonSerializer.Serialize(new { TranslationId = translationId }),
-                    Response = JsonSerializer.Serialize(new { Error = ex.Message }),
-                    RequestType = RequestType.TranslateVerification
-                }, cancellationToken);
-
-                return new VerificationResult
-                {
-                    Success = false,
-                    ErrorMessage = $"Verification failed: {ex.Message}",
-                    UserId = userId,
-                    TranslationId = translationId
-                };
-            }
-        }
-
-        // NOTE: this method can be used for another AI to verify ClaudeResponces
-        private async Task<VerificationResult> VerifyCompleteTranslation(List<ClaudeResponse> responses, string userId, string translationId, CancellationToken cancellationToken)
-        {
-            if (responses == null || responses.Count == 0)
-            {
-                return new VerificationResult
-                {
-                    Success = false,
-                    ErrorMessage = "No responses to verify",
-                    UserId = userId,
-                    TranslationId = translationId
-                };
-            }
-
-            try
-            {
-                List<string> translatedTexts = [];
-                foreach (ClaudeResponse response in responses)
-                {
-                    string fullText = response.Content.Single().Text;
-                    int start = fullText.IndexOf("<translation>") + 13;
-                    int end = fullText.IndexOf("</translation>");
-
-                    if (start >= 13 && end > start)
-                    {
-                        translatedTexts.Add(fullText[start..end]);
-                    }
-                    else
-                    {
-                        translatedTexts.Add("ERROR: Missing translation tags in response");
-                    }
-                }
-
-                // this could call another AI service
-
-                // For now, returning a placeholder success result
-                // In a real implementation, you would process the verification results
-                return new VerificationResult
-                {
-                    Success = true,
-                    UserId = userId,
-                    TranslationId = translationId,
-                    VerifiedChunks = responses.Count
-                };
-            }
-            catch (Exception ex)
-            {
-                return new VerificationResult
-                {
-                    Success = false,
-                    ErrorMessage = $"Verification process error: {ex.Message}",
-                    UserId = userId,
-                    TranslationId = translationId
-                };
-            }
         }
 
     }

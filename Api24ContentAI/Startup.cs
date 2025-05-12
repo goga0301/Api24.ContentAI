@@ -18,6 +18,8 @@ using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Infrastructure.Middleware;
+using Microsoft.Extensions.Hosting;
 
 
 namespace Api24ContentAI
@@ -26,17 +28,27 @@ namespace Api24ContentAI
     {
         public IConfiguration Configuration { get; } = configuration;
 
-        // This method gets called by the runtime. Use this method to add services to the container.
         public void ConfigureServices(IServiceCollection services)
         {
-
             _ = services.AddStackExchangeRedisCache(options =>
             {
-                options.Configuration = Configuration.GetConnectionString("Redis");
+                string redisConnection = Configuration.GetConnectionString("Redis");
+                
+                if (string.IsNullOrWhiteSpace(redisConnection))
+                {
+                    redisConnection = "localhost:6379";
+                }
+                
+                options.Configuration = redisConnection;
                 options.InstanceName = "Api24ContentAI_";
+                
+                options.ConfigurationOptions = new StackExchange.Redis.ConfigurationOptions
+                {
+                    AbortOnConnectFail = false,
+                    ConnectRetry = 5,
+                    ConnectTimeout = 5000
+                };
             });
-
-
 
             _ = services.AddControllers();
 
@@ -72,11 +84,20 @@ namespace Api24ContentAI
             services.AddRepositories();
             services.AddServices();
 
+            string apiKey = Configuration.GetSection("Security:ClaudeApiKey").Value;
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                throw new InvalidOperationException("Claude API Key is missing in configuration.");
+            }
+
             _ = services.AddHttpClient<IClaudeService, ClaudeService>((client) =>
                     {
-                        client.DefaultRequestHeaders.Add("x-api-key", Configuration.GetSection("Security:ClaudeApiKey").Value);
+                        client.DefaultRequestHeaders.Clear();
+                        client.DefaultRequestHeaders.Add("x-api-key", apiKey);
                         client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
                         client.DefaultRequestHeaders.Add("anthropic-beta", "max-tokens-3-5-sonnet-2024-07-15");
+                        client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
                         client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
                     })
@@ -162,12 +183,10 @@ namespace Api24ContentAI
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-            //if (env.IsDevelopment())
-            //{
+            _ = env.IsDevelopment() ? app.UseDeveloperExceptionPage() : app.UseGlobalExceptionHandling();
             _ = app.UseDeveloperExceptionPage();
             _ = app.UseSwagger();
             _ = app.UseSwaggerUI(static c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Api24ContentAI v1"));
-            //}
 
             _ = app.UseHttpsRedirection();
 

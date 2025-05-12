@@ -103,5 +103,26 @@ namespace Api24ContentAI.Controllers
             await _authService.Register(registrationRequestDTO, cancellationToken);
             return Ok();
         }
+
+        [HttpPost("register-with-phone")]
+        public async Task<IActionResult> RegisterWithPhone(RegisterWIthPhoneRequest registrationRequestDTO, CancellationToken cancellation)
+        {
+            await _authService.RegisterWithPhone(registrationRequestDTO, cancellation);
+            return Ok();
+        }
+
+        [HttpPost("login-with-phone")]
+        public async Task<IActionResult> LoginWithPhone(LoginRequest loginRequest, CancellationToken cancellation)
+        {
+            try
+            {
+                LoginResponse loginResponse = await _authService.LoginWithPhone(loginRequest, cancellation);
+                return Ok(loginResponse);
+            }
+            catch (Exception e)
+            {
+                return BadRequest(e.Message);
+            }
+        }
     }
 }

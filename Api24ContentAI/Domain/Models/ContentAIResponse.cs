@@ -44,5 +44,8 @@ namespace Api24ContentAI.Domain.Models
         public int RecoveredChunks { get; set; }
         public int VerifiedChunks { get; set; }
         public Dictionary<int, string> ChunkWarnings { get; set; } = [];
+        public double? QualityScore { get; set; }
+        
+        public string Feedback { get; set; }
     }
 }

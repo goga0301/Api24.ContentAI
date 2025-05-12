@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Moq;
 using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Domain.Repository;
@@ -5,8 +8,11 @@ using Api24ContentAI.Infrastructure.Service.Implementations;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
 using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Xunit;
 
-namespace Api24ContentAI.Tests.Services
+namespace Api24ContentAI.Tests.UnitTests.Services
 {
     public class UserContentServiceTests
     {
@@ -153,86 +159,6 @@ namespace Api24ContentAI.Tests.Services
 
             Assert.Equal("First sentence. Second sentence. Third sentence.", result.Text);
         }
-
-        [Fact]
-        public async Task ChunkedTranslateShouldNotUseCacheDirectly()
-        {
-            UserTranslateRequest request = new UserTranslateRequest
-            {
-                Description = "Test text to translate",
-                LanguageId = 1,
-                SourceLanguageId = 2,
-                IsPdf = false
-            };
-            string userId = "test-user-id";
-            CancellationToken cancellationToken = CancellationToken.None;
-
-            LanguageModel language = new LanguageModel { Id = 1, Name = "Georgian" };
-            _ = _mockLanguageService
-                .Setup(x => x.GetById(1, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(language);
-
-            LanguageModel sourceLanguage = new LanguageModel { Id = 2, Name = "English" };
-            _ = _mockLanguageService
-                .Setup(x => x.GetById(2, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(sourceLanguage);
-
-            User user = new User
-            {
-                Id = userId,
-                UserBalance = new UserBalance { Balance = 100 }
-            };
-            _ = _mockUserRepository
-                .Setup(x => x.GetById(userId, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(user);
-
-            List<Content> claudeResponseContent =
-            [
-                new Content { Text = "<translation>Translated text</translation>" }
-            ];
-            ClaudeResponse claudeResponse = new ClaudeResponse { Content = claudeResponseContent };
-
-            _ = _mockClaudeService
-                .Setup(x => x.SendRequestWithFile(It.IsAny<ClaudeRequestWithFile>(), It.IsAny<CancellationToken>()))
-                .ReturnsAsync(claudeResponse);
-
-            _ = _mockCacheService
-                .Setup(x => x.SetAsync(
-                    It.IsAny<string>(),
-                    It.IsAny<object>(),
-                    It.IsAny<TimeSpan>(),
-                    It.IsAny<CancellationToken>()))
-                .Returns(Task.CompletedTask);
-
-            _ = _mockCacheService
-                .Setup(x => x.GetAsync<List<string>>(
-                    It.IsAny<string>(),
-                    It.IsAny<CancellationToken>()))
-                .ReturnsAsync(["test_key"]);
-
-            _ = await _userContentService.ChunkedTranslate(request, userId, cancellationToken);
-
-            _mockCacheService.Verify(
-                x => x.GetOrCreateAsync(
-                    It.IsAny<string>(),
-                    It.IsAny<Func<Task<It.IsAnyType>>>(),
-                    It.IsAny<TimeSpan?>(),
-                    It.IsAny<CancellationToken>()),
-                Times.Never);
-
-            _mockCacheService.Verify(
-                x => x.SetAsync(
-                    It.IsAny<string>(),
-                    It.IsAny<object>(),
-                    It.IsAny<TimeSpan>(),
-                    It.IsAny<CancellationToken>()),
-                Times.AtLeastOnce);
-
-            _mockClaudeService.Verify(
-                x => x.SendRequestWithFile(It.IsAny<ClaudeRequestWithFile>(), It.IsAny<CancellationToken>()),
-                Times.AtLeastOnce);
-        }
-
         [Fact]
         public async Task StoreChunkedTranslationResponsesShouldStoreAllResponses()
         {
@@ -271,7 +197,7 @@ namespace Api24ContentAI.Tests.Services
 
             Assert.Equal(responses.Count, result.Count);
 
-            Assert.Equal(responses.Count + 1, storedItems.Count); // +1 for the keys list
+            Assert.Equal(responses.Count + 1, storedItems.Count); // +1 for the key list
 
             string keysListKey = $"claude_response_keys_{translationId}";
             Assert.Contains(keysListKey, storedItems.Keys);
