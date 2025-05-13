@@ -3,6 +3,7 @@ using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -23,19 +24,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IUserRepository _userRepository;
         private readonly IRequestLogService _requestLogService;
         private readonly IGptService _gptService;
+        private readonly ILogger<DocumentTranslationService> _logger;
 
         public DocumentTranslationService(
             IClaudeService claudeService,
             ILanguageService languageService,
             IUserRepository userRepository,
             IRequestLogService requestLogService,
-            IGptService gptService)
+            IGptService gptService,
+            ILogger<DocumentTranslationService> logger)
         {
             _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
             _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
             _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
             _requestLogService = requestLogService ?? throw new ArgumentNullException(nameof(requestLogService));
             _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
         
         public async Task<DocumentTranslationResult> TranslateDocument(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, CancellationToken cancellationToken)
@@ -63,7 +67,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 // Always return markdown format for now
                 if (outputFormat != Domain.Models.DocumentFormat.Markdown)
                 {
-                    Console.WriteLine($"Note: Requested format was {outputFormat}, but returning Markdown due to conversion limitations");
+                    _logger.LogInformation("Note: Requested format was {OutputFormat}, but returning Markdown due to conversion limitations", outputFormat);
                     translationResult.OutputFormat = Domain.Models.DocumentFormat.Markdown;
                     translationResult.FileData = Encoding.UTF8.GetBytes(translationResult.TranslatedContent);
                     translationResult.FileName = $"translated_{translationResult.TranslationId}.md";
@@ -74,8 +78,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in TranslateDocument: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                _logger.LogError(ex, "Error in TranslateDocument");
                 
                 return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error in document translation workflow: {ex.Message}" };
             }
@@ -139,8 +142,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in ConvertToMarkdown: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                _logger.LogError(ex, "Error in ConvertToMarkdown");
                 
                 return new DocumentConversionResult { Success = false, ErrorMessage = $"Error converting document to markdown: {ex.Message}" };
             }
@@ -192,14 +194,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation resulted in empty content" };
                 }
 
-                Console.WriteLine("Starting translation verification with GPT service...");
+                _logger.LogInformation("Starting translation verification with GPT service...");
                 VerificationResult verificationResult = await _gptService.VerifyTranslationBatch(
                     translationResults.ToList(), cancellationToken);
-                Console.WriteLine($"Translation verification completed. Success: {verificationResult.Success}, Score: {verificationResult.QualityScore}");
+                _logger.LogInformation("Translation verification completed. Success: {Success}, Score: {Score}", 
+                    verificationResult.Success, verificationResult.QualityScore);
 
                 string translationId = Guid.NewGuid().ToString();
                 
-                Console.WriteLine($"Translation completed: ID={translationId}, TargetLanguage={language.Name}, ChunkCount={chunks.Count}, Length={translatedMarkdown.Length}");
+                _logger.LogInformation("Translation completed: ID={TranslationId}, TargetLanguage={TargetLanguage}, ChunkCount={ChunkCount}, Length={Length}", 
+                    translationId, language.Name, chunks.Count, translatedMarkdown.Length);
 
                 await _userRepository.UpdateUserBalance(userId, -requestPrice, cancellationToken);
 
@@ -218,8 +222,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in TranslateMarkdown: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                _logger.LogError(ex, "Error in TranslateMarkdown");
                 
                 return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error translating markdown: {ex.Message}" };
             }
@@ -237,7 +240,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 string fileName = $"document_{Guid.NewGuid()}.md";
                 string contentType = "text/markdown";
                 
-                Console.WriteLine($"Note: Returning markdown format regardless of requested format ({outputFormat})");
+                _logger.LogInformation("Note: Returning markdown format regardless of requested format ({OutputFormat})", outputFormat);
 
                 return new DocumentConversionResult
                 {
@@ -250,8 +253,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in ConvertFromMarkdown: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                _logger.LogError(ex, "Error in ConvertFromMarkdown");
                 
                 return new DocumentConversionResult { Success = false, ErrorMessage = $"Error converting from markdown: {ex.Message}" };
             }
@@ -308,7 +310,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error extracting text with OpenXml: {ex.Message}");
+                _logger.LogWarning(ex, "Error extracting text with OpenXml");
             }
             
             string base64File = Convert.ToBase64String(fileBytes);
@@ -399,8 +401,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 return new KeyValuePair<int, string>(order, string.Empty);
             }
 
-            Console.WriteLine($"Translating chunk {order}:");
-            Console.WriteLine(markdownChunk.Substring(0, Math.Min(100, markdownChunk.Length)) + "...");
+            _logger.LogDebug("Translating chunk {Order}: {Preview}", order, 
+                markdownChunk.Substring(0, Math.Min(100, markdownChunk.Length)) + "...");
 
             string promptText = $@"
                      Translate the following markdown content into {targetLanguage}. 

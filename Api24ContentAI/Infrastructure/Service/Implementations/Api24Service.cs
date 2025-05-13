@@ -15,23 +15,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private const string CategoriesCacheKey = "api24_categories";
 
         private readonly HttpClient _httpClient;
-        private readonly ICacheService _cacheService;
 
-        public Api24Service(HttpClient httpClient, ICacheService cacheService)
+        public Api24Service(HttpClient httpClient)
         {
             _httpClient = httpClient;
-            _cacheService = cacheService;
         }
 
 
         public async Task<List<CategoryResponse>> GetCategories(CancellationToken cancellationToken)
         {
-            return await _cacheService.GetOrCreateAsync(
-                    CategoriesCacheKey,
-                    async () => await _httpClient.GetFromJsonAsync<List<CategoryResponse>>(Categories, cancellationToken),
-                    TimeSpan.FromHours(24),
-                    cancellationToken
-                    );
+            return await _httpClient.GetFromJsonAsync<List<CategoryResponse>>(Categories, cancellationToken);
         }
     }
 }

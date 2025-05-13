@@ -29,6 +29,7 @@
   
   <ItemGroup>
     <Folder Include="IntegrationTests\Configuration\" />
+    <Folder Include="IntegrationTests\Services\" />
     <Folder Include="UnitTests\" />
   </ItemGroup>
 

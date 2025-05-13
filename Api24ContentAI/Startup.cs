@@ -22,6 +22,7 @@ using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Infrastructure.Middleware;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 
 namespace Api24ContentAI
@@ -34,25 +35,9 @@ namespace Api24ContentAI
         {
 
             JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-            _ = services.AddStackExchangeRedisCache(options =>
-            {
-                string redisConnection = Configuration.GetConnectionString("Redis");
-                
-                if (string.IsNullOrWhiteSpace(redisConnection))
-                {
-                    redisConnection = "localhost:6379";
-                }
-                
-                options.Configuration = redisConnection;
-                options.InstanceName = "Api24ContentAI_";
-                
-                options.ConfigurationOptions = new StackExchange.Redis.ConfigurationOptions
-                {
-                    AbortOnConnectFail = false,
-                    ConnectRetry = 5,
-                    ConnectTimeout = 5000
-                };
-            });
+            
+            // Remove all Redis cache configuration
+            // services.AddStackExchangeRedisCache(options => { ... });
 
             _ = services.AddControllers();
 
@@ -188,7 +173,8 @@ namespace Api24ContentAI
                     sp.GetRequiredService<ILanguageService>(),
                     sp.GetRequiredService<IUserRepository>(),
                     sp.GetRequiredService<IRequestLogService>(),
-                    sp.GetRequiredService<IGptService>()
+                    sp.GetRequiredService<IGptService>(),
+                    sp.GetRequiredService<ILogger<DocumentTranslationService>>()
                 )
             );
             services.AddScoped<IGptService, GptService>();
