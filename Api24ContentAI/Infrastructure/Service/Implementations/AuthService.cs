@@ -275,29 +275,28 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<LoginResponse> RefreshToken(TokenModel tokenModel, CancellationToken cancellationToken)
         {
-            if (tokenModel is null)
+            if (tokenModel is null || string.IsNullOrEmpty(tokenModel.RefreshToken))
             {
-                throw new Exception("Invalid client request");
+                throw new Exception("Invalid client request: refresh token is required");
             }
 
-            string accessToken = tokenModel.AccessToken;
             string refreshToken = tokenModel.RefreshToken;
 
-            System.Security.Claims.ClaimsPrincipal principal = _jwtTokenGenerator.GetPrincipalFromExpiredToken(accessToken);
-            if (principal == null)
+            User user = await _context.Users
+                .FirstOrDefaultAsync(u => u.RefreshToken == refreshToken && u.RefreshTokenExpiryTime > DateTime.UtcNow, 
+                    cancellationToken);
+
+            if (user == null)
             {
-                throw new Exception("Invalid access token or refresh token");
+                throw new Exception("Invalid or expired refresh token");
             }
 
-            string username = principal.Identity.Name;
-            User user = await _userManager.FindByNameAsync(username);
-
-            if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.UtcNow)
+            Role role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId, cancellationToken);
+            if (role == null)
             {
-                throw new Exception("Invalid access token or refresh token");
+                throw new Exception($"Role not found for user: {user.UserName}");
             }
 
-            Role role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
             (string newAccessToken, string newRefreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string> { role.NormalizedName });
 
             user.RefreshToken = newRefreshToken;

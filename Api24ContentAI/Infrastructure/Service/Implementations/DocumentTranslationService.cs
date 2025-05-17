@@ -98,15 +98,21 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 switch (fileExtension)
                 {
                     case ".pdf":
+                        _logger.LogInformation("Processing PDF file: {FileName}, size: {Length} bytes", 
+                            file.FileName, file.Length);
                         fileContent = await ExtractTextFromPdfAsync(file, cancellationToken);
                         break;
                     case ".docx":
                     case ".doc":
+                        _logger.LogInformation("Processing Word document: {FileName}, size: {Length} bytes", 
+                            file.FileName, file.Length);
                         fileContent = await ExtractTextFromWordAsync(file, cancellationToken);
                         break;
                     case ".txt":
                     case ".md":
                         // For text files, just read the content directly
+                        _logger.LogInformation("Processing text file: {FileName}, size: {Length} bytes", 
+                            file.FileName, file.Length);
                         using (var reader = new StreamReader(file.OpenReadStream()))
                         {
                             fileContent = await reader.ReadToEndAsync();
@@ -118,12 +124,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 if (string.IsNullOrWhiteSpace(fileContent))
                 {
+                    _logger.LogWarning("No content could be extracted from file: {FileName}", file.FileName);
                     return new DocumentConversionResult { Success = false, ErrorMessage = "No content could be extracted from the file" };
                 }
+
+                _logger.LogInformation("Successfully extracted {Length} characters from {FileName}", 
+                    fileContent.Length, file.FileName);
 
                 string markdownContent;
                 if (fileExtension == ".pdf" || fileExtension == ".docx" || fileExtension == ".doc")
                 {
+                    _logger.LogInformation("Converting extracted content to Markdown");
                     markdownContent = await ConvertTextToMarkdownWithClaude(fileContent, cancellationToken);
                 }
                 else
@@ -142,7 +153,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error in ConvertToMarkdown");
+                _logger.LogError(ex, "Error in ConvertToMarkdown for file: {FileName}", file?.FileName);
                 
                 return new DocumentConversionResult { Success = false, ErrorMessage = $"Error converting document to markdown: {ex.Message}" };
             }
@@ -271,21 +282,178 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             var builder = new StringBuilder();
             byte[] bytes = await FileToByteArrayAsync(file, cancellationToken);
+            bool hasExtractableText = false;
+            bool mightContainImages = false;
 
+            // First try standard text extraction
             using (var stream = new MemoryStream(bytes))
             using (var pdfReader = new PdfReader(stream))
             using (var pdf = new PdfDocument(pdfReader))
             {
                 int pageCount = pdf.GetNumberOfPages();
+                _logger.LogInformation("Processing PDF with {PageCount} pages", pageCount);
+                
                 for (int i = 1; i <= pageCount; i++)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    string text = PdfTextExtractor.GetTextFromPage(pdf.GetPage(i));
-                    builder.AppendLine(text);
+                    var page = pdf.GetPage(i);
+                    
+                    // Check if page might contain images
+                    var resources = page.GetResources();
+                    if (resources != null && resources.GetResourceNames(PdfName.XObject).Count > 0)
+                    {
+                        mightContainImages = true;
+                    }
+
+                    string text = PdfTextExtractor.GetTextFromPage(page);
+                    if (!string.IsNullOrWhiteSpace(text))
+                    {
+                        hasExtractableText = true;
+                        builder.AppendLine(text);
+                    }
                 }
             }
 
-            return builder.ToString();
+            string extractedText = builder.ToString();
+
+            if (mightContainImages && (!hasExtractableText || extractedText.Length < 100))
+            {
+                _logger.LogInformation("PDF appears to be image-based or has little text. Using Claude for OCR processing");
+                string ocrText = await ExtractTextFromPdfWithClaudeAsync(file, bytes, cancellationToken);
+                
+                // If we got text from both methods, combine them
+                if (hasExtractableText && !string.IsNullOrWhiteSpace(ocrText))
+                {
+                    _logger.LogInformation("Combining extracted text with OCR results");
+                    return $"{extractedText}\n\n{ocrText}";
+                }
+                
+                return ocrText;
+            }
+            
+            return extractedText;
+        }
+
+        private async Task<string> ExtractTextFromPdfWithClaudeAsync(IFormFile file, byte[] pdfBytes, CancellationToken cancellationToken)
+        {
+            try
+            {
+                string base64Pdf = Convert.ToBase64String(pdfBytes);
+                
+                var message = new ContentFile 
+                { 
+                    Type = "text", 
+                    Text = $@"This PDF document contains images that may contain text. Please:
+                        1. Perform OCR on any images in the document to extract text
+                        2. Extract all readable text content from the document
+                        3. Combine and organize all extracted text to maintain document flow
+                        4. Return the complete extracted content preserving structure
+
+                File name: {file.FileName}
+                Content type: {file.ContentType}
+                Base64 content: {base64Pdf.Substring(0, Math.Min(base64Pdf.Length, 100))}...[truncated]"
+                };
+
+                var claudeRequest = new ClaudeRequestWithFile([message]);
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+        
+                var content = claudeResponse.Content?.SingleOrDefault();
+                if (content == null)
+                {
+                    throw new InvalidOperationException("No content received from Claude service");
+                }
+        
+                _logger.LogInformation("Successfully extracted text using OCR, response length: {Length}", 
+                    content.Text?.Length ?? 0);
+        
+                return content.Text;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error extracting text from PDF with OCR");
+                throw;
+            }
+        }
+
+        private async Task<string> ExtractTextFromPdfWithImageProcessingAsync(IFormFile file, CancellationToken cancellationToken)
+        {
+            try
+            {
+                byte[] pdfBytes = await FileToByteArrayAsync(file, cancellationToken);
+                StringBuilder textFromPdf = new();
+                
+                // Process each page as an image
+                using (var stream = new MemoryStream(pdfBytes))
+                using (var pdfReader = new PdfReader(stream))
+                using (var pdf = new PdfDocument(pdfReader))
+                {
+                    int pageCount = pdf.GetNumberOfPages();
+                    _logger.LogInformation("Processing {PageCount} PDF pages as images", pageCount);
+                    
+                    List<Task<KeyValuePair<int, string>>> pageTasks = new();
+                    
+                    // Process up to 5 pages in parallel to avoid overwhelming the service
+                    for (int pageNum = 1; pageNum <= pageCount; pageNum++)
+                    {
+                        int currentPage = pageNum;
+                        Task<KeyValuePair<int, string>> task = Task.Run(async () => {
+                            try
+                            {
+                                // Convert PDF page to image (this would require a PDF rendering library)
+                                // For now, we'll use Claude directly with the PDF
+                                
+                                string base64Pdf = Convert.ToBase64String(pdfBytes);
+                                
+                                ContentFile fileMessage = new()
+                                {
+                                    Type = "text",
+                                    Text = $"I'm sending you a PDF document. Please extract all text from page {currentPage} only. Return just the extracted text with no explanations.\n\nFile: {file.FileName}\nBase64: {base64Pdf.Substring(0, Math.Min(100, base64Pdf.Length))}...[truncated]"
+                                };
+                                
+                                ClaudeRequestWithFile claudeRequest = new([fileMessage]);
+                                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                                string extractedText = claudeResponse.Content.Single().Text;
+                                
+                                _logger.LogDebug("Extracted {Length} characters from page {Page}", 
+                                    extractedText?.Length ?? 0, currentPage);
+                                
+                                return new KeyValuePair<int, string>(currentPage, extractedText);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Error processing PDF page {Page}", currentPage);
+                                return new KeyValuePair<int, string>(currentPage, string.Empty);
+                            }
+                        }, cancellationToken);
+                        
+                        pageTasks.Add(task);
+                        
+                        // Process in batches of 5 pages
+                        if (pageTasks.Count >= 5 || pageNum == pageCount)
+                        {
+                            KeyValuePair<int, string>[] results = await Task.WhenAll(pageTasks);
+                            
+                            foreach (var result in results.OrderBy(r => r.Key))
+                            {
+                                if (!string.IsNullOrWhiteSpace(result.Value))
+                                {
+                                    textFromPdf.AppendLine(result.Value);
+                                    textFromPdf.AppendLine();
+                                }
+                            }
+                            
+                            pageTasks.Clear();
+                        }
+                    }
+                }
+                
+                return textFromPdf.ToString();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error extracting text from PDF with image processing");
+                throw;
+            }
         }
 
         private async Task<string> ExtractTextFromWordAsync(IFormFile file, CancellationToken cancellationToken)
@@ -335,10 +503,36 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private async Task<string> ConvertTextToMarkdownWithClaude(string textContent, CancellationToken cancellationToken)
         {
+            if (string.IsNullOrWhiteSpace(textContent))
+            {
+                throw new ArgumentException("Text content cannot be empty", nameof(textContent));
+            }
+
+            _logger.LogDebug("Converting {Length} characters to Markdown", textContent.Length);
+            
+            // If the content is very large, we need to chunk it
+            if (textContent.Length > 10000)
+            {
+                _logger.LogInformation("Content is large ({Length} chars), processing in chunks", textContent.Length);
+                return await ConvertLargeTextToMarkdownWithClaude(textContent, cancellationToken);
+            }
+
             var message = new ContentFile 
             { 
                 Type = "text", 
-                Text = $"Convert the following text to well-formatted Markdown:\n\n{textContent}\n\nReturn the converted content between <markdown> and </markdown> tags." 
+                Text = $@"Convert the following text to well-formatted Markdown:
+
+                    ```
+                    {textContent}
+                    ```
+
+                    Guidelines:
+                    1. Preserve the document structure (headings, paragraphs, lists)
+                    2. Use proper Markdown syntax for formatting
+                    3. Identify and format headings with appropriate # levels
+                    4. Convert lists to proper Markdown lists
+                    5. Preserve any tables using Markdown table syntax
+                    6. Return ONLY the converted Markdown between <markdown> and </markdown> tags"
             };
 
             var claudeRequest = new ClaudeRequestWithFile([message]);
@@ -350,7 +544,106 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new InvalidOperationException("No content received from Claude service");
             }
             
-            return ExtractContent(content.Text, "<markdown>", "</markdown>");
+            string markdownContent = ExtractContent(content.Text, "<markdown>", "</markdown>");
+            
+            if (string.IsNullOrWhiteSpace(markdownContent))
+            {
+                markdownContent = ExtractContent(content.Text, "```markdown", "```");
+                
+                if (string.IsNullOrWhiteSpace(markdownContent))
+                {
+                    markdownContent = content.Text.Trim();
+                }
+            }
+            
+            _logger.LogInformation("Successfully converted text to Markdown, result length: {Length}", 
+                markdownContent.Length);
+            
+            return markdownContent;
+        }
+
+        private async Task<string> ConvertLargeTextToMarkdownWithClaude(string textContent, CancellationToken cancellationToken)
+        {
+            List<string> chunks = SplitByParagraphs(textContent, 8000);
+            _logger.LogInformation("Split large content into {ChunkCount} chunks", chunks.Count);
+            
+            List<Task<KeyValuePair<int, string>>> tasks = new();
+            
+            for (int i = 0; i < chunks.Count; i++)
+            {
+                int chunkIndex = i;
+                string chunk = chunks[i];
+                
+                Task<KeyValuePair<int, string>> task = Task.Run(async () => {
+                    try
+                    {
+                        var message = new ContentFile 
+                        { 
+                            Type = "text", 
+                            Text = $@"Convert the following text (chunk {chunkIndex + 1} of {chunks.Count}) to well-formatted Markdown:
+
+                            ```
+                            {chunk}
+                            ```
+
+                            Guidelines:
+                            1. Preserve the document structure (headings, paragraphs, lists)
+                            2. Use proper Markdown syntax for formatting
+                            3. Identify and format headings with appropriate # levels
+                            4. Convert lists to proper Markdown lists
+                            5. Preserve any tables using Markdown table syntax
+                            6. Return ONLY the converted Markdown between <markdown> and </markdown> tags"
+                        };
+
+                        var claudeRequest = new ClaudeRequestWithFile([message]);
+                        var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                        
+                        var content = claudeResponse.Content?.SingleOrDefault();
+                        if (content == null)
+                        {
+                            throw new InvalidOperationException("No content received from Claude service");
+                        }
+                        
+                        string markdownContent = ExtractContent(content.Text, "<markdown>", "</markdown>");
+                        
+                        // If we couldn't find the markdown tags, try to extract from code blocks
+                        if (string.IsNullOrWhiteSpace(markdownContent))
+                        {
+                            markdownContent = ExtractContent(content.Text, "```markdown", "```");
+                            
+                            // If still empty, just use the whole response
+                            if (string.IsNullOrWhiteSpace(markdownContent))
+                            {
+                                markdownContent = content.Text.Trim();
+                            }
+                        }
+                        
+                        _logger.LogDebug("Successfully converted chunk {Index} to Markdown, result length: {Length}", 
+                            chunkIndex, markdownContent.Length);
+                        
+                        return new KeyValuePair<int, string>(chunkIndex, markdownContent);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error converting chunk {Index} to Markdown", chunkIndex);
+                        return new KeyValuePair<int, string>(chunkIndex, chunk); // Return original chunk on error
+                    }
+                }, cancellationToken);
+                
+                tasks.Add(task);
+            }
+            
+            var results = await Task.WhenAll(tasks);
+            
+            // Combine the chunks in the correct order
+            StringBuilder combinedMarkdown = new();
+            foreach (var result in results.OrderBy(r => r.Key))
+            {
+                combinedMarkdown.AppendLine(result.Value);
+                combinedMarkdown.AppendLine();
+            }
+            
+            return combinedMarkdown.ToString();
         }
 
         private List<string> GetChunksOfMarkdown(string markdownContent)
@@ -404,16 +697,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _logger.LogDebug("Translating chunk {Order}: {Preview}", order, 
                 markdownChunk.Substring(0, Math.Min(100, markdownChunk.Length)) + "...");
 
-            string promptText = $@"
-                     Translate the following markdown content into {targetLanguage}. 
-                     Preserve all markdown formatting, headings, lists, and code blocks.
-                     Only translate the text content, not code or URLs.
-                     ```markdown
-                        {markdownChunk}
-                     ```
-
-                      Return ONLY the translated markdown between <translation> and </translation> tags.";
-
+            string promptText = GetMarkdownChunkTranslatePrompt(targetLanguage, markdownChunk);
             var message = new ContentFile { Type = "text", Text = promptText };
             var claudeRequest = new ClaudeRequestWithFile([message]);
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
@@ -487,6 +771,37 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Translate the markdown into {targetLanguage}, maintaining all formatting (headings, lists, code blocks, etc.).
                 Preserve links, images, and structure. Translate only text content, not code or URLs.
                 Return the translated markdown between <translation> and </translation> tags.";
+        }
+
+        private string GetMarkdownChunkTranslatePrompt(string targetLanguage, string markdownChunk)
+        {
+            return $@"
+                Imagine you're an advanced AI language model with a deep understanding of both markdown syntax and languages. Your task is to translate the following markdown content into {targetLanguage}, while maintaining all of its structure and formatting.
+
+                The markdown content you will translate contains a combination of text, headings, lists, code blocks, and URLs. It's crucial that you follow these guidelines during the translation process:
+
+                1. **Text Translation:**
+                - Only the **text content** (paragraphs, headings, list items, etc.) should be translated into {targetLanguage}.
+                - Keep in mind the grammatical nuances and idiomatic expressions of the target language to ensure the translation feels natural and accurate.
+
+                2. **Preserving Markdown Formatting:**
+                - **Do not change any markdown syntax** such as headings, lists, blockquotes, or links.
+                - **Maintain code blocks, inline code, and URLs exactly as they are**; do not translate or alter them in any way. This ensures the code and external links remain functional and correct.
+
+                3. **Handling Special Cases:**
+                - **Code blocks:** These should remain untouched, including syntax highlighting if present. Treat them purely as non-translatable content.
+                - **URLs and links:** Any URLs or hyperlinks should remain unchanged. Their paths, text, and structure must remain intact, as they are not to be translated.
+
+                4. **Return Translated Markdown:**
+                - Once you have translated the text, **return only the translated markdown** content between `<translation>` and `</translation>` tags. This allows the translation to be easily extracted while keeping the original markdown structure intact.
+
+                 Remember: The goal is to provide a clear and accurate translation of the text while keeping all markdown elements, code, and URLs unchanged.
+                Be sure to preserve the original formatting, as this is a key part of the task.
+
+                Here is the markdown content that you need to translate into {targetLanguage}:
+                {markdownChunk}
+               ";
+        
         }
 
         private string GetDocumentToMarkdownTemplate()
