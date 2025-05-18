@@ -2,6 +2,7 @@
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Encodings.Web;
@@ -23,18 +24,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
     public class UserContentService(
         IClaudeService claudeService,
-        ICacheService cacheService,
         IUserRequestLogService requestLogService,
         IProductCategoryService productCategoryService,
         ILanguageService languageService,
-        IUserRepository userRepository) : IUserContentService
+        IUserRepository userRepository,
+        ILogger<UserContentService> logger) : IUserContentService
     {
         private readonly IClaudeService _claudeService = claudeService;
         private readonly IUserRequestLogService _requestLogService = requestLogService;
         private readonly IProductCategoryService _productCategoryService = productCategoryService;
         private readonly ILanguageService _languageService = languageService;
         private readonly IUserRepository _userRepository = userRepository;
-        private readonly ICacheService _cacheService = cacheService;
+        private readonly ILogger<UserContentService> _logger = logger;
 
         private static readonly string[] SupportedFileExtensions =
         [
@@ -48,10 +49,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             CancellationToken cancellationToken)
         {
 
-            string cacheKey = $"basic_message_{request.Message.GetHashCode()}";
 
-            return await _cacheService.GetOrCreateAsync(cacheKey, async () =>
-            {
                 ContentFile message = new()
                 {
                     Type = "text",
@@ -77,9 +75,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 };
 
                 return response;
-
-            }, TimeSpan.FromHours(24), cancellationToken);
-
+                
         }
 
         public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request,
@@ -260,79 +256,162 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         {
             int pdfPageCount = 0;
-            if (request.IsPdf)
+            string description = request.Description ?? string.Empty;
+            
+            if (request.IsPdf && request.Files != null && request.Files.Count > 0)
             {
-                (request.Description, pdfPageCount) = await GetPdfContentInStringAsync(request.Files.FirstOrDefault());
+                _logger.LogInformation("Processing PDF file for translation");
+                (description, pdfPageCount) = await GetPdfContentInStringAsync(request.Files.FirstOrDefault()).ConfigureAwait(false);
+                _logger.LogInformation("Extracted {CharCount} characters from {PageCount} PDF pages", 
+                    description?.Length ?? 0, pdfPageCount);
             }
-
-            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
-
-            StringBuilder textFromImage = new();
-            if (!request.IsPdf)
+            
+            else if (string.IsNullOrWhiteSpace(description) && request.Files != null && request.Files.Count > 0)
             {
-                if (string.IsNullOrWhiteSpace(request.Description) && request.Files != null)
+                _logger.LogInformation("Processing {Count} image files for translation", request.Files.Count);
+                StringBuilder textFromImage = new();
+                List<Task<KeyValuePair<int, string>>> tasksForImages = [];
+                int indexForImages = 0;
+
+                foreach (IFormFile file in request.Files)
                 {
-                    List<Task<KeyValuePair<int, string>>> tasksForImages = [];
-                    int indexForImages = 0;
-
-                    foreach (IFormFile file in request.Files)
+                    string extension = file.FileName.Split('.').Last().ToLower();
+                    if (!SupportedFileExtensions.Contains(extension))
                     {
-                        string extention = file.FileName.Split('.').Last();
-                        if (!SupportedFileExtensions.Contains(extention))
-                        {
-                            throw new Exception("ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
-                        }
+                        _logger.LogWarning("Unsupported file format: {Extension}", extension);
+                        throw new Exception($"ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: {string.Join(", ", SupportedFileExtensions)}!");
+                    }
 
-                        ContentFile fileMessage = new()
-                        {
-                            Type = "image",
-                            Source = new Source()
+                    _logger.LogDebug("Processing image file: {FileName}, size: {Length} bytes", file.FileName, file.Length);
+                    
+                    // Create a separate task for each image to process them in parallel
+                    int currentIndex = indexForImages++;
+                    Task<KeyValuePair<int, string>> task = Task.Run(async () => {
+                        try {
+                            ContentFile fileMessage = new()
                             {
-                                Type = "base64",
-                                MediaType = $"image/{extention}",
-                                Data = EncodeFileToBase64(file)
+                                Type = "image",
+                                Source = new Source()
+                                {
+                                    Type = "base64",
+                                    MediaType = $"image/{extension}",
+                                    Data = EncodeFileToBase64(file)
+                                }
+                            };
+
+                            LanguageModel sourceLanguage =
+                                await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+                            string templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
+                            ContentFile messageImageToText = new()
+                            {
+                                Type = "text",
+                                Text = templateTextForImageToText
+                            };
+
+                            List<ContentFile> continueReq = [fileMessage, messageImageToText];
+                            ClaudeRequestWithFile claudeRequestImageToText = new(continueReq);
+                            
+                            _logger.LogInformation("Sending image {Index} to Claude for OCR", currentIndex);
+                            ClaudeResponse claudeResponseImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
+                            string claudResponseTextContinueImageToText = claudeResponseImageToText.Content.Single().Text;
+                            
+                            _logger.LogDebug("Claude OCR response for image {Index}: {Length} chars", 
+                                currentIndex, claudResponseTextContinueImageToText.Length);
+                            
+                            int start = claudResponseTextContinueImageToText.IndexOf("<transcription>");
+                            int end = claudResponseTextContinueImageToText.IndexOf("</transcription>");
+                            
+                            if (start >= 0 && end > start)
+                            {
+                                start += 15;
+                                string extractedText = claudResponseTextContinueImageToText[start..end];
+                                _logger.LogDebug("Successfully extracted text from image {Index}, length: {Length} chars", 
+                                    currentIndex, extractedText.Length);
+                                return new KeyValuePair<int, string>(currentIndex, extractedText);
                             }
-                        };
+                            
+                            start = claudResponseTextContinueImageToText.IndexOf("```markdown");
+                            if (start >= 0)
+                            {
+                                start += 10; // Length of "```markdown"
+                                end = claudResponseTextContinueImageToText.IndexOf("```", start);
+                                if (end > start)
+                                {
+                                    string extractedText = claudResponseTextContinueImageToText[start..end].Trim();
+                                    _logger.LogDebug("Extracted text from markdown block in image {Index}, length: {Length} chars", 
+                                        currentIndex, extractedText.Length);
+                                    return new KeyValuePair<int, string>(currentIndex, extractedText);
+                                }
+                            }
+                            
+                            string cleanedResponse = claudResponseTextContinueImageToText;
+                            if (cleanedResponse.Contains("I apologize") || cleanedResponse.Contains("I'm sorry"))
+                            {
+                                _logger.LogWarning("Claude returned an apology for image {Index}, attempting to extract useful content", currentIndex);
+                                
+                                string directPrompt = "Extract all text visible in this image. Return ONLY the extracted text with no explanations or commentary:";
+                                
+                                ContentFile retryMessage = new()
+                                {
+                                    Type = "text",
+                                    Text = directPrompt
+                                };
+                                
+                                List<ContentFile> retryReq = [fileMessage, retryMessage];
+                                ClaudeRequestWithFile retryRequest = new(retryReq);
+                                
+                                _logger.LogInformation("Retrying OCR for image {Index} with simplified prompt", currentIndex);
+                                ClaudeResponse retryResponse = await _claudeService.SendRequestWithFile(retryRequest, cancellationToken);
+                                string retryResult = retryResponse.Content.Single().Text.Trim();
+                                
+                                if (!retryResult.Contains("I apologize") && !retryResult.Contains("I'm sorry"))
+                                {
+                                    _logger.LogDebug("Retry OCR successful for image {Index}, got {Length} chars", 
+                                        currentIndex, retryResult.Length);
+                                    return new KeyValuePair<int, string>(currentIndex, retryResult);
+                                }
+                                
+                                _logger.LogWarning("Retry OCR also failed for image {Index}", currentIndex);
+                            }
+                            
+                            _logger.LogWarning("Could not find transcription tags in Claude response for image {Index}", currentIndex);
+                            return new KeyValuePair<int, string>(currentIndex, cleanedResponse);
+                        }
+                        catch (Exception ex) {
+                            _logger.LogError(ex, "Error processing image {Index}", currentIndex);
+                            return new KeyValuePair<int, string>(currentIndex, string.Empty);
+                        }
+                    }, cancellationToken);
+                    
+                    tasksForImages.Add(task);
+                }
 
-                        LanguageModel sourceLanguage =
-                            await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-                        string templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
-                        ContentFile messageImageToText = new()
-                        {
-                            Type = "text",
-                            Text = templateTextForImageToText
-                        };
-
-                        List<ContentFile> continueReq = [fileMessage, messageImageToText];
-                        ClaudeRequestWithFile claudeRequestImageToText = new(continueReq);
-
-                        int currentIndex = indexForImages;
-                        Task<KeyValuePair<int, string>> task = Task.Run(async () =>
-                        {
-                            ClaudeResponse claudeResponseContinueImageToText =
-                                await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-                            string claudResponseTextContinueImageToText = claudeResponseContinueImageToText.Content
-                                .Single().Text.Replace("\n", "<br>");
-                            int start = claudResponseTextContinueImageToText.IndexOf("<transcription>") + 15;
-                            int endt = claudResponseTextContinueImageToText.IndexOf("</transcription>");
-                            string result = claudResponseTextContinueImageToText[start..endt];
-                            return new KeyValuePair<int, string>(currentIndex, result);
-                        });
-
-                        tasksForImages.Add(task);
-                        indexForImages++;
-                    }
-
-                    KeyValuePair<int, string>[] imageResults = await Task.WhenAll(tasksForImages);
-
-                    IEnumerable<string> orderedImageResults = imageResults.OrderBy(r => r.Key).Select(r => r.Value);
-
-                    foreach (string result in orderedImageResults)
+                if (tasksForImages.Count > 0)
+                {
+                    _logger.LogInformation("Waiting for {Count} image processing tasks to complete", tasksForImages.Count);
+                    KeyValuePair<int, string>[] pairs = await Task.WhenAll(tasksForImages);
+                    
+                    foreach (KeyValuePair<int, string> result in pairs.OrderBy(r => r.Key))
                     {
-                        _ = textFromImage.Append(result);
+                        if (!string.IsNullOrWhiteSpace(result.Value))
+                        {
+                            _logger.LogDebug("Adding text from image {Index}: {Preview}", 
+                                result.Key, result.Value.Substring(0, Math.Min(50, result.Value.Length)) + "...");
+                            textFromImage.AppendLine(result.Value);
+                            textFromImage.AppendLine();
+                        }
                     }
-
-                    request.Description = textFromImage.ToString();
+                    
+                    description = textFromImage.ToString();
+                    
+                    if (string.IsNullOrWhiteSpace(description))
+                    {
+                        _logger.LogWarning("No text extracted from any of the {Count} images", request.Files.Count);
+                        throw new Exception("Could not extract any text from the provided images. Please check the image format and quality, or provide text directly.");
+                    }
+                    
+                    _logger.LogInformation("Successfully extracted {Length} characters of text from {Count} images", 
+                        description.Length, request.Files.Count);
                 }
             }
             else
@@ -340,11 +419,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 request.Description = await TestTranslateTextAsync(request.Files.FirstOrDefault(), cancellationToken);
             }
 
-            var requestPrice = CalculateTranslateRequestPriceNew(request.Description, request.IsPdf, pdfPageCount);
-            var user = await _userRepository.GetById(userId, cancellationToken);
+            if (string.IsNullOrWhiteSpace(description))
+            {
+                _logger.LogWarning("No text to translate - neither description nor extracted text from files");
+                throw new Exception("No text to translate. Please provide text in the description field or upload files containing text.");
+            }
+
+            decimal requestPrice = CalculateTranslateRequestPriceNew(description);
+            User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
+                _logger.LogWarning("Insufficient balance for user {UserId}. Required: {Price}, Available: {Balance}", 
+                    userId, requestPrice, user.UserBalance.Balance);
                 throw new Exception("ბალანსი არ არის საკმარისი მოთხოვნის დასამუშავებლად!!!");
             }
             var chunks = GetChunksOfLargeText(request.Description);
@@ -357,27 +444,26 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var tasks = new List<Task<KeyValuePair<int, string>>>();
             int index = 0;
 
-            string translationId = Guid.NewGuid().ToString();
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
 
-            //List<string> chunks = GetChunksOfLargeText(request.Description);
-            //StringBuilder chunkBuilder = new();
-            //StringBuilder translatedText = new();
+            _logger.LogInformation("Translating {Length} characters from {SourceLanguage} to {TargetLanguage}", 
+                description.Length, sourceLanguage.Name, language.Name);
 
-            //List<Task<KeyValuePair<int, string>>> tasks = [];
+            List<string> chunks = GetChunksOfLargeText(description);
+            StringBuilder translatedText = new();
+            List<Task<KeyValuePair<int, string>>> tasks = [];
 
             for (int i = 0; i < chunks.Count; i++)
             {
                 string chunk = chunks[i];
-
-                _ = chunkBuilder.AppendLine(chunk);
-                _ = chunkBuilder.AppendLine("-----------------------------------------");
-
-                Task<KeyValuePair<int, string>> task = TranslateTextAsync(i, chunk, language.Name, cancellationToken);
+                _logger.LogDebug("Creating translation task for chunk {Index}, length: {Length} chars", i, chunk.Length);
+                Task<KeyValuePair<int, string>> task = TranslateTextAsync(i, chunk, language.Name, sourceLanguage.Name, cancellationToken);
                 tasks.Add(task);
             }
 
+            _logger.LogInformation("Waiting for {Count} translation tasks to complete", tasks.Count);
             KeyValuePair<int, string>[] results = await Task.WhenAll(tasks);
-
             IEnumerable<KeyValuePair<int, string>> orderedResults = results.OrderBy(r => r.Key);
 
             //foreach (KeyValuePair<int, string> kvp in orderedResults)
@@ -388,29 +474,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             byte[] pdfBytes = ConvertHtmlToPdf(claudResponseText.Replace("<br>", ""));
 
+            string finalTranslation = translatedText.ToString().Replace("\n", "<br>").Replace("\r", "<br>");
+            _logger.LogInformation("Translation completed, final length: {Length} characters", finalTranslation.Length);
+
             TranslateResponse response = new()
             {
-                Text = claudResponseText.ToString().Replace("\n", "<br>").Replace("\r", "<br>"),
+                Text = finalTranslation
                 File = pdfBytes
             };
 
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.Translate
+                Request = "translate text",
+                RequestType = RequestType.Translate,
             }, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, -requestPrice, cancellationToken);
 
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
             return response;
         }
 
@@ -508,7 +588,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return !string.IsNullOrWhiteSpace(request.Description) &&
                    (request.Files == null || request.Files.Count == 0)
-                ? defaultPrice * ((request.Description.Length / 250) + (request.Description.Length % 250 == 0 ? 0 : 1))
+                ? defaultPrice * ((request.Description.Length / 250) +
+                                  (request.Description.Length % 250 == 0 ? 0 : 1))
                 : request.Files != null && request.Files.Count == 1 && request.IsPdf
                     ? pdfPageCount * 0.9m
                     : request.Files.Count * 1.45m;
@@ -567,33 +648,101 @@ Example response format:
 
         }
 
-        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string language,
-            CancellationToken cancellationToken)
+        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string targetLanguage, 
+            string sourceLanguage, CancellationToken cancellationToken)
         {
-
-            string templateText = GetTranslateTemplate(language, text);
-            StringBuilder wholeRequest = new(templateText);
-            _ = wholeRequest.AppendLine("-----------------------------------");
-            _ = wholeRequest.AppendLine();
-            _ = wholeRequest.AppendLine();
-            _ = wholeRequest.AppendLine();
-            List<ContentFile> contents = [];
-
-            ContentFile message = new()
+            try
             {
-                Type = "text",
-                Text = templateText
-            };
-            contents.Add(message);
-            ClaudeRequestWithFile claudeRequest = new(contents);
-            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                _logger.LogDebug("Translating chunk {Order}: {Preview}...", order, 
+                    text.Substring(0, Math.Min(100, text.Length)));
+                
+                string templateText = GetTranslateTemplate(targetLanguage, sourceLanguage, text);
+                List<ContentFile> contents = [];
 
-            string claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+                ContentFile message = new()
+                {
+                    Type = "text",
+                    Text = templateText
+                };
+                contents.Add(message);
+                ClaudeRequestWithFile claudeRequest = new(contents);
+                
+                _logger.LogDebug("Sending chunk {Order} to Claude for translation", order);
+                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
 
-            int start = claudResponsePlainText.IndexOf("<translation>") + 13;
-            int end = claudResponsePlainText.IndexOf("</translation>");
+                string claudResponsePlainText = claudeResponse.Content.Single().Text;
+                _logger.LogDebug("Received response for chunk {Order}, length: {Length} chars", 
+                    order, claudResponsePlainText.Length);
 
-            return new KeyValuePair<int, string>(order, claudResponsePlainText[start..end]);
+                int start = claudResponsePlainText.IndexOf("<translation>");
+                int end = claudResponsePlainText.IndexOf("</translation>");
+                
+                if (start >= 0 && end > start)
+                {
+                    start += 13; // Length of "<translation>"
+                    string extractedText = claudResponsePlainText[start..end];
+                    _logger.LogDebug("Successfully extracted translation for chunk {Order}, length: {Length} chars", 
+                        order, extractedText.Length);
+                    return new KeyValuePair<int, string>(order, extractedText);
+                }
+                
+                if (claudResponsePlainText.Contains("I apologize") || 
+                    claudResponsePlainText.Contains("I'm sorry") ||
+                    claudResponsePlainText.Contains("don't see any image"))
+                {
+                    _logger.LogWarning("Claude returned an error message for chunk {Order}, attempting retry", order);
+                    
+                    string directPrompt = $@"
+                        TASK: Translate the following text from {sourceLanguage} to {targetLanguage}.
+                        
+                        TEXT TO TRANSLATE:
+                        {text}
+                        
+                        INSTRUCTIONS:
+                        - Provide ONLY the translated text
+                        - Do not include any explanations or notes
+                        - Do not mention that this is a translation
+                        - Do not apologize or explain your capabilities
+                        - This is a TEXT translation task, not an image task
+                    ";
+                    
+                    ContentFile retryMessage = new()
+                    {
+                        Type = "text",
+                        Text = directPrompt
+                    };
+                    
+                    ClaudeRequestWithFile retryRequest = new([retryMessage]);
+                    _logger.LogInformation("Retrying translation with simplified prompt for chunk {Order}", order);
+                    
+                    ClaudeResponse retryResponse = await _claudeService.SendRequestWithFile(retryRequest, cancellationToken);
+                    string retryResult = retryResponse.Content.Single().Text.Trim();
+                    
+                    _logger.LogDebug("Retry translation for chunk {Order} returned {Length} chars", 
+                        order, retryResult.Length);
+                        
+                    if (retryResult.Contains("I apologize") || retryResult.Contains("I'm sorry"))
+                    {
+                        _logger.LogWarning("Retry still returned an error for chunk {Order}, trying regular API", order);
+                        
+                        ClaudeRequest finalRequest = new($"Translate this text to {targetLanguage}: {text}");
+                        ClaudeResponse finalResponse = await _claudeService.SendRequest(finalRequest, cancellationToken);
+                        string finalResult = finalResponse.Content.Single().Text.Trim();
+                        
+                        return new KeyValuePair<int, string>(order, finalResult);
+                    }
+                    
+                    return new KeyValuePair<int, string>(order, retryResult);
+                }
+                
+                _logger.LogWarning("Could not find translation tags in Claude response for chunk {Order}, using full response", order);
+                return new KeyValuePair<int, string>(order, claudResponsePlainText);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error translating chunk {Order}", order);
+                return new KeyValuePair<int, string>(order, $"Error translating text: {ex.Message}");
+            }
         }
 
         private static List<string> GetChunksOfLargeText(string text, int chunkSize = 2000)
@@ -941,11 +1090,11 @@ Your final output should be a well-formatted HTML file that closely replicates t
         }
 
 
-        private static string GetTranslateTemplate(string targetLanguage, string description)
+        private static string GetTranslateTemplate(string targetLanguage, string sourceLanguge, string description)
         {
             return @$"<text_to_translate> {description} </text_to_translate>
                       You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context. 
-                      The target language for translation: <target_language>{targetLanguage}</target_language>.
+                      The target language for translation: <target_language>{targetLanguage}</target_language> from source language <source_language>{sourceLanguge}</source_language>.
                       Always Provide your translation inside <translation></translation> tags. End translation with closing tag when the full text is translated. 
                       
                       When translating, follow these guidelines:
@@ -1004,13 +1153,26 @@ Your final output should be a well-formatted HTML file that closely replicates t
         {
             if (file == null || file.Length == 0)
             {
-                return string.Empty;
+                throw new ArgumentException("File is null or empty", nameof(file));
             }
-
-            using MemoryStream ms = new();
-            file.CopyTo(ms);
-            byte[] fileBytes = ms.ToArray();
-            return Convert.ToBase64String(fileBytes);
+            
+            try
+            {
+                using MemoryStream memoryStream = new();
+                file.CopyTo(memoryStream);
+                byte[] bytes = memoryStream.ToArray();
+                
+                if (bytes.Length == 0)
+                {
+                    throw new Exception("File content is empty after reading");
+                }
+                
+                return Convert.ToBase64String(bytes);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error encoding file to Base64: {ex.Message}", ex);
+            }
         }
 
         private static decimal GetRequestPrice(RequestType requestType)
@@ -1065,72 +1227,10 @@ Your final output should be a well-formatted HTML file that closely replicates t
             {
                 EmailSpeechForm.Formal => "Formal",
                 EmailSpeechForm.Familiar => "Familiar",
-                EmailSpeechForm.Neutral => "Neutral",
                 _ => "Neutral"
             };
         }
-
-
-
-        private async Task<KeyValuePair<int, ClaudeResponse>> TranslateTextWithResponceAsync(int order, string text,
-            string language, string translationId, CancellationToken cancellationToken)
-        {
-            string templateText = GetTranslateTemplate(language, text);
-            List<ContentFile> contents =
-            [
-                new ContentFile
-                {
-                    Type = "text",
-                    Text = templateText
-                }
-            ];
-
-            ClaudeRequestWithFile claudeRequest = new(contents);
-            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-
-            return new KeyValuePair<int, ClaudeResponse>(order, claudeResponse);
-        }
-
-        private async Task<List<string>> StoreChunkedTranslationResponses(List<ClaudeResponse> responses,
-            string translationId, CancellationToken cancellationToken)
-        {
-            if (responses == null || responses.Count == 0)
-            {
-                throw new ArgumentException("No responses to store", nameof(responses));
-            }
-
-            List<string> responceKeys = [];
-
-            for (int i = 0; i < responses.Count; i++)
-            {
-
-                string responceKey = $"claude_response_{translationId}_chunk_{i}_{Guid.NewGuid()}";
-
-                string serializedResponse;
-                try
-                {
-                    serializedResponse = JsonSerializer.Serialize(responses[i], new JsonSerializerOptions
-                    {
-                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                        WriteIndented = false
-                    });
-                }
-                catch (Exception ex)
-                {
-                    throw new Exception($"Failed to serialize Claude response for chunk {i}: {ex.Message}");
-                }
-
-                await _cacheService.SetAsync(responceKey, serializedResponse, TimeSpan.FromHours(1), cancellationToken);
-                responceKeys.Add(responceKey);
-            }
-
-            string keysListKey = $"claude_response_keys_{translationId}";
-            await _cacheService.SetAsync(keysListKey, responceKeys, TimeSpan.FromHours(1), cancellationToken);
-
-            return responceKeys;
-        }
-
+        
     }
 
     public enum EmailSpeechForm

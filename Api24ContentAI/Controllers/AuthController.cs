@@ -10,16 +10,18 @@ using System.Threading.Tasks;
 using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Domain.Models;
 using System.Threading;
+using Microsoft.Extensions.Logging;
 
 namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService) : ControllerBase
+    public class AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService, ILogger<AuthController> logger) : ControllerBase
     {
         private readonly IConfiguration _configuration = configuration;
         private readonly IAuthService _authService = authService;
         private readonly IUserContentService _userContentService = userContentService;
+        private readonly ILogger<AuthController> _logger = logger;
 
         [HttpPost("basic")]
         [AllowAnonymous]
@@ -93,7 +95,8 @@ namespace Api24ContentAI.Controllers
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                _logger.LogError(ex, "Error refreshing token");
+                return BadRequest(new { error = ex.Message });
             }
         }
 

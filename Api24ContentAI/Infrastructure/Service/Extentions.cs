@@ -8,7 +8,9 @@ namespace Api24ContentAI.Infrastructure.Service
     {
         public static void AddServices(this IServiceCollection services)
         {
-            services.AddScoped<ICacheService, RedisCacheService>();
+            // Remove the cache service registration
+            // services.AddScoped<ICacheService, RedisCacheService>();
+            
             services.AddScoped<ITemplateService, TemplateService>();
             services.AddScoped<ICustomTemplateService, CustomTemplateService>();
             services.AddScoped<IProductCategoryService, ProductCategoryService>();

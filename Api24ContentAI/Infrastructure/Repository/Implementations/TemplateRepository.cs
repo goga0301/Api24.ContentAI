@@ -9,24 +9,15 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Repository.Implementations
 {
-    public class TemplateRepository(ContentDbContext dbContext, ICacheService cacheService) : GenericRepository<Template>(dbContext), ITemplateRepository
+    public class TemplateRepository(ContentDbContext dbContext) : GenericRepository<Template>(dbContext), ITemplateRepository
     {
 
-        private readonly ICacheService _cacheService = cacheService;
 
         public async Task<Template> GetByProductCategoryId(Guid productCategoryId, CancellationToken cancellationToken)
         {
-
-            string cacheKey = $"template_category_{productCategoryId}";
-            return await _cacheService.GetOrCreateAsync(
-                    cacheKey,
-                    async () => await _dbContext.Set<Template>()
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(e => e.ProductCategoryId == productCategoryId, cancellationToken),
-                    TimeSpan.FromHours(24),
-                    cancellationToken
-                    );
-
+            return await _dbContext.Set<Template>()
+                .AsNoTracking()
+                .FirstOrDefaultAsync(e => e.ProductCategoryId == productCategoryId, cancellationToken);
         }
 
         //public async Task<Template> GetByProductCategoryIdAndLanguage(Guid productCategoryId, string language, CancellationToken cancellationToken)

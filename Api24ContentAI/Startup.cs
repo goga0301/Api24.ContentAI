@@ -14,12 +14,15 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Collections.Generic;
+using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Infrastructure.Middleware;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 
 namespace Api24ContentAI
@@ -30,25 +33,11 @@ namespace Api24ContentAI
 
         public void ConfigureServices(IServiceCollection services)
         {
-            _ = services.AddStackExchangeRedisCache(options =>
-            {
-                string redisConnection = Configuration.GetConnectionString("Redis");
-                
-                if (string.IsNullOrWhiteSpace(redisConnection))
-                {
-                    redisConnection = "localhost:6379";
-                }
-                
-                options.Configuration = redisConnection;
-                options.InstanceName = "Api24ContentAI_";
-                
-                options.ConfigurationOptions = new StackExchange.Redis.ConfigurationOptions
-                {
-                    AbortOnConnectFail = false,
-                    ConnectRetry = 5,
-                    ConnectTimeout = 5000
-                };
-            });
+
+            JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+            
+            // Remove all Redis cache configuration
+            // services.AddStackExchangeRedisCache(options => { ... });
 
             _ = services.AddControllers();
 
@@ -178,6 +167,17 @@ namespace Api24ContentAI
                 });
             });
 
+            services.AddScoped<IDocumentTranslationService>(sp => 
+                new DocumentTranslationService(
+                    sp.GetRequiredService<IClaudeService>(),
+                    sp.GetRequiredService<ILanguageService>(),
+                    sp.GetRequiredService<IUserRepository>(),
+                    sp.GetRequiredService<IRequestLogService>(),
+                    sp.GetRequiredService<IGptService>(),
+                    sp.GetRequiredService<ILogger<DocumentTranslationService>>()
+                )
+            );
+            services.AddScoped<IGptService, GptService>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

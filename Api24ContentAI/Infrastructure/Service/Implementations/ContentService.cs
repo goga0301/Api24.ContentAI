@@ -21,7 +21,6 @@ using System.Threading.Tasks;
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
     public class ContentService(IClaudeService claudeService,
-                          ICacheService cacheService,
                           ICustomTemplateService customTemplateService,
                           ITemplateService templateService,
                           IRequestLogService requestLogService,
@@ -38,7 +37,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IMarketplaceService _marketplaceService = marketplaceService;
         private readonly ILanguageService _languageService = languageService;
         private readonly HttpClient _httpClient = httpClient;
-        private readonly ICacheService _cacheService = cacheService;
 
 
         private static readonly string[] SupportedFileExtensions =
@@ -52,59 +50,50 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<ContentAIResponse> SendRequest(ContentAIRequest request, CancellationToken cancellationToken)
         {
 
-            string cacheKey = GetCacheKey(request);
 
-            return await _cacheService.GetOrCreateAsync(
-                cacheKey,
-                async () =>
-                {
-                    MarketplaceModel marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
+            MarketplaceModel marketplace = await _marketplaceService.GetById(request.UniqueKey, cancellationToken);
 
-                    if (marketplace == null)
-                    {
-                        throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
-                    }
+            if (marketplace == null)
+            {
+                throw new Exception("შესაბამისი მარკეტფლეისი ვერ მოიძებნა!");
+            }
 
-                    if (marketplace.ContentLimit <= 0)
-                    {
-                        throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
-                    }
+            if (marketplace.ContentLimit <= 0)
+            {
+                throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
+            }
 
-                    ProductCategoryModel productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
+            ProductCategoryModel productCategory = await _productCategoryService.GetById(request.ProductCategoryId, cancellationToken);
 
-                    LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
-                    string templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
+            string templateText = GetDefaultTemplate(productCategory.NameEng, language.Name);
 
-                    TemplateModel template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
+            TemplateModel template = await _templateService.GetByProductCategoryId(request.ProductCategoryId, cancellationToken);
 
-                    if (template != null)
-                    {
-                        templateText = template.Text;
-                    }
+            if (template != null)
+            {
+                templateText = template.Text;
+            }
 
-                    CustomTemplateModel customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
+            CustomTemplateModel customTemplate = await _customTemplateService.GetByMarketplaceAndProductCategoryId(request.UniqueKey, request.ProductCategoryId, cancellationToken);
 
-                    if (customTemplate != null)
-                    {
-                        templateText = customTemplate.Text;
-                    }
+            if (customTemplate != null)
+            {
+                templateText = customTemplate.Text;
+            }
 
-                    string claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
+            string claudRequestContent = $"{request.ProductName} {templateText} {language.Name} \n Product attributes are: \n {ConvertAttributes(request.Attributes)}";
 
-                    ClaudeRequest claudeRequest = new ClaudeRequest(claudRequestContent);
-                    ClaudeResponse claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
-                    string claudResponseText = ProcessClaudeResponse(claudeResponse);
-                    ContentAIResponse response = new ContentAIResponse { Text = claudResponseText };
+            ClaudeRequest claudeRequest = new ClaudeRequest(claudRequestContent);
+            ClaudeResponse claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+            string claudResponseText = ProcessClaudeResponse(claudeResponse);
+            ContentAIResponse response = new ContentAIResponse { Text = claudResponseText };
 
-                    await LogRequest(request, response, marketplace.Id, cancellationToken);
-                    await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
+            await LogRequest(request, response, marketplace.Id, cancellationToken);
+            await _marketplaceService.UpdateBalance(marketplace.Id, RequestType.Content);
 
-                    return response;
-                },
-            TimeSpan.FromHours(24),
-            cancellationToken
-            );
+            return response;
 
             //await _marketplaceService.Update(new UpdateMarketplaceModel
             //{
