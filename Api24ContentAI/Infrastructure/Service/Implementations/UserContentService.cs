@@ -425,7 +425,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("No text to translate. Please provide text in the description field or upload files containing text.");
             }
 
-            decimal requestPrice = CalculateTranslateRequestPriceNew(description);
+            decimal requestPrice = CalculateTranslateRequestPriceNew(description, request.IsPdf, pdfPageCount);
             User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
@@ -441,7 +441,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
             var chunkBuilder = new StringBuilder();
             var claudResponseText = new StringBuilder();
-            var tasks = new List<Task<KeyValuePair<int, string>>>();
             int index = 0;
 
             LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
@@ -450,7 +449,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _logger.LogInformation("Translating {Length} characters from {SourceLanguage} to {TargetLanguage}", 
                 description.Length, sourceLanguage.Name, language.Name);
 
-            List<string> chunks = GetChunksOfLargeText(description);
+            //List<string> chunks = GetChunksOfLargeText(description);
             StringBuilder translatedText = new();
             List<Task<KeyValuePair<int, string>>> tasks = [];
 
@@ -479,7 +478,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             TranslateResponse response = new()
             {
-                Text = finalTranslation
+                Text = finalTranslation,
                 File = pdfBytes
             };
 
