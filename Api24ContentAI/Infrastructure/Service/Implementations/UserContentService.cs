@@ -58,11 +58,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
 
                 ClaudeRequestWithFile claudeRequest = new([message]);
-                ClaudeResponse claudeResponse =
+                var claudeResponse =
                     await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+                var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-                int lastPeriod = claudResponseText.LastIndexOf('.');
+                var lastPeriod = claudResponseText.LastIndexOf('.');
 
                 if (lastPeriod != -1)
                 {
@@ -78,21 +78,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 
         }
 
-        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request,
-            string userId, CancellationToken cancellationToken)
+        public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken)
         {
-            decimal requestPrice = GetRequestPrice(RequestType.Copyright);
-            User user = await _userRepository.GetById(userId, cancellationToken);
+            var requestPrice = GetRequestPrice(RequestType.Copyright);
+            var user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
                 throw new Exception("CopyrightAI რექვესთების ბალანსი ამოიწურა");
             }
 
-            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
+            var language = await _languageService.GetById(request.LanguageId, cancellationToken);
 
 
-            string templateText = GetCopyrightTemplate(language.Name, request.ProductName);
+            var templateText = GetCopyrightTemplate(language.Name, request.ProductName);
 
             ContentFile message = new()
             {
@@ -100,8 +99,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Text = templateText
             };
 
-            string extention = file.FileName.Split('.').Last();
-            if (!SupportedFileExtensions.Contains(extention))
+            var extension = file.FileName.Split('.').Last();
+            if (!SupportedFileExtensions.Contains(extension))
             {
                 throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
             }
@@ -112,7 +111,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Source = new Source()
                 {
                     Type = "base64",
-                    MediaType = $"image/{extention}",
+                    MediaType = $"image/{extension}",
                     Data = EncodeFileToBase64(file)
                 }
             };
@@ -246,279 +245,119 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
             var claudResponsePlainText = claudeResponse.Content.Single().Text;
 
-            var start = claudResponsePlainText.IndexOf("<html_output>") + 13;
-            var end = claudResponsePlainText.IndexOf("</html_output>");
+            var start = claudResponsePlainText.IndexOf("<html_output>", StringComparison.Ordinal) + 13;
+            var end = claudResponsePlainText.IndexOf("</html_output>", StringComparison.Ordinal);
 
             return claudResponsePlainText.Substring(start, end - start);
         }
 
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
-
         {
-            int pdfPageCount = 0;
-            string description = request.Description ?? string.Empty;
+            _logger.LogInformation("Starting translation request for user {UserId}", userId);
             
-            if (request.IsPdf && request.Files != null && request.Files.Count > 0)
+            if (string.IsNullOrWhiteSpace(request.Description))
             {
-                _logger.LogInformation("Processing PDF file for translation");
-                (description, pdfPageCount) = await GetPdfContentInStringAsync(request.Files.FirstOrDefault()).ConfigureAwait(false);
-                _logger.LogInformation("Extracted {CharCount} characters from {PageCount} PDF pages", 
-                    description?.Length ?? 0, pdfPageCount);
+                _logger.LogWarning("No text provided for translation");
+                throw new Exception("No text to translate. Please provide text in the description field.");
             }
             
-            else if (string.IsNullOrWhiteSpace(description) && request.Files != null && request.Files.Count > 0)
+            var user = await _userRepository.GetById(userId, cancellationToken);
+            if (user == null)
             {
-                _logger.LogInformation("Processing {Count} image files for translation", request.Files.Count);
-                StringBuilder textFromImage = new();
-                List<Task<KeyValuePair<int, string>>> tasksForImages = [];
-                int indexForImages = 0;
-
-                foreach (IFormFile file in request.Files)
-                {
-                    string extension = file.FileName.Split('.').Last().ToLower();
-                    if (!SupportedFileExtensions.Contains(extension))
-                    {
-                        _logger.LogWarning("Unsupported file format: {Extension}", extension);
-                        throw new Exception($"ფაილი უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: {string.Join(", ", SupportedFileExtensions)}!");
-                    }
-
-                    _logger.LogDebug("Processing image file: {FileName}, size: {Length} bytes", file.FileName, file.Length);
-                    
-                    // Create a separate task for each image to process them in parallel
-                    int currentIndex = indexForImages++;
-                    Task<KeyValuePair<int, string>> task = Task.Run(async () => {
-                        try {
-                            ContentFile fileMessage = new()
-                            {
-                                Type = "image",
-                                Source = new Source()
-                                {
-                                    Type = "base64",
-                                    MediaType = $"image/{extension}",
-                                    Data = EncodeFileToBase64(file)
-                                }
-                            };
-
-                            LanguageModel sourceLanguage =
-                                await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-                            string templateTextForImageToText = GetImageToTextTemplate(sourceLanguage.Name);
-                            ContentFile messageImageToText = new()
-                            {
-                                Type = "text",
-                                Text = templateTextForImageToText
-                            };
-
-                            List<ContentFile> continueReq = [fileMessage, messageImageToText];
-                            ClaudeRequestWithFile claudeRequestImageToText = new(continueReq);
-                            
-                            _logger.LogInformation("Sending image {Index} to Claude for OCR", currentIndex);
-                            ClaudeResponse claudeResponseImageToText = await _claudeService.SendRequestWithFile(claudeRequestImageToText, cancellationToken);
-                            string claudResponseTextContinueImageToText = claudeResponseImageToText.Content.Single().Text;
-                            
-                            _logger.LogDebug("Claude OCR response for image {Index}: {Length} chars", 
-                                currentIndex, claudResponseTextContinueImageToText.Length);
-                            
-                            int start = claudResponseTextContinueImageToText.IndexOf("<transcription>");
-                            int end = claudResponseTextContinueImageToText.IndexOf("</transcription>");
-                            
-                            if (start >= 0 && end > start)
-                            {
-                                start += 15;
-                                string extractedText = claudResponseTextContinueImageToText[start..end];
-                                _logger.LogDebug("Successfully extracted text from image {Index}, length: {Length} chars", 
-                                    currentIndex, extractedText.Length);
-                                return new KeyValuePair<int, string>(currentIndex, extractedText);
-                            }
-                            
-                            start = claudResponseTextContinueImageToText.IndexOf("```markdown");
-                            if (start >= 0)
-                            {
-                                start += 10; // Length of "```markdown"
-                                end = claudResponseTextContinueImageToText.IndexOf("```", start);
-                                if (end > start)
-                                {
-                                    string extractedText = claudResponseTextContinueImageToText[start..end].Trim();
-                                    _logger.LogDebug("Extracted text from markdown block in image {Index}, length: {Length} chars", 
-                                        currentIndex, extractedText.Length);
-                                    return new KeyValuePair<int, string>(currentIndex, extractedText);
-                                }
-                            }
-                            
-                            string cleanedResponse = claudResponseTextContinueImageToText;
-                            if (cleanedResponse.Contains("I apologize") || cleanedResponse.Contains("I'm sorry"))
-                            {
-                                _logger.LogWarning("Claude returned an apology for image {Index}, attempting to extract useful content", currentIndex);
-                                
-                                string directPrompt = "Extract all text visible in this image. Return ONLY the extracted text with no explanations or commentary:";
-                                
-                                ContentFile retryMessage = new()
-                                {
-                                    Type = "text",
-                                    Text = directPrompt
-                                };
-                                
-                                List<ContentFile> retryReq = [fileMessage, retryMessage];
-                                ClaudeRequestWithFile retryRequest = new(retryReq);
-                                
-                                _logger.LogInformation("Retrying OCR for image {Index} with simplified prompt", currentIndex);
-                                ClaudeResponse retryResponse = await _claudeService.SendRequestWithFile(retryRequest, cancellationToken);
-                                string retryResult = retryResponse.Content.Single().Text.Trim();
-                                
-                                if (!retryResult.Contains("I apologize") && !retryResult.Contains("I'm sorry"))
-                                {
-                                    _logger.LogDebug("Retry OCR successful for image {Index}, got {Length} chars", 
-                                        currentIndex, retryResult.Length);
-                                    return new KeyValuePair<int, string>(currentIndex, retryResult);
-                                }
-                                
-                                _logger.LogWarning("Retry OCR also failed for image {Index}", currentIndex);
-                            }
-                            
-                            _logger.LogWarning("Could not find transcription tags in Claude response for image {Index}", currentIndex);
-                            return new KeyValuePair<int, string>(currentIndex, cleanedResponse);
-                        }
-                        catch (Exception ex) {
-                            _logger.LogError(ex, "Error processing image {Index}", currentIndex);
-                            return new KeyValuePair<int, string>(currentIndex, string.Empty);
-                        }
-                    }, cancellationToken);
-                    
-                    tasksForImages.Add(task);
-                }
-
-                if (tasksForImages.Count > 0)
-                {
-                    _logger.LogInformation("Waiting for {Count} image processing tasks to complete", tasksForImages.Count);
-                    KeyValuePair<int, string>[] pairs = await Task.WhenAll(tasksForImages);
-                    
-                    foreach (KeyValuePair<int, string> result in pairs.OrderBy(r => r.Key))
-                    {
-                        if (!string.IsNullOrWhiteSpace(result.Value))
-                        {
-                            _logger.LogDebug("Adding text from image {Index}: {Preview}", 
-                                result.Key, result.Value.Substring(0, Math.Min(50, result.Value.Length)) + "...");
-                            textFromImage.AppendLine(result.Value);
-                            textFromImage.AppendLine();
-                        }
-                    }
-                    
-                    description = textFromImage.ToString();
-                    
-                    if (string.IsNullOrWhiteSpace(description))
-                    {
-                        _logger.LogWarning("No text extracted from any of the {Count} images", request.Files.Count);
-                        throw new Exception("Could not extract any text from the provided images. Please check the image format and quality, or provide text directly.");
-                    }
-                    
-                    _logger.LogInformation("Successfully extracted {Length} characters of text from {Count} images", 
-                        description.Length, request.Files.Count);
-                }
+                _logger.LogWarning("User {UserId} not found", userId);
+                throw new Exception("User not found");
             }
-            else
-            {
-                request.Description = await TestTranslateTextAsync(request.Files.FirstOrDefault(), cancellationToken);
-            }
-
-            if (string.IsNullOrWhiteSpace(description))
-            {
-                _logger.LogWarning("No text to translate - neither description nor extracted text from files");
-                throw new Exception("No text to translate. Please provide text in the description field or upload files containing text.");
-            }
-
-            decimal requestPrice = CalculateTranslateRequestPriceNew(description, request.IsPdf, pdfPageCount);
-            User user = await _userRepository.GetById(userId, cancellationToken);
-
-            if (user != null && user.UserBalance.Balance < requestPrice)
+            
+            string textToTranslate = request.Description;
+            
+            decimal requestPrice = GetRequestPrice(RequestType.Translate) * 
+                ((textToTranslate.Length / 250) + (textToTranslate.Length % 250 == 0 ? 0 : 1));
+            
+            if (user.UserBalance.Balance < requestPrice)
             {
                 _logger.LogWarning("Insufficient balance for user {UserId}. Required: {Price}, Available: {Balance}", 
                     userId, requestPrice, user.UserBalance.Balance);
                 throw new Exception("ბალანსი არ არის საკმარისი მოთხოვნის დასამუშავებლად!!!");
             }
-            var chunks = GetChunksOfLargeText(request.Description);
-            if (request.IsPdf)
-            {
-                chunks = new List<string>() { request.Description };
-            }
-            var chunkBuilder = new StringBuilder();
-            var claudResponseText = new StringBuilder();
-            int index = 0;
-
-            LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
-            LanguageModel sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-
+            
+            var targetLanguage = await _languageService.GetById(request.LanguageId, cancellationToken);
+            var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
+            
             _logger.LogInformation("Translating {Length} characters from {SourceLanguage} to {TargetLanguage}", 
-                description.Length, sourceLanguage.Name, language.Name);
-
-            //List<string> chunks = GetChunksOfLargeText(description);
+                textToTranslate.Length, sourceLanguage.Name, targetLanguage.Name);
+            
+            var chunks = GetChunksOfLargeText(textToTranslate);
             StringBuilder translatedText = new();
             List<Task<KeyValuePair<int, string>>> tasks = [];
-
-            for (int i = 0; i < chunks.Count; i++)
+            
+            for (var i = 0; i < chunks.Count; i++)
             {
-                string chunk = chunks[i];
+                var chunk = chunks[i];
                 _logger.LogDebug("Creating translation task for chunk {Index}, length: {Length} chars", i, chunk.Length);
-                Task<KeyValuePair<int, string>> task = TranslateTextAsync(i, chunk, language.Name, sourceLanguage.Name, cancellationToken);
+                var task = TranslateTextAsync(i, chunk, targetLanguage.Name, sourceLanguage.Name, cancellationToken);
                 tasks.Add(task);
             }
-
+            
             _logger.LogInformation("Waiting for {Count} translation tasks to complete", tasks.Count);
-            KeyValuePair<int, string>[] results = await Task.WhenAll(tasks);
-            IEnumerable<KeyValuePair<int, string>> orderedResults = results.OrderBy(r => r.Key);
-
-            //foreach (KeyValuePair<int, string> kvp in orderedResults)
-            //{
-            //    string translatedChunk = kvp.Value;
-            //    _ = translatedText.AppendLine(translatedChunk);
-            //}
-
-            byte[] pdfBytes = ConvertHtmlToPdf(claudResponseText.Replace("<br>", ""));
-
-            string finalTranslation = translatedText.ToString().Replace("\n", "<br>").Replace("\r", "<br>");
+            var results = await Task.WhenAll(tasks);
+            
+            foreach (var result in results.OrderBy(r => r.Key))
+            {
+                translatedText.AppendLine(result.Value);
+            }
+            
+            string finalTranslation = translatedText.ToString();
             _logger.LogInformation("Translation completed, final length: {Length} characters", finalTranslation.Length);
-
+            
             TranslateResponse response = new()
             {
-                Text = finalTranslation,
-                File = pdfBytes
+                Text = finalTranslation
             };
-
+            
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
                 Request = "translate text",
                 RequestType = RequestType.Translate,
             }, cancellationToken);
+            
             await _userRepository.UpdateUserBalance(userId, -requestPrice, cancellationToken);
-
+            
             return response;
         }
 
-        private static byte[] ConvertHtmlToPdf(StringBuilder claudResponseText)
+        private static byte[] ConvertHtmlToPdf(StringBuilder htmlContent)
         {
-            HtmlToPdf converter = new HtmlToPdf();
-
-            // Configure PDF settings
-            converter.Options.PdfPageSize = PdfPageSize.A4;
-            converter.Options.PdfPageOrientation = PdfPageOrientation.Portrait;
-            converter.Options.MarginLeft = 10;
-            converter.Options.MarginRight = 10;
-            converter.Options.MarginTop = 10;
-            converter.Options.MarginBottom = 10;
-
-            // Convert HTML to PDF
-            SelectPdf.PdfDocument pdfDocument = converter.ConvertHtmlString(claudResponseText.ToString());
-
-            // Get PDF as bytes
-            byte[] pdfBytes;
-            using (MemoryStream ms = new MemoryStream())
+            var converter = new HtmlToPdf
             {
-                pdfDocument.Save(ms);
-                pdfBytes = ms.ToArray();
-            }
+                Options =
+                {
+                    PdfPageSize = PdfPageSize.A4,
+                    PdfPageOrientation = PdfPageOrientation.Portrait,
+                    MarginLeft = 10,
+                    MarginRight = 10,
+                    MarginTop = 10,
+                    MarginBottom = 10
+                }
+            };
+            var pdfDocument = converter.ConvertHtmlString(htmlContent.ToString());
+            try
+            {
+                byte[] pdfBytes;
+                using (var ms = new MemoryStream())
+                {
+                    pdfDocument.Save(ms);
+                    pdfBytes = ms.ToArray();
+                }
 
-            // Clean up
-            pdfDocument.Close();
-            return pdfBytes;
+                pdfDocument.Close();
+                return pdfBytes;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"PDF conversion error: {ex.Message}");
+                return [];
+            }
         }
 
         public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId,
@@ -581,55 +420,43 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return response;
         }
 
-        private static decimal CalculateTranslateRequestPrice(UserTranslateRequest request, int pdfPageCount)
-        {
-            decimal defaultPrice = GetRequestPrice(RequestType.Translate);
-
-            return !string.IsNullOrWhiteSpace(request.Description) &&
-                   (request.Files == null || request.Files.Count == 0)
-                ? defaultPrice * ((request.Description.Length / 250) +
-                                  (request.Description.Length % 250 == 0 ? 0 : 1))
-                : request.Files != null && request.Files.Count == 1 && request.IsPdf
-                    ? pdfPageCount * 0.9m
-                    : request.Files.Count * 1.45m;
-        }
         private string GetSystemPromptForPdfToHtml()
         {
             string systemPrompt = @"You are an AI assistant specialized in converting Word and PDF documents to HTML format. You maintain the original document's structure, formatting, and visual elements while ensuring compatibility with A4 page size (210mm x 297mm).
 
-Your conversion process follows these steps:
+                Your conversion process follows these steps:
 
-1. Analyze the input file to determine its type (Word/PDF) and content structure
-2. Extract and preserve formatted text (headings, paragraphs, lists) with proper HTML tags
-3. Convert tables to HTML table format
-4. Handle images by extracting them and using appropriate <img> tags
-5. Implement proper HTML hierarchy (<h1>, <h2>, <p>, <ul>, etc.)
-6. Format footnotes/endnotes with <sup> and <a> tags
-7. Add CSS styling for A4 compatibility including:
-   - Page dimensions (210mm x 297mm)
-   - Appropriate margins and padding
-   - Print media queries
-   - Page breaks and layout preservation
-8. Generate a complete HTML file with proper syntax
-9. Ensure all content from the original is preserved in the output
+                1. Analyze the input file to determine its type (Word/PDF) and content structure
+                2. Extract and preserve formatted text (headings, paragraphs, lists) with proper HTML tags
+                3. Convert tables to HTML table format
+                4. Handle images by extracting them and using appropriate <img> tags
+                5. Implement proper HTML hierarchy (<h1>, <h2>, <p>, <ul>, etc.)
+                6. Format footnotes/endnotes with <sup> and <a> tags
+                7. Add CSS styling for A4 compatibility including:
+                - Page dimensions (210mm x 297mm)
+                - Appropriate margins and padding
+                - Print media queries
+                - Page breaks and layout preservation
+                8. Generate a complete HTML file with proper syntax
+                9. Ensure all content from the original is preserved in the output
 
-When responding, provide only the converted HTML content within <html_output> tags without any explanations or comments outside those tags.
+                When responding, provide only the converted HTML content within <html_output> tags without any explanations or comments outside those tags.
 
-Example response format:
-<html_output>
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Converted Document</title>
-    <style>
-        /* A4 formatting CSS here */
-    </style>
-</head>
-<body>
-    <!-- Converted content here -->
-</body>
-</html>
-</html_output>";
+                Example response format:
+                <html_output>
+                <!DOCTYPE html>
+                <html>
+                <head>
+                <title>Converted Document</title>
+                <style>
+                /* A4 formatting CSS here */
+                </style>
+                </head>
+                <body>
+                <!-- Converted content here -->
+                </body>
+                </html>
+                </html_output>";
 
             return systemPrompt;
 
@@ -673,8 +500,8 @@ Example response format:
                 _logger.LogDebug("Received response for chunk {Order}, length: {Length} chars", 
                     order, claudResponsePlainText.Length);
 
-                int start = claudResponsePlainText.IndexOf("<translation>");
-                int end = claudResponsePlainText.IndexOf("</translation>");
+                int start = claudResponsePlainText.IndexOf("<translation>", StringComparison.Ordinal);
+                int end = claudResponsePlainText.IndexOf("</translation>", StringComparison.Ordinal);
                 
                 if (start >= 0 && end > start)
                 {
@@ -691,19 +518,21 @@ Example response format:
                 {
                     _logger.LogWarning("Claude returned an error message for chunk {Order}, attempting retry", order);
                     
-                    string directPrompt = $@"
-                        TASK: Translate the following text from {sourceLanguage} to {targetLanguage}.
-                        
-                        TEXT TO TRANSLATE:
-                        {text}
-                        
-                        INSTRUCTIONS:
-                        - Provide ONLY the translated text
-                        - Do not include any explanations or notes
-                        - Do not mention that this is a translation
-                        - Do not apologize or explain your capabilities
-                        - This is a TEXT translation task, not an image task
-                    ";
+                    string directPrompt = $"""
+
+                                                                   TASK: Translate the following text from {sourceLanguage} to {targetLanguage}.
+                                                                   
+                                                                   TEXT TO TRANSLATE:
+                                                                   {text}
+                                                                   
+                                                                   INSTRUCTIONS:
+                                                                   - Provide ONLY the translated text
+                                                                   - Do not include any explanations or notes
+                                                                   - Do not mention that this is a translation
+                                                                   - Do not apologize or explain your capabilities
+                                                                   - This is a TEXT translation task, not an image task
+                                                               
+                                           """;
                     
                     ContentFile retryMessage = new()
                     {
@@ -963,44 +792,44 @@ Example response format:
         {
             return @$"You are an AI assistant tasked with converting Word or PDF documents into Markdown format while preserving the original document's structure, formatting, and visual elements. Your goal is to create a Markdown file that, when compiled, will replicate the original document as closely as possible. This process is designed to facilitate a more fluid document translation flow.
 
-Here are the steps you should follow:
+                Here are the steps you should follow:
 
-1. Analyze the input file:
-<input_file> {fileName} </input_file>
+                1. Analyze the input file:
+                <input_file> {fileName} </input_file>
 
-Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
+                Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
 
-2. Process the document content:
-- Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
-- Identify and preserve any special formatting (bold, italic, underline, etc.).
-- Locate all tables and images within the document.
+                2. Process the document content:
+                - Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
+                - Identify and preserve any special formatting (bold, italic, underline, etc.).
+                - Locate all tables and images within the document.
 
-3. Handle tables and visual elements:
-- For tables, convert them into Markdown table format. If the tables are complex, consider using HTML table syntax within the Markdown file for better representation.
-- For images, extract them and save them as separate files. In the Markdown document, use the appropriate Markdown syntax to reference these images.
+                3. Handle tables and visual elements:
+                - For tables, convert them into Markdown table format. If the tables are complex, consider using HTML table syntax within the Markdown file for better representation.
+                - For images, extract them and save them as separate files. In the Markdown document, use the appropriate Markdown syntax to reference these images.
 
-4. Convert to Markdown format:
-- Use appropriate Markdown syntax for headings, lists, emphasis, and links.
-- Ensure that the document's hierarchy and structure are maintained through proper use of Markdown headings (#, ##, ###, etc.).
-- Convert any footnotes or endnotes to Markdown format.
+                4. Convert to Markdown format:
+                - Use appropriate Markdown syntax for headings, lists, emphasis, and links.
+                - Ensure that the document's hierarchy and structure are maintained through proper use of Markdown headings (#, ##, ###, etc.).
+                - Convert any footnotes or endnotes to Markdown format.
 
-5. Preserve document structure and formatting:
-- Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
-- If certain formatting cannot be replicated exactly in Markdown, use HTML and CSS within the Markdown file to achieve a similar appearance.
+                5. Preserve document structure and formatting:
+                - Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
+                - If certain formatting cannot be replicated exactly in Markdown, use HTML and CSS within the Markdown file to achieve a similar appearance.
 
-6. Generate the output:
-Create a Markdown (.md) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
+                6. Generate the output:
+                Create a Markdown (.md) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
 
-7. Review and format check:
-- Verify that all content from the original document has been transferred to the Markdown file.
-- Check that the Markdown syntax is correct and will render properly when compiled.
-- Ensure that the overall structure and appearance of the document are preserved as much as possible.
+                7. Review and format check:
+                - Verify that all content from the original document has been transferred to the Markdown file.
+                - Check that the Markdown syntax is correct and will render properly when compiled.
+                - Ensure that the overall structure and appearance of the document are preserved as much as possible.
 
-Your final output should be a well-formatted Markdown file that closely replicates the original document. Include only the converted Markdown content in your response, enclosed in <markdown_output> tags. Do not include any explanations or comments outside of these tags.
+                Your final output should be a well-formatted Markdown file that closely replicates the original document. Include only the converted Markdown content in your response, enclosed in <markdown_output> tags. Do not include any explanations or comments outside of these tags.
 
-<markdown_output>
-[Insert the converted Markdown content here]
-</markdown_output>";
+                <markdown_output>
+                [Insert the converted Markdown content here]
+                </markdown_output>";
         }
         private string GetDocumentToMarkdownTemplate1(string fileName)
         {
@@ -1094,15 +923,13 @@ Your final output should be a well-formatted HTML file that closely replicates t
             return @$"<text_to_translate> {description} </text_to_translate>
                       You are a highly skilled translator tasked with translating text from one language to another. You aim to provide highly accurate and natural-sounding translations while maintaining the original meaning and context. 
                       The target language for translation: <target_language>{targetLanguage}</target_language> from source language <source_language>{sourceLanguge}</source_language>.
-                      Always Provide your translation inside <translation></translation> tags. End translation with closing tag when the full text is translated. 
                       
-                      When translating, follow these guidelines:
-                      1. Maintain the original formatting, including paragraphs, bullet points, and numbered lists.
-                      2. Pay attention to context and idiomatic expressions, translating them appropriately for the target language.
-                      3. For proper nouns, brand names, or specific technical terms, keep them in their original form unless there's a widely accepted translation in the target language.
-                      4. Translate full texts, do not commit any parts.
+                      Important guidelines:
+                      1. Preserve all mathematical formulas and equations in LaTeX format. Do not translate variables or mathematical symbols.
+                      2. Preserve technical identifiers, standards (like ISO, EN), codes, and reference numbers in their original form
+                      3. Translate technical terms using standard {targetLanguage} equivalents when they exist
                       
-                      Begin your translation now.";
+                      Always Provide your translation inside <translation></translation> tags. End translation with closing tag when the full text is translated.";
         }
 
         private static string GetCopyrightTemplate(string language, string productName)
