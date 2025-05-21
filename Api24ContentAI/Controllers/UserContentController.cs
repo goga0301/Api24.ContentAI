@@ -47,6 +47,7 @@ namespace Api24ContentAI.Controllers
                 {
                     return Unauthorized("User ID not found in the token");
                 }
+                
                 var result = await _userContentService.ChunkedTranslate(request, userId, cancellationToken);
                 if (request.IsPdf)
                 {

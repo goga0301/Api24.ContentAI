@@ -306,6 +306,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 translatedText.AppendLine(result.Value);
             }
             
+            // Keep as markdown - don't replace newlines with <br>
             string finalTranslation = translatedText.ToString();
             _logger.LogInformation("Translation completed, final length: {Length} characters", finalTranslation.Length);
             
@@ -313,6 +314,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 Text = finalTranslation
             };
+            
+            // If PDF was requested, convert markdown to PDF bytes
+            if (request.IsPdf)
+            {
+                // Convert markdown to bytes for now
+                byte[] markdownBytes = System.Text.Encoding.UTF8.GetBytes(finalTranslation);
+                response.File = markdownBytes;
+            }
             
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
