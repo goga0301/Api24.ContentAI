@@ -6,30 +6,24 @@ using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Api24ContentAI.Domain.Repository;
 
 namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class DocumentController : ControllerBase
+    public class DocumentController(
+        IDocumentTranslationService documentTranslationService)
+        : ControllerBase
     {
-        private readonly IDocumentTranslationService _documentTranslationService;
-        private readonly IUserRepository _userRepository;
+        private readonly IDocumentTranslationService _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
 
-        public DocumentController(IDocumentTranslationService documentTranslationService, IUserRepository userRepository)
-        {
-            _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
-            _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
-        }
-
-        [HttpPost("translate")]
-        public async Task<IActionResult> TranslateDocument([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
+        [HttpPost("/tesseract/translate")]
+        public async Task<IActionResult> TranslateDocumentWithTesseract([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
         {
             try
             {
-                string userId = User.FindFirst("sub")?.Value;
+                var userId = User.FindFirst("sub")?.Value;
                 if (string.IsNullOrEmpty(userId))
                 {
                     userId = User.FindFirst("UserId")?.Value;
@@ -44,7 +38,7 @@ namespace Api24ContentAI.Controllers
                     return BadRequest("No file uploaded");
                 }
 
-                var result = await _documentTranslationService.TranslateDocument(
+                var result = await _documentTranslationService.TranslateDocumentWithTesseract(
                     request.File,
                     request.TargetLanguageId,
                     userId,
@@ -53,11 +47,70 @@ namespace Api24ContentAI.Controllers
 
                 if (!result.Success)
                 {
-                    Console.WriteLine($"Translation failed: {result.ErrorMessage}");
                     return BadRequest(result.ErrorMessage);
                 }
+                
+                if (result.FileData != null && result.FileData.Length > 0)
+                {
+                    return File(result.FileData, result.ContentType, result.FileName);
+                }
+                else
+                {
+                    return Ok(new
+                    {
+                        result.Success,
+                        result.TranslatedContent,
+                        result.FileName,
+                        result.ContentType,
+                        result.TranslationQualityScore,
+                        result.TranslationId,
+                        result.Cost
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in TranslateDocument: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                if (ex.InnerException != null)
+                {
+                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
+                }
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Error translating document: {ex.Message}");
+            }
+        }
+        
+        [HttpPost("/translate")]
+        public async Task<IActionResult> TranslateDocumentWithClaude([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var userId = User.FindFirst("sub")?.Value;
+                if (string.IsNullOrEmpty(userId))
+                {
+                    userId = User.FindFirst("UserId")?.Value;
+                    if (string.IsNullOrEmpty(userId))
+                    {
+                        return Unauthorized("User ID not found in token");
+                    }
+                }
 
-                Console.WriteLine("Translation completed successfully");
+                if (request.File == null || request.File.Length == 0)
+                {
+                    return BadRequest("No file uploaded");
+                }
+
+                var result = await _documentTranslationService.TranslateDocumentWithClaude(
+                    request.File,
+                    request.TargetLanguageId,
+                    userId,
+                    request.OutputFormat,
+                    cancellationToken);
+
+                if (!result.Success)
+                {
+                    return BadRequest(result.ErrorMessage);
+                }
                 
                 if (result.FileData != null && result.FileData.Length > 0)
                 {

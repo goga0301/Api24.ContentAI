@@ -38,7 +38,7 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost("translate")]
-        public async Task<IActionResult> Translate([FromForm] UserTranslateRequest request, CancellationToken cancellationToken)
+        public async Task<IActionResult> Translate([FromForm] UserTranslateRequestWithChunks request, CancellationToken cancellationToken)
         {
             try
             {
@@ -49,13 +49,6 @@ namespace Api24ContentAI.Controllers
                 }
                 
                 var result = await _userContentService.ChunkedTranslate(request, userId, cancellationToken);
-                if (request.IsPdf)
-                {
-                    return File(fileContents: result.File,
-                                contentType: "application/pdf",
-                                fileDownloadName: "translated-document.pdf"
-                            );
-                }
                 return Ok(result);
 
             }

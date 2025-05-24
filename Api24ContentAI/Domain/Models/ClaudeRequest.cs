@@ -59,7 +59,7 @@ namespace Api24ContentAI.Domain.Models
         public ClaudeRequestWithFile(List<ContentFile> contents, string system = "")
         {
             Temperature = 0.5m;
-            Model = "claude-3-7-sonnet-20250219";
+            Model = "claude-4-sonnet-20250514";
             MaxTokens = 64000;
             Messages = new List<MessageWithFile> { new MessageWithFile("user", contents) };
             if (!string.IsNullOrWhiteSpace(system))
@@ -70,7 +70,7 @@ namespace Api24ContentAI.Domain.Models
 
         public ClaudeRequestWithFile(List<MessageWithFile> messages)
         {
-            Model = "claude-3-7-sonnet-20250219";
+            Model = "claude-4-sonnet-20250514";
             MaxTokens = 4096;
             Messages = messages;
         }
@@ -79,7 +79,7 @@ namespace Api24ContentAI.Domain.Models
     public class ClaudeRequest(string messageContent)
     {
         [JsonPropertyName("model")]
-        public string Model { get; } = "claude-3-5-sonnet-20240620";
+        public string Model { get; } = "claude-3-7-sonnet-20250219";
         [JsonPropertyName("max_tokens")]
         public int MaxTokens { get; } = 4096;
         [JsonPropertyName("messages")]
