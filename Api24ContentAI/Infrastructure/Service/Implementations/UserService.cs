@@ -38,6 +38,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return (await _userRepository.GetById(id, cancellationToken)).ToModel();
         }
 
+        public async Task<UserModel> GetByUserName(string userName, CancellationToken cancellationToken)
+        {
+            return (await _userRepository.GetByUserName(userName, cancellationToken)).ToModel();
+        }
+
         public async Task Update(UpdateUserModel user, CancellationToken cancellationToken)
         {
 

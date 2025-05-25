@@ -57,12 +57,12 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task<User> GetById(string userId, CancellationToken cancellationToken)
         {
-            return await _context.Users.Include(x => x.UserBalance).Include(x => x.Role).SingleOrDefaultAsync(x => x.Id == userId);
+            return await _context.Users.Include(x => x.UserBalance).Include(x => x.Role).SingleOrDefaultAsync(x => x.Id == userId, cancellationToken: cancellationToken);
         }
 
         public async Task<User> GetByUserName(string userName, CancellationToken cancellationToken)
         {
-            return await _context.Users.Include(x => x.UserBalance).Include(x => x.Role).SingleOrDefaultAsync(x => x.UserName == userName);
+            return await _context.Users.Include(x => x.UserBalance).Include(x => x.Role).SingleOrDefaultAsync(x => x.UserName == userName, cancellationToken: cancellationToken);
         }
 
         public async Task Update(User entity, CancellationToken cancellationToken)

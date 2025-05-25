@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Threading;
+using Api24ContentAI.Domain.Entities;
 
 namespace Api24ContentAI.Domain.Service
 {
@@ -9,6 +10,7 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<List<UserModel>> GetAll(CancellationToken cancellationToken);
         Task<UserModel> GetById(string id, CancellationToken cancellationToken);
+        Task<UserModel> GetByUserName(string userName, CancellationToken cancellationToken);
         Task Update(UpdateUserModel user, CancellationToken cancellationToken);
         Task<bool> ChangePassword(ChangeUserPasswordModel model, CancellationToken cancellationToken);
         Task Delete(string id, CancellationToken cancellationToken);
