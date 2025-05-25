@@ -22,10 +22,10 @@ namespace Api24ContentAI.Controllers
             return await _userService.GetAll(cancellationToken);
         }
 
-        [HttpGet("{userName}")]
-        public async Task<UserModel> GetByUserName(string userName, CancellationToken cancellationToken)
+        [HttpGet("{id}")]
+        public async Task<UserModel> GetById(string id, CancellationToken cancellationToken)
         {
-            return await _userService.GetByUserName(userName, cancellationToken);
+            return await _userService.GetById(id, cancellationToken);
         }
 
         [HttpPut]
