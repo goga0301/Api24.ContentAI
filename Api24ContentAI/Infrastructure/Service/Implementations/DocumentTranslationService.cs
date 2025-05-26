@@ -125,12 +125,63 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             var finalMarkdown = await CombineTranslatedSectionsWithClaude(translatedPages, targetLanguage.Name, cancellationToken);
-            var translationResult =  new DocumentTranslationResult
-            {
-                TranslatedContent = finalMarkdown,
-                OutputFormat = outputFormat,
-                Success = true
-            };
+            
+             string improvedTranslation = finalMarkdown;
+             double qualityScore = 0.0;
+    
+             if (!string.IsNullOrWhiteSpace(finalMarkdown))
+             {
+                 _logger.LogInformation("Starting translation verification for Claude-translated document");
+        
+                 try
+                 {
+                     List<KeyValuePair<int, string>> translationChunksForVerification;
+            
+                     if (finalMarkdown.Length > 8000)
+                     {
+                         _logger.LogInformation("Translation is large ({Length} chars), splitting into chunks for verification", finalMarkdown.Length);
+                         var chunks = GetChunksOfText(finalMarkdown, 8000);
+                         translationChunksForVerification = chunks.Select((chunk, index) => 
+                             new KeyValuePair<int, string>(index + 1, chunk)).ToList();
+                         _logger.LogInformation("Split into {Count} chunks for verification", chunks.Count);
+                     }
+                     else
+                     {
+                         translationChunksForVerification = [new KeyValuePair<int, string>(1, finalMarkdown)];
+                     }
+
+                     var (verificationResult, verifiedTranslation) = await ProcessTranslationVerification(
+                         cancellationToken, translationChunksForVerification, targetLanguage, finalMarkdown);
+            
+                     if (verificationResult.Success)
+                     {
+                         improvedTranslation = verifiedTranslation;
+                         qualityScore = verificationResult.QualityScore ?? 1.0;
+                         _logger.LogInformation("Claude translation verification completed with score: {Score}", qualityScore);
+                     }
+                     else
+                     {
+                         _logger.LogWarning("Translation verification failed: {Error}", verificationResult.ErrorMessage);
+                         qualityScore = 0.5;
+                     }
+                 }
+                 catch (Exception ex)
+                 {
+                     _logger.LogError(ex, "Error during Claude translation verification, using original translation");
+                     qualityScore = 0.5; 
+                 }
+             }
+
+             string translationId = Guid.NewGuid().ToString();
+            
+             var translationResult = new DocumentTranslationResult
+             {
+                 TranslatedContent = improvedTranslation,
+                 OutputFormat = outputFormat,
+                 Success = true,
+                 TranslationQualityScore = qualityScore,
+                 TranslationId = translationId
+             };
             
             if (outputFormat != Domain.Models.DocumentFormat.Markdown)
             {

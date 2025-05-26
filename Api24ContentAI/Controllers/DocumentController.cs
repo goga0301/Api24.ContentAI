@@ -18,7 +18,7 @@ namespace Api24ContentAI.Controllers
     {
         private readonly IDocumentTranslationService _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
 
-        [HttpPost("/tesseract/translate")]
+        [HttpPost("tesseract/translate")]
         public async Task<IActionResult> TranslateDocumentWithTesseract([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
         {
             try
@@ -70,17 +70,11 @@ namespace Api24ContentAI.Controllers
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in TranslateDocument: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                if (ex.InnerException != null)
-                {
-                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
-                }
                 return StatusCode(StatusCodes.Status500InternalServerError, $"Error translating document: {ex.Message}");
             }
         }
         
-        [HttpPost("/translate")]
+        [HttpPost("translate")]
         public async Task<IActionResult> TranslateDocumentWithClaude([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
         {
             try
@@ -132,12 +126,6 @@ namespace Api24ContentAI.Controllers
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error in TranslateDocument: {ex.Message}");
-                Console.WriteLine($"Stack trace: {ex.StackTrace}");
-                if (ex.InnerException != null)
-                {
-                    Console.WriteLine($"Inner exception: {ex.InnerException.Message}");
-                }
                 return StatusCode(StatusCodes.Status500InternalServerError, $"Error translating document: {ex.Message}");
             }
         }

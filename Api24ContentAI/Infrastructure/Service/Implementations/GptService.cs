@@ -134,12 +134,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     };
                 }
 
-                // Limit the number of samples to check to reduce token usage
-                var samplesToCheck = Math.Min(2, translations.Count);
-                var samples = translations
-                    .OrderBy(x => Guid.NewGuid()) // Random order
-                    .Take(samplesToCheck)
-                    .ToList();
+                var samples = translations;
                 
                 _logger.LogInformation("Selected {SampleCount} samples for verification", samples.Count);
 
@@ -434,10 +429,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 _logger.LogWarning("Context length exceeded during evaluation, trying with shorter prompt");
                 
-                // Create a much shorter prompt
                 string shorterPrompt = "Evaluate this translation sample for quality. Rate from 0.0 to 1.0.\n\n";
                 
-                // Extract a sample from the original prompt
                 var match = Regex.Match(prompt, @"Sample \d+:\s*([\s\S]{1,2000})(?:\n\n---|$)");
                 if (match.Success)
                 {
@@ -445,7 +438,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
                 else
                 {
-                    // Just take the first 2000 characters if we can't extract a sample
                     shorterPrompt += prompt.Substring(0, Math.Min(prompt.Length, 2000));
                 }
                 
@@ -599,7 +591,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private string GetDefaultModel()
         {
             string configModel = _configuration.GetSection("OpenAI:DefaultModel").Value;
-            return !string.IsNullOrEmpty(configModel) ? configModel : "gpt-4";
+            return !string.IsNullOrEmpty(configModel) ? configModel : "gpt-4o";
         }
     }
 }
