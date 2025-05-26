@@ -1,12 +1,13 @@
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
 
 namespace Api24ContentAI.Domain.Models
 {
     public enum DocumentFormat
     {
-        PDF,
-        Word,
-        Markdown
+        Pdf = 0,
+        Word = 1,
+        Markdown = 2
     }
     
     public class DocumentConversionResult
@@ -39,6 +40,17 @@ namespace Api24ContentAI.Domain.Models
     {
         public IFormFile File { get; set; }
         public int TargetLanguageId { get; set; }
-        public DocumentFormat OutputFormat { get; set; } = DocumentFormat.PDF;
+        public DocumentFormat OutputFormat { get; set; } = DocumentFormat.Pdf;
+    }
+
+    public class ScreenShotResult
+    {
+        public List<PageScreenshot> Pages { get; set; }
+    }
+
+    public class PageScreenshot
+    {
+        public int Page { get; set; }
+        public List<string> ScreenShots { get; set; }
     }
 }

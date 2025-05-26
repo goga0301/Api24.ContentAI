@@ -2,11 +2,12 @@
 
 	<PropertyGroup>
 		<TargetFramework>net9.0</TargetFramework>
-	  <UserSecretsId>f436c5f8-4caa-4f6b-afec-114d57e7a0b9</UserSecretsId>
-  </PropertyGroup>
+		<UserSecretsId>f436c5f8-4caa-4f6b-afec-114d57e7a0b9</UserSecretsId>
+	</PropertyGroup>
 
 	<ItemGroup>
 		<PackageReference Include="Dapper" Version="2.1.35" />
+		<PackageReference Include="Docnet.Core" Version="2.6.0" />
 		<!--<PackageReference Include="DinkToPdf" Version="1.0.8" />
 		<PackageReference Include="IronPdf" Version="2025.4.4" />-->
 		<PackageReference Include="itext7" Version="8.0.4" />
@@ -21,13 +22,18 @@
 			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
 		</PackageReference>
 		<PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="5.0.10" />
+		<PackageReference Include="PDFium.LinuxV2" Version="1.1.4" />
 		<PackageReference Include="PuppeteerSharp" Version="13.0.2" />
 		<PackageReference Include="DocumentFormat.OpenXml" Version="3.0.1" />
 		<PackageReference Include="Markdig" Version="0.35.0" />
 		<PackageReference Include="Select.HtmlToPdf.NetCore" Version="25.1.0" />
+		<PackageReference Include="SixLabors.ImageSharp" Version="3.1.8" />
+		<PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.6" />
+		<PackageReference Include="SkiaSharp" Version="3.119.0" />
 		<PackageReference Include="Swashbuckle.AspNetCore" Version="5.6.3" />
 		<PackageReference Include="System.Data.SqlClient" Version="4.8.6" />
-		<PackageReference Include="Microsoft.Extensions.Caching.StackExchangeRedis" Version="5.0.1" />
+		<PackageReference Include="System.Drawing.Common" Version="9.0.5" />
+		<PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -29,16 +29,13 @@ namespace Api24ContentAI
 {
     public class Startup(IConfiguration configuration)
     {
-        public IConfiguration Configuration { get; } = configuration;
+        private IConfiguration Configuration { get; } = configuration;
 
         public void ConfigureServices(IServiceCollection services)
         {
 
             JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
             
-            // Remove all Redis cache configuration
-            // services.AddStackExchangeRedisCache(options => { ... });
-
             _ = services.AddControllers();
 
             _ = services.AddSwaggerGen(options =>
@@ -172,7 +169,6 @@ namespace Api24ContentAI
                     sp.GetRequiredService<IClaudeService>(),
                     sp.GetRequiredService<ILanguageService>(),
                     sp.GetRequiredService<IUserRepository>(),
-                    sp.GetRequiredService<IRequestLogService>(),
                     sp.GetRequiredService<IGptService>(),
                     sp.GetRequiredService<ILogger<DocumentTranslationService>>()
                 )

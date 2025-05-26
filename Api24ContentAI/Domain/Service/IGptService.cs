@@ -11,4 +11,5 @@ public interface IGptService
     
     Task<VerificationResult> VerifyTranslationBatch(List<KeyValuePair<int, string>> translations, CancellationToken cancellationToken);
     
+    Task<VerificationResult> EvaluateTranslationQuality(string prompt, CancellationToken cancellationToken);
 }

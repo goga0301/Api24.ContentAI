@@ -115,12 +115,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             IUserContentService _userContentService = scope.ServiceProvider.GetRequiredService<IUserContentService>();
             foreach (CategoryResponse category in categories)
             {
-                UserTranslateRequest req = new UserTranslateRequest
+                UserTranslateRequestWithChunks req = new UserTranslateRequestWithChunks()
                 {
-                    Description = category.Name,
+                    UserText = category.Name,
                     SourceLanguageId = 1,
-                    LanguageId = 2,
-                    IsPdf = false
+                    LanguageId = 2
                 };
                 TranslateResponse translated = await _userContentService.ChunkedTranslate(req, "ae77823a-e212-4b9f-ab1a-a5c9b727a581", cancellationToken);
                 category.NameEng = translated.Text.Replace("<br>", "");

@@ -251,11 +251,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return claudResponsePlainText.Substring(start, end - start);
         }
 
-        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequest request, string userId, CancellationToken cancellationToken)
+        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequestWithChunks request, string userId, CancellationToken cancellationToken)
         {
             _logger.LogInformation("Starting translation request for user {UserId}", userId);
             
-            if (string.IsNullOrWhiteSpace(request.Description))
+            if (string.IsNullOrWhiteSpace(request.UserText))
             {
                 _logger.LogWarning("No text provided for translation");
                 throw new Exception("No text to translate. Please provide text in the description field.");
@@ -268,7 +268,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("User not found");
             }
             
-            string textToTranslate = request.Description;
+            string textToTranslate = request.UserText;
             
             decimal requestPrice = GetRequestPrice(RequestType.Translate) * 
                 ((textToTranslate.Length / 250) + (textToTranslate.Length % 250 == 0 ? 0 : 1));
@@ -313,6 +313,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 Text = finalTranslation
             };
+            
             
             await _requestLogService.Create(new CreateUserRequestLogModel
             {

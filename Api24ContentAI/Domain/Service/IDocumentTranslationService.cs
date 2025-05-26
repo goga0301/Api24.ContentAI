@@ -7,24 +7,21 @@ namespace Api24ContentAI.Domain.Service
 {
     public interface IDocumentTranslationService
     {
-        Task<DocumentConversionResult> ConvertToMarkdown(IFormFile file, CancellationToken cancellationToken);
         
-        Task<DocumentTranslationResult> TranslateMarkdown(
-            string markdownContent, 
-            int targetLanguageId, 
-            string userId, 
-            CancellationToken cancellationToken);
-        
-        Task<DocumentConversionResult> ConvertFromMarkdown(
-            string markdownContent, 
-            Models.DocumentFormat outputFormat, 
-            CancellationToken cancellationToken);
-        
-        Task<DocumentTranslationResult> TranslateDocument(
+        Task<DocumentTranslationResult> TranslateDocumentWithTesseract(
             IFormFile file, 
             int targetLanguageId, 
             string userId, 
             Models.DocumentFormat outputFormat,
             CancellationToken cancellationToken);
+
+        Task<DocumentTranslationResult> TranslateDocumentWithClaude(
+            IFormFile file, 
+            int targetLanguageId, 
+            string userId, 
+            Models.DocumentFormat outputFormat,
+            CancellationToken cancellationToken
+        );
+
     }
 }
