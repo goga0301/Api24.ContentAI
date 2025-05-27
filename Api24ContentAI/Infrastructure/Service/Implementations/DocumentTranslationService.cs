@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -202,7 +203,332 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             return translationResult;
-        } 
+        }
+
+        public async Task<DocumentTranslationResult> TranslateSRTFiles(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
+            CancellationToken cancellationToken)
+        {
+            
+            try
+            {
+                if (file == null || file.Length == 0)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "No file provided" };
+                }
+
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "User ID is required" };
+                }
+
+                var user = await _userRepository.GetById(userId, cancellationToken);
+                if (user == null)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "User not found" };
+                }
+
+                var targetLanguage = await _languageService.GetById(targetLanguageId, cancellationToken);
+                if (targetLanguage == null)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "Target language not found" };
+                }
+
+                _logger.LogInformation("Processing SRT file {FileName} for translation to {LanguageName}", 
+                    file.FileName, targetLanguage.Name);
+
+                string srtContent;
+                using (var reader = new StreamReader(file.OpenReadStream()))
+                {
+                    srtContent = await reader.ReadToEndAsync();
+                }
+
+                if (string.IsNullOrWhiteSpace(srtContent))
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "SRT file is empty" };
+                }
+
+                var subtitleEntries = ParseSrtContent(srtContent);
+                if (subtitleEntries.Count == 0)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "No valid subtitle entries found in SRT file" };
+                }
+
+                _logger.LogInformation("Parsed {Count} subtitle entries from SRT file", subtitleEntries.Count);
+
+                var textsToTranslate = subtitleEntries.Select(entry => entry.Text).ToList();
+        
+                var translatedTexts = await TranslateSrtContentInChunks(textsToTranslate, targetLanguage, cancellationToken);
+        
+                if (translatedTexts == null || translatedTexts.Count != textsToTranslate.Count)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation failed or mismatch in subtitle count" };
+                }
+
+                var translatedSrtContent = RebuildSrtFileWithTranslatedTexts(subtitleEntries, translatedTexts);
+
+                string improvedTranslation = translatedSrtContent;
+                double qualityScore = 0.0;
+
+                if (!string.IsNullOrWhiteSpace(translatedSrtContent))
+                {
+                    _logger.LogInformation("Starting SRT translation verification");
+            
+                    try
+                    {
+                        var sampleTexts = translatedTexts.Take(Math.Min(10, translatedTexts.Count)).ToList();
+                        var verificationText = string.Join("\n", sampleTexts);
+                
+                        var verificationResult = await _gptService.EvaluateTranslationQuality(
+                            $"Evaluate this SRT subtitle translation sample to {targetLanguage.Name}. Focus on subtitle-appropriate language, timing considerations, and readability:\n\n{verificationText}", 
+                            cancellationToken);
+                
+                        if (verificationResult.Success)
+                        {
+                            qualityScore = verificationResult.QualityScore ?? 1.0;
+                            _logger.LogInformation("SRT translation verification completed with score: {Score}", qualityScore);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("SRT translation verification failed: {Error}", verificationResult.ErrorMessage);
+                            qualityScore = 0.7;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error during SRT translation verification");
+                        qualityScore = 0.7;
+                    }
+                }
+
+                string translationId = Guid.NewGuid().ToString();
+        
+                var result = new DocumentTranslationResult
+                {
+                    Success = true,
+                    OriginalContent = srtContent,
+                    TranslatedContent = improvedTranslation,
+                    OutputFormat = Domain.Models.DocumentFormat.Srt,
+                    FileData = Encoding.UTF8.GetBytes(improvedTranslation),
+                    FileName = $"translated_{translationId}.srt",
+                    ContentType = "text/plain",
+                    TranslationQualityScore = qualityScore,
+                    TranslationId = translationId
+                };
+
+                _logger.LogInformation("SRT translation completed successfully. Quality score: {Score}", qualityScore);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error translating SRT file");
+                return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error translating SRT file: {ex.Message}" };
+            }
+
+            
+        }
+        
+        private async Task<List<string>> TranslateSrtContentInChunks(List<string> subtitleTexts, LanguageModel targetLanguage, CancellationToken cancellationToken)
+        {
+            const int maxChunkSize = 50;
+            const int maxCharacters = 8000;
+    
+            var chunks = new List<List<string>>();
+            var currentChunk = new List<string>();
+            var currentCharacterCount = 0;
+    
+            foreach (var text in subtitleTexts)
+            {
+                if ((currentChunk.Count >= maxChunkSize) || 
+                    (currentCharacterCount + text.Length > maxCharacters && currentChunk.Count > 0))
+                {
+                    chunks.Add([..currentChunk]);
+                    currentChunk.Clear();
+                    currentCharacterCount = 0;
+                }
+        
+                currentChunk.Add(text);
+                currentCharacterCount += text.Length + 2;
+            }
+    
+            if (currentChunk.Count > 0)
+            {
+                chunks.Add(currentChunk);
+            }
+    
+            _logger.LogInformation("Split {TotalSubtitles} subtitles into {ChunkCount} chunks for translation", 
+                subtitleTexts.Count, chunks.Count);
+    
+            var allTranslatedTexts = new List<string>();
+    
+            for (int i = 0; i < chunks.Count; i++)
+            {
+                var chunk = chunks[i];
+                var combinedChunkText = string.Join("\n\n", chunk);
+        
+                _logger.LogInformation("Translating SRT chunk {ChunkIndex}/{ChunkCount} with {SubtitleCount} subtitles", 
+                    i + 1, chunks.Count, chunk.Count);
+        
+                try
+                {
+                    var translatedChunk = await TranslateSrtChunk(combinedChunkText, targetLanguage.Name, i + 1, chunks.Count, cancellationToken);
+            
+                    if (string.IsNullOrWhiteSpace(translatedChunk))
+                    {
+                        _logger.LogWarning("Empty translation result for SRT chunk {ChunkIndex}", i + 1);
+                        allTranslatedTexts.AddRange(chunk);
+                        continue;
+                    }
+            
+                    var translatedLines = translatedChunk.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+            
+                    if (translatedLines.Length != chunk.Count)
+                    {
+                        _logger.LogWarning("Translation count mismatch for chunk {ChunkIndex}. Expected: {Expected}, Got: {Actual}", 
+                            i + 1, chunk.Count, translatedLines.Length);
+                
+                        for (int j = 0; j < chunk.Count; j++)
+                        {
+                            if (j < translatedLines.Length && !string.IsNullOrWhiteSpace(translatedLines[j]))
+                            {
+                                allTranslatedTexts.Add(translatedLines[j].Trim());
+                            }
+                            else
+                            {
+                                allTranslatedTexts.Add(chunk[j]);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        allTranslatedTexts.AddRange(translatedLines.Select(line => line.Trim()));
+                    }
+            
+                    _logger.LogInformation("Successfully translated SRT chunk {ChunkIndex}/{ChunkCount}", i + 1, chunks.Count);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error translating SRT chunk {ChunkIndex}", i + 1);
+                    allTranslatedTexts.AddRange(chunk);
+                }
+            }
+    
+            _logger.LogInformation("Completed chunked SRT translation. Original: {OriginalCount}, Translated: {TranslatedCount}", 
+                subtitleTexts.Count, allTranslatedTexts.Count);
+    
+            return allTranslatedTexts;
+        }
+        
+        private async Task<string> TranslateSrtChunk(string chunkText, string targetLanguage, int chunkNumber, int totalChunks, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var prompt = GenerateSrtChunkTranslationPrompt(targetLanguage, chunkText, chunkNumber, totalChunks);
+        
+                var message = new ContentFile { Type = "text", Text = prompt };
+                var claudeRequest = new ClaudeRequestWithFile([message]);
+        
+                _logger.LogInformation("Sending SRT chunk {ChunkNumber}/{TotalChunks} to Claude for translation", chunkNumber, totalChunks);
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+        
+                var content = claudeResponse.Content?.SingleOrDefault();
+                if (content == null)
+                {
+                    _logger.LogWarning("No content received from Claude for SRT chunk {ChunkNumber}", chunkNumber);
+                    return string.Empty;
+                }
+        
+                string translatedText = content.Text.Trim();
+        
+                if (translatedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
+                    translatedText.StartsWith("I've translated", StringComparison.OrdinalIgnoreCase))
+                {
+                    int firstLineBreak = translatedText.IndexOf('\n');
+                    if (firstLineBreak > 0)
+                    {
+                        translatedText = translatedText.Substring(firstLineBreak + 1).Trim();
+                    }
+                }
+        
+                _logger.LogInformation("Successfully translated SRT chunk {ChunkNumber}, length: {Length} characters", chunkNumber, translatedText.Length);
+                return translatedText;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error translating SRT chunk {ChunkNumber} with Claude", chunkNumber);
+                return string.Empty;
+            }
+        }
+
+        private string RebuildSrtFileWithTranslatedTexts(List<SrtEntry> entries, List<string> translatedTexts)
+        {
+            var result = new StringBuilder();
+    
+            for (int i = 0; i < entries.Count; i++)
+            {
+                result.AppendLine(entries[i].SequenceNumber.ToString());
+                result.AppendLine(entries[i].Timestamp);
+        
+                if (i < translatedTexts.Count && !string.IsNullOrWhiteSpace(translatedTexts[i]))
+                {
+                    result.AppendLine(translatedTexts[i]);
+                }
+                else
+                {
+                    result.AppendLine(entries[i].Text); 
+                }
+        
+                result.AppendLine(); 
+            }
+    
+            return result.ToString().TrimEnd();
+        }
+
+
+        
+        private List<SrtEntry> ParseSrtContent(string srtContent)
+        {
+            var entries = new List<SrtEntry>();
+            var lines = srtContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+    
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // Look for sequence number
+                if (int.TryParse(lines[i].Trim(), out int sequenceNumber))
+                {
+                    // Next line should be timestamp
+                    if (i + 1 < lines.Length && lines[i + 1].Contains("-->"))
+                    {
+                        var timestamp = lines[i + 1].Trim();
+                
+                        // Collect subtitle text until next sequence number or end
+                        var textLines = new List<string>();
+                        int textIndex = i + 2;
+                
+                        while (textIndex < lines.Length && 
+                               !int.TryParse(lines[textIndex].Trim(), out _))
+                        {
+                            textLines.Add(lines[textIndex]);
+                            textIndex++;
+                        }
+                
+                        if (textLines.Count > 0)
+                        {
+                            entries.Add(new SrtEntry
+                            {
+                                SequenceNumber = sequenceNumber,
+                                Timestamp = timestamp,
+                                Text = string.Join("\n", textLines).Trim()
+                            });
+                        }
+                
+                        i = textIndex - 1; // Skip processed lines
+                    }
+                }
+            }
+    
+            return entries;
+        }
+
         
         private async Task<ScreenShotResult> GetDocumentScreenshots(IFormFile file, CancellationToken cancellationToken)
         {
@@ -954,7 +1280,32 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                           """;
             return prompt;
         }
+        
+        private static string GenerateSrtChunkTranslationPrompt(string targetLanguage, string chunkText, int chunkNumber, int totalChunks)
+        {
+            return $"""
+                    You are a professional subtitle translator specializing in {targetLanguage}. I will provide you with a chunk of subtitle text from an SRT file that needs to be translated.
 
+                    This is chunk {chunkNumber} of {totalChunks} total chunks.
 
+                    Your task is to:
+                    1. Translate ALL subtitle text into {targetLanguage}
+                    2. Keep subtitles concise and readable (suitable for on-screen display)
+                    3. Maintain the EXACT same number of subtitle entries as provided
+                    4. Use natural, conversational language appropriate for subtitles
+                    5. Preserve emphasis and emotional tone where possible
+                    6. Keep line breaks within individual subtitles if they exist
+                    7. DO NOT translate proper names unless they have standard translations
+                    8. DO NOT include any explanations or notes
+                    9. Return ONLY the translated subtitle text, separated by double line breaks (\\n\\n)
+                    10. Ensure each subtitle is concise enough to be read quickly on screen
+                    11. IMPORTANT: The number of translated entries MUST match the number of original entries
+
+                    Here are the subtitle texts to translate (separated by double line breaks):
+
+                    {chunkText}
+                    """;
+        }
+        
     }
 }
