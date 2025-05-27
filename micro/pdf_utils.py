@@ -1,10 +1,11 @@
 import os
 import subprocess
+import tempfile
 from config import logger
 
 
 def convert_pdf_to_images(pdf_path: str) -> list[str]:
-    output_dir = "/tmp/ocr_pages"
+    output_dir = os.path.join(tempfile.gettempdir(), "ocr_pages")
     os.makedirs(output_dir, exist_ok=True)
     output_prefix = os.path.join(output_dir, "page")
 
@@ -16,7 +17,9 @@ def convert_pdf_to_images(pdf_path: str) -> list[str]:
         if f.read(5) != b"%PDF-":
             raise RuntimeError("Invalid PDF file")
 
-    cmd = ["/usr/bin/pdftoppm", pdf_path, output_prefix, "-png"]
+    pdftoppm_cmd = "pdftoppm"  # assume it's in PATH on both platforms
+
+    cmd = [pdftoppm_cmd, pdf_path, output_prefix, "-png"]
     try:
         logger.debug(f"Running: {' '.join(cmd)}")
         subprocess.run(cmd, check=True, capture_output=True, text=True)
