@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -202,7 +203,288 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
 
             return translationResult;
-        } 
+        }
+
+        public async Task<DocumentTranslationResult> TranslateSRTFiles(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
+            CancellationToken cancellationToken)
+        {
+            if (file == null || file.Length == 0)
+            {
+                return new DocumentTranslationResult {Success = false, ErrorMessage = "No file provided"};
+            }
+
+            if (string.IsNullOrWhiteSpace(userId))
+            {
+                return new DocumentTranslationResult {Success = false, ErrorMessage = "User ID is required"};
+            }
+            
+            var user = await _userRepository.GetById(userId, cancellationToken);
+            if(user == null)
+            {
+                return new DocumentTranslationResult {Success = false, ErrorMessage = "User not found"};
+            }
+            var targetLanguage = await _languageService.GetById(targetLanguageId, cancellationToken);
+            if (targetLanguage == null || string.IsNullOrWhiteSpace(targetLanguage.Name))
+            {
+                return new DocumentTranslationResult {Success = false, ErrorMessage = "Invalid target language ID"};
+            }
+            
+            _logger.LogInformation("Processing SRT file {FileName} with target language {TargetLanguageName}", file.FileName, targetLanguage.Name);
+            string srtContent;
+            using (var reader = new StreamReader(file.OpenReadStream()))
+            {
+                srtContent = await reader.ReadToEndAsync(cancellationToken);
+            }
+
+            if (string.IsNullOrWhiteSpace(srtContent))
+            {
+                return new DocumentTranslationResult {Success = false, ErrorMessage = "File is empty"};
+            }
+            
+            var subtitleEntries = ParseSrtContent(srtContent);
+            if (subtitleEntries.Count == 0)
+            {
+                return new DocumentTranslationResult {Success = false, ErrorMessage = "File contains no subtitle entries"};
+            }
+            _logger.LogInformation("Parsed {Count} subtitle entries from SRT file", subtitleEntries.Count);
+            
+            var textsToTranslate = subtitleEntries.Select(entry => entry.Text).ToList();
+            var combinedText = string.Join("\n\n", textsToTranslate);
+            
+            var translatedText = await TranslateSrtContent(combinedText, targetLanguage, cancellationToken);
+        
+            if (string.IsNullOrWhiteSpace(translatedText))
+            {
+                return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation failed" };
+            }
+
+            var translatedLines = translatedText.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+        
+            var translatedSrtContent = RebuildSrtFile(subtitleEntries, translatedLines);
+
+            string improvedTranslation = translatedSrtContent;
+            double qualityScore = 0.0;
+
+            if (!string.IsNullOrWhiteSpace(translatedSrtContent))
+            {
+                _logger.LogInformation("Starting SRT translation verification");
+            
+                try
+                {
+                    var verificationText = string.Join("\n", translatedLines);
+                
+                    var verificationResult = await _gptService.EvaluateTranslationQuality(
+                        $"Evaluate this SRT subtitle translation to {targetLanguage.Name}. Focus on subtitle-appropriate language, timing considerations, and readability:\n\n{verificationText}", 
+                        cancellationToken);
+                
+                    if (verificationResult.Success)
+                    {
+                        qualityScore = verificationResult.QualityScore ?? 1.0;
+                        _logger.LogInformation("SRT translation verification completed with score: {Score}", qualityScore);
+                    
+                        // If quality is low, try to improve the translation
+                        if (qualityScore < 0.8 && !string.IsNullOrEmpty(verificationResult.Feedback))
+                        {
+                            _logger.LogInformation("Attempting to improve SRT translation based on feedback");
+                            var improvedText = await ImproveSrtTranslation(combinedText, targetLanguage.Name, verificationResult.Feedback, cancellationToken);
+                        
+                            if (!string.IsNullOrEmpty(improvedText))
+                            {
+                                var improvedLines = improvedText.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+                                improvedTranslation = RebuildSrtFile(subtitleEntries, improvedLines);
+                            
+                                // Re-verify improved translation
+                                var improvedVerification = await _gptService.EvaluateTranslationQuality(
+                                    $"Evaluate this improved SRT subtitle translation to {targetLanguage.Name}:\n\n{improvedText}", 
+                                    cancellationToken);
+                            
+                                if (improvedVerification.Success && improvedVerification.QualityScore > qualityScore)
+                                {
+                                    qualityScore = improvedVerification.QualityScore ?? qualityScore;
+                                    _logger.LogInformation("Improved SRT translation score: {Score}", qualityScore);
+                                }
+                                else
+                                {
+                                    // Keep original if improvement didn't work
+                                    improvedTranslation = translatedSrtContent;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("SRT translation verification failed: {Error}", verificationResult.ErrorMessage);
+                        qualityScore = 0.7; // Default score
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during SRT translation verification");
+                    qualityScore = 0.7; // Default score
+                }
+            }
+
+            string translationId = Guid.NewGuid().ToString();
+        
+            var result = new DocumentTranslationResult
+            {
+                Success = true,
+                OriginalContent = srtContent,
+                TranslatedContent = improvedTranslation,
+                OutputFormat = Domain.Models.DocumentFormat.Srt,
+                FileData = Encoding.UTF8.GetBytes(improvedTranslation),
+                FileName = $"translated_{translationId}.srt",
+                ContentType = "text/plain",
+                TranslationQualityScore = qualityScore,
+                TranslationId = translationId
+            };
+
+            _logger.LogInformation("SRT translation completed successfully. Quality score: {Score}", qualityScore);
+            return result;
+        }
+        
+        private List<SrtEntry> ParseSrtContent(string srtContent)
+        {
+            var entries = new List<SrtEntry>();
+            var lines = srtContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+    
+            for (int i = 0; i < lines.Length; i++)
+            {
+                // Look for sequence number
+                if (int.TryParse(lines[i].Trim(), out int sequenceNumber))
+                {
+                    // Next line should be timestamp
+                    if (i + 1 < lines.Length && lines[i + 1].Contains("-->"))
+                    {
+                        var timestamp = lines[i + 1].Trim();
+                
+                        // Collect subtitle text until next sequence number or end
+                        var textLines = new List<string>();
+                        int textIndex = i + 2;
+                
+                        while (textIndex < lines.Length && 
+                               !int.TryParse(lines[textIndex].Trim(), out _))
+                        {
+                            textLines.Add(lines[textIndex]);
+                            textIndex++;
+                        }
+                
+                        if (textLines.Count > 0)
+                        {
+                            entries.Add(new SrtEntry
+                            {
+                                SequenceNumber = sequenceNumber,
+                                Timestamp = timestamp,
+                                Text = string.Join("\n", textLines).Trim()
+                            });
+                        }
+                
+                        i = textIndex - 1; // Skip processed lines
+                    }
+                }
+            }
+    
+            return entries;
+        }
+        
+        private async Task<string> TranslateSrtContent(string combinedText, LanguageModel targetLanguage, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var prompt = GenerateSrtTranslationPrompt(targetLanguage.Name, combinedText);
+        
+                var message = new ContentFile { Type = "text", Text = prompt };
+                var claudeRequest = new ClaudeRequestWithFile([message]);
+        
+                _logger.LogInformation("Sending SRT content to Claude for translation");
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+        
+                var content = claudeResponse.Content?.SingleOrDefault();
+                if (content == null)
+                {
+                    _logger.LogWarning("No content received from Claude for SRT translation");
+                    return string.Empty;
+                }
+        
+                string translatedText = content.Text.Trim();
+        
+                // Clean up Claude's response if it includes explanatory text
+                if (translatedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
+                    translatedText.StartsWith("I've translated", StringComparison.OrdinalIgnoreCase))
+                {
+                    int firstLineBreak = translatedText.IndexOf('\n');
+                    if (firstLineBreak > 0)
+                    {
+                        translatedText = translatedText.Substring(firstLineBreak + 1).Trim();
+                    }
+                }
+        
+                _logger.LogInformation("Successfully translated SRT content, length: {Length} characters", translatedText.Length);
+                return translatedText;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error translating SRT content with Claude");
+                return string.Empty;
+            }
+        }
+        
+        private async Task<string> ImproveSrtTranslation(string originalText, string targetLanguage, string feedback, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var prompt = GenerateSrtImprovementPrompt(originalText, targetLanguage, feedback);
+        
+                var message = new ContentFile { Type = "text", Text = prompt };
+                var claudeRequest = new ClaudeRequestWithFile([message]);
+        
+                _logger.LogInformation("Sending SRT improvement request to Claude");
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+        
+                var content = claudeResponse.Content?.SingleOrDefault();
+                if (content == null)
+                {
+                    _logger.LogWarning("No content received from Claude for SRT improvement");
+                    return string.Empty;
+                }
+        
+                string improvedText = content.Text.Trim();
+        
+                if (improvedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
+                    improvedText.StartsWith("Improved", StringComparison.OrdinalIgnoreCase))
+                {
+                    int firstLineBreak = improvedText.IndexOf('\n');
+                    if (firstLineBreak > 0)
+                    {
+                        improvedText = improvedText.Substring(firstLineBreak + 1).Trim();
+                    }
+                }
+        
+                return improvedText;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error improving SRT translation");
+                return string.Empty;
+            }
+        }
+        
+        private string RebuildSrtFile(List<SrtEntry> entries, string[] translatedLines)
+        {
+            var result = new StringBuilder();
+    
+            for (int i = 0; i < entries.Count && i < translatedLines.Length; i++)
+            {
+                result.AppendLine(entries[i].SequenceNumber.ToString());
+                result.AppendLine(entries[i].Timestamp);
+                result.AppendLine(translatedLines[i].Trim());
+                result.AppendLine(); // Empty line between entries
+            }
+    
+            return result.ToString().TrimEnd();
+        }
+
+
         
         private async Task<ScreenShotResult> GetDocumentScreenshots(IFormFile file, CancellationToken cancellationToken)
         {
@@ -954,7 +1236,54 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                           """;
             return prompt;
         }
+        
+        private static string GenerateSrtTranslationPrompt(string targetLanguage, string combinedText)
+        {
+            return $"""
+                    You are a professional subtitle translator specializing in {targetLanguage}. I will provide you with subtitle text from an SRT file that needs to be translated.
 
+                    Your task is to:
+                    1. Translate ALL subtitle text into {targetLanguage}
+                    2. Keep subtitles concise and readable (suitable for on-screen display)
+                    3. Maintain the same number of subtitle entries as the original
+                    4. Use natural, conversational language appropriate for subtitles
+                    5. Preserve emphasis and emotional tone where possible
+                    6. Keep line breaks within individual subtitles if they exist
+                    7. DO NOT translate proper names unless they have standard translations
+                    8. DO NOT include any explanations or notes
+                    9. Return ONLY the translated subtitle text, separated by double line breaks (\\n\\n)
+                    10. Ensure each subtitle is concise enough to be read quickly on screen
 
+                    Here are the subtitle texts to translate (separated by double line breaks):
+
+                    {combinedText}
+                    """;
+        }
+
+        private static string GenerateSrtImprovementPrompt(string originalText, string targetLanguage, string feedback)
+        {
+            return $"""
+                    You are a professional subtitle translator. I have subtitle text that has been translated to {targetLanguage}, but there are quality issues that need to be addressed.
+
+                    Feedback from quality review:
+                    {feedback}
+
+                    Please improve the translation by addressing these issues while keeping in mind subtitle-specific requirements:
+                    1. Keep subtitles concise and readable on screen
+                    2. Use natural, conversational language
+                    3. Maintain proper timing considerations (subtitles should be quick to read)
+                    4. Fix any awkward phrasing or unnatural language
+                    5. Ensure consistency in terminology and style
+                    6. Preserve the emotional tone and context
+                    7. Keep the same number of subtitle entries
+
+                    Return ONLY the improved translated subtitle text, separated by double line breaks (\\n\\n).
+                    DO NOT include any explanations or introductory text.
+
+                    Current translation:
+                    {originalText}
+                    """;
+        }
+        
     }
 }

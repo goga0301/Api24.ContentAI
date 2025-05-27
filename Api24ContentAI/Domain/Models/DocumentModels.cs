@@ -7,7 +7,8 @@ namespace Api24ContentAI.Domain.Models
     {
         Pdf = 0,
         Word = 1,
-        Markdown = 2
+        Markdown = 2,
+        Srt = 3
     }
     
     public class DocumentConversionResult
@@ -53,4 +54,12 @@ namespace Api24ContentAI.Domain.Models
         public int Page { get; set; }
         public List<string> ScreenShots { get; set; }
     }
+    
+    public class SrtEntry
+    {
+        public int SequenceNumber { get; set; }
+        public string Timestamp { get; set; }
+        public string Text { get; set; }
+    }
+
 }

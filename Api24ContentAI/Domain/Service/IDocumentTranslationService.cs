@@ -23,5 +23,13 @@ namespace Api24ContentAI.Domain.Service
             CancellationToken cancellationToken
         );
 
+        Task<DocumentTranslationResult> TranslateSRTFiles(
+            IFormFile file,
+            int targetLanguageId,
+            string userId,
+            Models.DocumentFormat outputFormat,
+            CancellationToken cancellationToken
+        );
+
     }
 }
