@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using iText.Kernel.Geom;
+using Path = System.IO.Path;
 
 namespace Api24ContentAI.Controllers
 {
@@ -13,11 +15,13 @@ namespace Api24ContentAI.Controllers
     [Route("api/[controller]")]
     [Authorize]
     public class DocumentController(
-        IDocumentTranslationService documentTranslationService)
+        IDocumentTranslationService documentTranslationService, IPdfService pdfService)
         : ControllerBase
     {
         private readonly IDocumentTranslationService _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
 
+        private readonly IPdfService _pdfService = pdfService ?? throw new ArgumentNullException(nameof(pdfService));
+        
         [HttpPost("tesseract/translate")]
         public async Task<IActionResult> TranslateDocumentWithTesseract([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
         {
@@ -193,6 +197,38 @@ namespace Api24ContentAI.Controllers
             {
                 return StatusCode(StatusCodes.Status500InternalServerError, $"Error translating SRT file: {ex.Message}");
             }
+        }
+
+        [HttpPost("convert/markdown-to-pdf")]
+        public async Task<IActionResult> ConvertMarkdownToPdf([FromForm] DocumentConvertRequest convertRequest, CancellationToken cancellation)
+        {
+            try
+            {
+                if (convertRequest.File == null || convertRequest.File.Length == 0)
+                {
+                    return BadRequest("No file uploaded");
+                }
+
+                if (!convertRequest.File.FileName.EndsWith(".md", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest("Only Markdown files are supported for this endpoint");
+                }
+                
+                var pdfBytes = await _pdfService.ConvertMarkdownToPdf(convertRequest.File, cancellation);
+                var fileName = Path.GetFileNameWithoutExtension(convertRequest.File.FileName) + ".pdf";
+
+                return File(
+                    fileContents: pdfBytes,
+                    contentType: "application/pdf",
+                    fileDownloadName: fileName
+                );
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+                throw;
+            }
+            
         }
     }
 }

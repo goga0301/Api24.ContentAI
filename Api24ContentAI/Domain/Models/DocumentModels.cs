@@ -44,6 +44,11 @@ namespace Api24ContentAI.Domain.Models
         public DocumentFormat OutputFormat { get; set; } = DocumentFormat.Pdf;
     }
 
+    public class DocumentConvertRequest
+    {
+        public IFormFile File { get; set; }
+    }
+
     public class ScreenShotResult
     {
         public List<PageScreenshot> Pages { get; set; }

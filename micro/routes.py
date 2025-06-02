@@ -1,7 +1,7 @@
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import FileResponse
 from tempfile import NamedTemporaryFile
-from pdf_utils import convert_pdf_to_images
+from pdf_utils import convert_pdf_to_images, convert_markdown_to_pdf_content
 from ocr_utils import run_tesseract_cli
 from config import TESS_LANGS, logger
 from pdf2image import convert_from_bytes
@@ -54,3 +54,21 @@ async def screen_shot(file: UploadFile = File(...)):
         encoded = [encode_image(c) for c in cropped]
         result.append({"page": i + 1, "screenshots": encoded})
     return {"pages": result}
+
+
+@router.post("/convert-md-to-pdf")
+async def convert_md_to_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith(".md"):
+        return {"error": "Uploaded file is not a Markdown file."}
+
+    try:
+        contents = await file.read()
+        pdf_path = convert_markdown_to_pdf_content(
+            contents, filename_hint=file.filename
+        )
+        return FileResponse(
+            pdf_path, media_type="application/pdf", filename="converted.pdf"
+        )
+    except RuntimeError as e:
+        logger.error(f"Conversion error: {e}")
+        return {"error": str(e)}

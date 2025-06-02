@@ -1,0 +1,12 @@
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+
+namespace Api24ContentAI.Domain.Service
+{
+    public interface IPdfService
+    {
+        Task<byte[]> ConvertMarkdownToPdf(IFormFile markdownFile, CancellationToken cancellationToken);
+    }
+}
+
