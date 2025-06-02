@@ -8,7 +8,8 @@ namespace Api24ContentAI.Domain.Models
         Pdf = 0,
         Word = 1,
         Markdown = 2,
-        Srt = 3
+        Srt = 3,
+        Txt = 4
     }
     
     public class DocumentConversionResult
@@ -65,6 +66,13 @@ namespace Api24ContentAI.Domain.Models
         public int SequenceNumber { get; set; }
         public string Timestamp { get; set; }
         public string Text { get; set; }
+    }
+    
+    public class TranslationVerificationResult
+    {
+        public bool Success { get; set; }
+        public double? QualityScore { get; set; }
+        public string? ErrorMessage { get; set; }
     }
 
 }
