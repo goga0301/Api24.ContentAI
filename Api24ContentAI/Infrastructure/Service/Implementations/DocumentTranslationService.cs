@@ -239,7 +239,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 string srtContent;
                 using (var reader = new StreamReader(file.OpenReadStream()))
                 {
-                    srtContent = await reader.ReadToEndAsync();
+                    srtContent = await reader.ReadToEndAsync(cancellationToken);
                 }
 
                 if (string.IsNullOrWhiteSpace(srtContent))
@@ -379,7 +379,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         continue;
                     }
             
-                    var translatedLines = translatedChunk.Split(new[] { "\n\n" }, StringSplitOptions.RemoveEmptyEntries);
+                    var translatedLines = translatedChunk.Split(["\n\n"], StringSplitOptions.RemoveEmptyEntries);
             
                     if (translatedLines.Length != chunk.Count)
                     {
@@ -488,14 +488,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private List<SrtEntry> ParseSrtContent(string srtContent)
         {
             var entries = new List<SrtEntry>();
-            var lines = srtContent.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+            var lines = srtContent.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
     
             for (int i = 0; i < lines.Length; i++)
             {
-                // Look for sequence number
+                // Look for a sequence number
                 if (int.TryParse(lines[i].Trim(), out int sequenceNumber))
                 {
-                    // Next line should be timestamp
+                    // The next line should be timestamped
                     if (i + 1 < lines.Length && lines[i + 1].Contains("-->"))
                     {
                         var timestamp = lines[i + 1].Trim();
@@ -1121,191 +1121,238 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
         {
             return $@"
-                        Compare these two translations to {targetLanguage} and determine which one is better quality:
+                You are a meticulous Quality Assurance Specialist for translations.
+                Your task is to compare two translations into {targetLanguage} and determine which one is of higher quality.
 
-                        TRANSLATION A:
-                        {translatedText}
+                TRANSLATION A:
+                {translatedText}
 
-                        TRANSLATION B:
-                        {improvedTranslation}
+            TRANSLATION B:
+            {improvedTranslation}
 
-                        Evaluate based on:
-                        1. Fluency and naturalness of language
-                        2. Consistency of terminology
-                        3. Absence of untranslated text
-                        4. Overall quality
+            Evaluate rigorously based on the following criteria:
+                1.  **Fluency and Naturalness**: How well does the translation flow in {targetLanguage}? Does it sound natural to a native speaker?
+                2.  **Terminology Consistency**: Is terminology used consistently throughout each translation?
+                3.  **Completeness**: Are there any untranslated or missing parts from the source (assuming you could infer the source's scope from the translations)?
+                4.  **Overall Accuracy and Quality**: Considering all factors, which translation more accurately and effectively conveys the likely meaning of the source text in {targetLanguage}?
 
-                        Respond with either 'A' or 'B' to indicate which translation is better, followed by a brief explanation.
-                        Format: <A or B>|<explanation>
-                    ";
+                Respond with either 'A' or 'B' to indicate which translation is unequivocally better. Follow this with a concise explanation for your choice, highlighting the key differentiators.
+                Strictly adhere to the following response format: <A or B>|<explanation>
+                Example: A|Translation A is more fluent and uses more natural phrasing for the target language.
+                ";
         }
 
         private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
         {
             return $"""
-                          You are a professional translator specializing in {targetLanguage}. I have a text that has been translated to {targetLanguage}, 
-                          but there are some issues with the translation that need to be fixed.
+                You are an expert {targetLanguage} translator and editor, tasked with refining a translation based on quality review feedback.
 
-                          Here is the feedback from a quality review:
-                          {feedback}
+                **Quality Review Feedback:**
+                {feedback}
 
-                          Please improve the translation by addressing these issues. Focus specifically on:
-                          1. Correcting any untranslated words or phrases that should have been translated
-                          2. Ensuring consistency in terminology throughout the document
-                          3. Fixing any awkward phrasing to make the text flow naturally in {targetLanguage}
-                          4. Maintaining proper formatting and structure
-                          5. Ensuring technical terms are translated correctly using standard {targetLanguage} equivalents
-                          6. Preserving technical identifiers, standards (like ISO, EN), codes, and reference numbers in their original form
+            **Your Objective:**
+                Improve the provided translation by meticulously addressing the issues highlighted in the feedback.
+                Focus on the following key areas to elevate the translation's quality:
 
+                1.  **Untranslated Content**: Identify and translate any words or phrases that were mistakenly left untranslated.
+                2.  **Terminology Cohesion**: Ensure uniform and consistent use of terminology throughout the entire document.
+                3.  **Natural Phrasing**: Rectify any awkward or unnatural phrasing to ensure the text flows smoothly and idiomatically in {targetLanguage}.
+                4.  **Formatting Integrity**: Preserve and correct any inconsistencies in formatting and structure.
+                5.  **Technical Accuracy**: Verify and correct translations of technical terms using standard {targetLanguage} equivalents.
+                6.  **Preservation of Identifiers**: CRITICAL: Technical identifiers, standards (e.g., ISO, EN), codes, and reference numbers MUST be preserved in their original form and MUST NOT be translated.
 
-                          Return the complete improved translation with all issues fixed.
-                          DO NOT INCLUDE ANY INTRODUCTORY TEXT OR EXPLANATIONS.
+                **Instructions:**
+                -   Return ONLY the complete, improved translation.
+                -   DO NOT include any introductory text, explanations, apologies, or summaries of changes.
+                -   Your output must be solely the final, polished {targetLanguage} text.
 
-                          Here is the current translation:
-                          {translatedText}
-                              
-                          """;
+                **Current Translation for Improvement:**
+                {translatedText}
+            """;
         }
 
         private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
         {
+            string verticalPortion = sectionName switch
+            {
+                "top" => "0-50%",
+                "middle" => "25-75%",
+                "bottom" => "50-100%",
+                _ => "full page"
+            };
+
             return $"""
-                    You are an advanced OCR and translation system that can extract text from images, recognize document structure, and translate content.
+                You are an advanced OCR (Optical Character Recognition) and translation system.
+                Your task is to process an image snippet from a document.
 
-                    This is the {sectionName} section (representing {(sectionName == "top" ? "0-50%" : (sectionName == "middle" ? "25-75%" : "50-100%"))} vertical portion) of page {pageNumber} of a document.
+                **Document Context:**
+                -   Page Number: {pageNumber}
+                -   Section of Page: {sectionName} (representing approximately the {verticalPortion} vertical portion of the page)
 
-                    I need you to:
-                    1. Extract ALL visible text from the image
-                    2. Translate all the extracted text into {targetLanguageName}
-                    3. Format the translated content as proper Markdown:
-                       - Identify and format headings using # syntax (# for main headings, ## for subheadings, etc.)
-                       - Format lists with proper bullet points or numbers
-                       - Use **bold** and *italic* for emphasized text
-                       - Create proper tables if table-like data is present
-                       - Add horizontal rules (---) where appropriate to separate sections
-                       - Format code blocks or technical content with ```
-                    4. Keep all numbers, dates, codes, and technical identifiers exactly as they appear in the original
-                    5. IMPORTANT: Do NOT translate technical identifiers, standards (like ISO, EN, ÐÐ¡Ð¢Ð£, etc.), codes (like ÐÐÐ ÐÐÐ£, ÐÐÐÐ£), and reference numbers
-                    6. For proper nouns, transliterate according to {targetLanguageName} conventions if appropriate
-                    7. DO NOT include any explanations or remarks about the translation process
-                    8. DO NOT include the original text alongside your translation
-                    9. Provide ONLY the translated text in {targetLanguageName}, formatted in Markdown
-                    10. IMPORTANT: Use contextual clues to determine document structure - identify titles, section headings, lists, etc.
+                **Required Actions:**
+                1.  **Extract Text**: Accurately extract ALL visible textual content from the provided image section.
+                2.  **Translate**: Translate the entire extracted text into **{targetLanguageName}**.
+                3.  **Format as Markdown**: Present the translated content in well-structured Markdown:
+                * Headings: Use `#` syntax (e.g., `# Main Heading`, `## Subheading`).
+                * Lists: Use `-` or `*` for bullet points, or numbered lists (e.g., `1. Item`).
+                * Emphasis: Use `**bold**` for strong emphasis and `*italic*` for regular emphasis.
+                * Tables: If tabular data is present, format it using Markdown table syntax.
+                * Separators: Use horizontal rules (`---`) to logically separate distinct content sections where appropriate.
+                * Code/Technical Blocks: Format code snippets or highly structured technical content using triple backticks (```).
+                4.  **Preserve Original Data**:
+                * Keep all numbers, dates, and specific codes (that are not technical standards to be preserved) exactly as they appear in the original, or transliterate them appropriately if they are part of a sentence structure that requires it in {targetLanguageName}.
+                5.  **CRITICAL - Non-Translation Rules**:
+                * **DO NOT TRANSLATE** the following items:
+                * Technical identifiers.
+                * Standards (e.g., ISO, EN, ДСТУ, ГОСТ).
+                * Specific codes (e.g., ДФРПОУ, НААУ).
+                * Reference numbers or part numbers.
+                * These items must be preserved in their original form.
+                6.  **Proper Nouns**: Transliterate proper nouns (names of people, organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist. If a well-known translation exists, use it.
+                7.  **Contextual Structure**: Use contextual clues from the extracted text to infer and apply the correct document structure (titles, sections, lists, paragraphs, etc.) in your Markdown output.
 
-                    Respond ONLY with the translated text in Markdown format.
-                    """;
+                **Output Requirements:**
+                -   Provide ONLY the translated text in {targetLanguageName}.
+                -   The output MUST be formatted exclusively in Markdown.
+                -   DO NOT include any explanations, remarks, or any portion of the original (untranslated) text.
+                -   DO NOT add any introductory or concluding phrases.
+                """;
         }
-        
+
         private static string GenerateTranslationPrompt(LanguageModel language, int i, List<string> chunks, string chunk)
         {
-            var prompt = $"""
-                          You are a professional translator. I will send you OCR-extracted content from a PDF document.
+            return $"""
+                You are an expert multilingual document translator and formatter, specializing in converting OCR-extracted text into polished {language.Name} documents.
+                You will receive a chunk of text extracted via OCR from a PDF document.
 
-                          Your task is to:
-                          1. Translate **all text** into **{language.Name}**.
-                          2. **Preserve the original formatting and layout** of the text as closely as possible.
-                          3. Keep **all numbers, dates, codes, and identifiers** exactly as they appear in the source.
-                          4. **Fix or ignore OCR artifacts** (e.g., strange characters), using context to infer the correct form.
-                          5. Maintain **paragraph breaks and line spacing**.
-                          6. Return the translated text with the **same structure and order** as the original.
-                          7. **Do NOT translate** any of the following: technical identifiers, standards (e.g., ISO, EN, ÐÐ¡Ð¢Ð£), codes (e.g., ÐÐÐ ÐÐÐ£, ÐÐÐÐ£), reference numbers.
-                          8. For **proper nouns**, **transliterate** them according to {language.Name} norms, where appropriate.
-                          9. Use **standard technical terms** in {language.Name} for accuracy.
-                          10. **Do NOT include** English explanations, remarks, or original untranslated text.
-                          11. **Do NOT add** any notes, comments, or clarifications.
-                          12. Return **only the final translated text** in {language.Name}, with no extra commentary.
-                          13. If you see **duplicate text**, **do not remove it**âtranslate everything exactly as-is.
-                          14. Ensure **no content is skipped** translate every word and leave nothing untranslated.
-                          15. **Format the output using Markdown** (for use in README files or similar). Use:
-                               - `#`, `##`, etc. for headings
-                               - `-` or `*` for bullet points
-                               - Code blocks (triple backticks) for sections that are structured like forms or certificates
-                               - Maintain line breaks and paragraph spacing
-                               - use table formatting when you encounter table-like data
-                               - use horizontal rules (---) to separate sections
-                          16. **Do NOT include** any introductory text or explanations.
-                          17. *Do NOT include* unique characters or text which is out of context or some characters which are readable
+                This is chunk {i + 1} of {chunks.Count}.
 
-                          **Note**: If the context indicates that the output will be used in a `README.md` or similar file, format your output using Markdown accordingly (e.g., for headings, lists, or code blocks).
+                **Your Core Task:**
+                Translate the provided text chunk into **{language.Name}** while meticulously adhering to the following detailed instructions.
 
-                          Here is the OCR-extracted text (chunk {i + 1} of {chunks.Count}):
+                **Detailed Instructions:**
 
-                          {chunk}
-                          """;
-            return prompt;
+                1.  **Comprehensive Translation**: Translate **ALL** textual content into **{language.Name}**. No part of the translatable text should be omitted.
+                2.  **Layout Preservation**: Strive to **preserve the original formatting and layout** of the text as closely as possible using Markdown. This includes paragraph structure, line breaks where meaningful, and overall visual organization.
+                3.  **Data Integrity (Numbers, Dates, Codes)**:
+                * Keep **all numbers, dates, general codes, and identifiers** (that are not covered by point 4) exactly as they appear in the source, or transliterate/format them as contextually appropriate for {language.Name}.
+                4.  **Non-Translatable Elements (CRITICAL)**:
+                * **DO NOT TRANSLATE** any of the following:
+                * Technical identifiers (e.g., part numbers, model numbers).
+                * Official Standards (e.g., ISO 9001, EN 10025, ДСТУ Б В.2.7-170:2008).
+                * Specific Codes (e.g., ДФРПОУ, НААУ, EAN codes).
+                * Reference numbers.
+                * These elements MUST be reproduced exactly as they appear in the source text.
+                5.  **OCR Artifact Handling**:
+                * Analyze and **correct common OCR artifacts** (e.g., misrecognized characters, jumbled words) using contextual understanding to infer the correct form.
+                * If an artifact is ambiguous but seems to be part of the original, transcribe it faithfully. Do not introduce unrelated characters.
+                6.  **Structural Fidelity**: Maintain **paragraph breaks, line spacing (represented by newlines in Markdown), and the general sequence** of text elements as in the original.
+                7.  **Proper Nouns**: **Transliterate** proper nouns (names of people, companies, specific locations) according to {language.Name} linguistic norms and conventions, unless a standard, widely accepted translation in {language.Name} exists.
+                8.  **Technical Terminology**: Employ **standard and accepted technical terms** in {language.Name} to ensure accuracy and professionalism.
+                9.  **Duplicate Text**: If you encounter **duplicate text** within the chunk, **translate it as it appears**. Do not remove repetitions.
+                10. **Markdown Formatting**: No matter which language you are translating to always Format the entire output using **Markdown** suitable for `README.md` files or similar documentation platforms.
+                * Headings: Use `#`, `##`, etc.
+                * Lists: Use `-` or `*` for unordered lists; `1.`, `2.` for ordered lists.
+                * Tables: If data is clearly tabular, represent it using Markdown table syntax.
+                * Code Blocks: Use triple backticks (```) for sections that are clearly forms, certificates, code, or highly structured data.
+                * Horizontal Rules: Use `---` to denote significant breaks or transitions between sections if implied by the source.
+                * Line Breaks: Preserve meaningful line breaks from the source; use double spaces at the end of a line for a `<br>` if needed, or ensure new paragraphs are distinct.
+
+                **Output Constraints (Strictly Enforce):**
+                    * Return **ONLY the final translated text** in {language.Name}.
+                    * **NO** English explanations, remarks, comments, or summaries.
+                    * **NO** original untranslated text.
+                    * **NO** introductory or concluding statements.
+                    * Ensure **no content is skipped or left untranslated** (unless specified as non-translatable).
+
+                    Here is the OCR-extracted text (chunk {i + 1} of {chunks.Count}):
+
+                    {chunk}
+            """;
         }
 
         private static string GenerateFinalPrompt(string targetLanguageName, string finalCombination)
         {
             return $"""
-                       You are a document formatting expert. I have a document that was processed in multiple chunks and now needs to be combined into a single cohesive document.
+                You are an expert document assembler and Markdown formatting specialist.
+                You have been provided with multiple translated text chunks that now need to be meticulously combined into a single, coherent, and well-structured document in {targetLanguageName}.
 
-                       Your task:
-                       1. Combine these chunks into a single cohesive document in {targetLanguageName}
-                       2. Remove overlap between chunks
-                       3. Ensure that the document flows naturally and maintains proper structure
-                       4. Preserve all Markdown formatting (headings, lists, tables, etc.)
-                       5. DO NOT add any new content or remark
-                       6. Return ONLY the final combined document in Markdown format
-                       7. **Based on the context of the text add formatting such as headers '#' or other markdown elements to improve readability **
+                **Your Task:**
+                1.  **Combine Chunks**: Integrate the provided text chunks into one seamless document.
+                2.  **Eliminate Overlap**: Identify and intelligently remove any redundant or overlapping content that may exist between the concatenated chunks. Ensure that information is presented once, correctly.
+                3.  **Ensure Cohesion and Flow**: The final document must flow naturally and logically. Maintain or establish proper transitions between sections.
+                4.  **Preserve and Enhance Markdown**:
+                * All existing Markdown formatting (headings, lists, tables, code blocks, emphasis) MUST be preserved.
+                * **Based on the overall context and structure of the combined text, apply or refine Markdown formatting (e.g., add missing headings with `#` syntax, structure lists, use `---` for clear section breaks) to significantly improve readability and professional presentation.**
+                5.  **Maintain Content Integrity**: DO NOT add any new textual content, comments, or remarks that were not present in the original chunks. Your role is to combine and format, not to create new information.
+                6.  **Final Output**: Return ONLY the final, combined, and polished document in {targetLanguageName}, formatted entirely in Markdown. No other text or explanation should precede or follow the document.
 
-                       Here are the chunks to combine:
+                Here are the translated chunks to combine and refine:
 
-                       {finalCombination}
-                    """;
+                {finalCombination}
+            """;
         }
-        
+
         private static string GenerateDocumentCombinationPrompt(string targetLanguageName, string chunkContent)
         {
-            var prompt = $"""
-                          You are a document formatting expert. I've extracted and translated different sections of a document, but they are overlapping and need to be combined into a single coherent document.
+            return $"""
+                You are an intelligent document reconstruction expert, proficient in {targetLanguageName} and Markdown.
+                I have extracted and translated various potentially overlapping sections from a document. Each section is marked with its original page and location (e.g., top, middle, bottom).
 
-                          I'll provide you with several sections from the document, with markers indicating which page and part of the page (top, middle, bottom) they came from.
+                Your mission is to synthesize these sections into a single, perfectly ordered, and de-duplicated document.
 
-                          Your task:
-                          1. Combine all these sections into a single cohesive document in {targetLanguageName}
-                          2. Remove any duplicate content from overlapping sections
-                          3. Maintain the proper order of content (using page and section numbers as a guide)
-                          4. Preserve the document structure (headings, paragraphs, lists, etc.)
-                          5. Ensure that the document flows naturally
-                          6. Maintain all Markdown formatting (headings, lists, tables, etc.)
-                          7. DO NOT add any content that wasn't in the original sections
-                          8. DO NOT include the page and section markers in your final output
-                          9. DO NOT include any explanations or notes about what you did
-                          10. Return ONLY the final combined document in Markdown format
+                **Key Objectives:**
 
-                          Here are the sections to combine:
+                1.  **Combine and Order**: Merge all provided sections into a single, cohesive document in {targetLanguageName}. Use the page and section markers (e.g., "PAGE 1 TOP", "PAGE 1 MIDDLE", "PAGE 2 TOP") as the absolute guide for correct sequencing.
+                2.  **Eliminate Redundancy**: Carefully identify and remove any duplicate or overlapping content that occurs where sections meet. Ensure each piece of information appears only once in its correct place.
+                3.  **Preserve Document Structure**: Maintain the inherent structure of the document (headings, paragraphs, lists, tables, etc.) as suggested by the content and any existing Markdown.
+                4.  **Ensure Natural Flow**: The final document should read smoothly and logically from one part to the next.
+                5.  **Maintain Markdown Formatting**: All Markdown formatting (headings, lists, tables, bold, italics, etc.) present in the chunks must be preserved and consistently applied.
+                6.  **Content Fidelity**: Crucially, DO NOT add any content or information that was not present in the original sections provided.
+                7.  **Clean Output**: DO NOT include the page and section markers (e.g., "--- PAGE 1 TOP ---") in your final output. These are for your guidance only.
 
-                          {chunkContent}
-                          """;
-            return prompt;
+                **Output Requirements:**
+                -   Return ONLY the final, seamlessly combined document.
+                -   The entire output must be in {targetLanguageName} and formatted using Markdown.
+                -   Absolutely NO explanations, notes, or comments about your process.
+
+                Here are the document sections to combine:
+
+                {chunkContent}
+            """;
         }
-        
+
         private static string GenerateSrtChunkTranslationPrompt(string targetLanguage, string chunkText, int chunkNumber, int totalChunks)
         {
             return $"""
-                    You are a professional subtitle translator specializing in {targetLanguage}. I will provide you with a chunk of subtitle text from an SRT file that needs to be translated.
+                You are an expert subtitle translator specializing in creating accurate and natural-sounding subtitles for {targetLanguage} video content.
+                You will be provided with a chunk of subtitle text entries from an SRT file.
 
-                    This is chunk {chunkNumber} of {totalChunks} total chunks.
+                This is chunk {chunkNumber} of {totalChunks} total chunks.
 
-                    Your task is to:
-                    1. Translate ALL subtitle text into {targetLanguage}
-                    2. Keep subtitles concise and readable (suitable for on-screen display)
-                    3. Maintain the EXACT same number of subtitle entries as provided
-                    4. Use natural, conversational language appropriate for subtitles
-                    5. Preserve emphasis and emotional tone where possible
-                    6. Keep line breaks within individual subtitles if they exist
-                    7. DO NOT translate proper names unless they have standard translations
-                    8. DO NOT include any explanations or notes
-                    9. Return ONLY the translated subtitle text, separated by double line breaks (\\n\\n)
-                    10. Ensure each subtitle is concise enough to be read quickly on screen
-                    11. IMPORTANT: The number of translated entries MUST match the number of original entries
+                **Your Task:**
+                Translate ALL subtitle text entries into **{targetLanguage}**, adhering to the highest standards of subtitle quality.
 
-                    Here are the subtitle texts to translate (separated by double line breaks):
+                **Critical Guidelines for Subtitle Translation:**
 
-                    {chunkText}
-                    """;
-        }
-        
+                1.  **Accurate Translation**: Translate the meaning of the original text faithfully.
+                2.  **Conciseness and Readability**: Subtitles must be concise and easy to read quickly on screen. Use clear and straightforward language.
+                3.  **Entry Count Integrity**: The number of translated subtitle entries MUST EXACTLY MATCH the number of original subtitle entries provided in this chunk. Do not merge or split entries.
+                4.  **Natural Language**: Use conversational and natural phrasing appropriate for {targetLanguage} spoken dialogue or narration.
+                5.  **Tone and Emphasis**: Preserve the original emphasis, emotion, and tone of the dialogue/narration wherever possible within the constraints of subtitling.
+                6.  **Line Breaks**: If individual subtitle entries contain internal line breaks, preserve them in the translated version.
+                7.  **Proper Nouns**: Generally, DO NOT translate proper names (people, specific places, brands) unless they have a widely recognized and standard translation in {targetLanguage}. If not, transliterate them appropriately.
+                8.  **Character Limits (Implied)**: While not explicitly given, translate with an awareness that subtitles have limited screen time. Avoid overly long translations for short lines.
+
+                **Output Format:**
+                -   Return ONLY the translated subtitle text entries.
+                -   Each translated subtitle entry should be separated from the next by a double line break (`\n\n`).
+                -   DO NOT include any explanations, notes, original text, or any numbering/timestamps.
+
+                Here are the subtitle texts to translate (each entry is separated by a double line break):
+
+                {chunkText}
+            """;
+        } 
     }
 }

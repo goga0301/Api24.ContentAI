@@ -169,11 +169,12 @@ namespace Api24ContentAI
                     sp.GetRequiredService<IClaudeService>(),
                     sp.GetRequiredService<ILanguageService>(),
                     sp.GetRequiredService<IUserRepository>(),
-                    sp.GetRequiredService<IGptService>(),
+                    sp.GetRequiredService<IGptService>(), 
                     sp.GetRequiredService<ILogger<DocumentTranslationService>>()
                 )
             );
             services.AddScoped<IGptService, GptService>();
+            services.AddScoped<IPdfService, PdfService>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -186,8 +187,8 @@ namespace Api24ContentAI
 
             _ = app.UseHttpsRedirection();
 
-            _ = app.UseRouting();
             _ = app.UseCors();
+            _ = app.UseRouting();
             _ = app.UseAuthentication();
             _ = app.UseAuthorization();
 
