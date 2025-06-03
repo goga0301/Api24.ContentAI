@@ -171,22 +171,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task<LoginResponse> LoginWithPhone(LoginRequest loginRequest, CancellationToken cancellationToken)
+        public async Task<LoginResponse> LoginWithPhone(LoginWithPhoneRequest loginRequest, CancellationToken cancellationToken)
         {
-            User user = await _userManager.FindByNameAsync(loginRequest.UserName);
+            User user = await _userManager.Users.FirstOrDefaultAsync(u => u.PhoneNumber == loginRequest.PhoneNumber, cancellationToken: cancellationToken);;
             if (user == null)
             {
-                throw new Exception($"User not found by username {loginRequest.UserName}");
+                throw new Exception($"User not found by phone number {loginRequest.PhoneNumber}");
             }
-            bool isValid = await _userManager.CheckPasswordAsync(user, loginRequest.Password);
+            var isValid = await _userManager.CheckPasswordAsync(user, loginRequest.Password);
             if (!isValid)
             {
                 throw new Exception("Password is not correct");
             }
-            Role role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId);
-            (string accessToken, string refreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string>() { role.NormalizedName });
+            var role = await _context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId, cancellationToken: cancellationToken);
+            var (accessToken, refreshToken) = _jwtTokenGenerator.GenerateTokens(user, new List<string>() { role.NormalizedName });
             user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(1);
+            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
             await _userManager.UpdateAsync(user);
             return new LoginResponse()
             {
@@ -199,8 +199,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             string applicationId = _fbOptions.ApplicationId;
             string secret = _fbOptions.Secret;
-            HttpResponseMessage response = await _httpClient.GetAsync($"https://graph.facebook.com/debug?input_token={credentials}&access_token={applicationId}|{secret}");
-            string stringThing = await response.Content.ReadAsStringAsync();
+            HttpResponseMessage response = await _httpClient.GetAsync($"https://graph.facebook.com/debug?input_token={credentials}&access_token={applicationId}|{secret}", cancellationToken);
+            string stringThing = await response.Content.ReadAsStringAsync(cancellationToken);
             FBUser userObject = JsonConvert.DeserializeObject<FBUser>(stringThing);
             //var user = await _authService.Login(loginRequestDTO, cancellationToken);
 
@@ -209,8 +209,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 return null;
             }
 
-            HttpResponseMessage infoResponse = await _httpClient.GetAsync($"https://graph.facebook.com/me?fields=first_name,last_name,email,id&access_token={applicationId}|{secret}");
-            string userInfoContent = await infoResponse.Content.ReadAsStringAsync();
+            HttpResponseMessage infoResponse = await _httpClient.GetAsync($"https://graph.facebook.com/me?fields=first_name,last_name,email,id&access_token={applicationId}|{secret}", cancellationToken);
+            string userInfoContent = await infoResponse.Content.ReadAsStringAsync(cancellationToken);
             FBUserInfo userInfo = JsonConvert.DeserializeObject<FBUserInfo>(userInfoContent);
 
             User user = await _userManager.FindByEmailAsync(userInfo.Email);

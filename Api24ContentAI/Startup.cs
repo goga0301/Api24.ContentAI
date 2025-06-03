@@ -163,18 +163,28 @@ namespace Api24ContentAI
                     _ = builder.AllowAnyHeader().AllowAnyOrigin().AllowAnyMethod();
                 });
             });
-
+            
             services.AddScoped<IDocumentTranslationService>(sp => 
                 new DocumentTranslationService(
-                    sp.GetRequiredService<IClaudeService>(),
                     sp.GetRequiredService<ILanguageService>(),
-                    sp.GetRequiredService<IUserRepository>(),
-                    sp.GetRequiredService<IGptService>(), 
+                    sp.GetRequiredService<IFileProcessorFactory>(),
                     sp.GetRequiredService<ILogger<DocumentTranslationService>>()
                 )
             );
             services.AddScoped<IGptService, GptService>();
             services.AddScoped<IPdfService, PdfService>();
+            services.AddScoped<ITextProcessor, TextProcessor>();
+            services.AddScoped<IWordProcessor, WordProcessor>();
+            services.AddScoped<IPdfProcessor, PdfProcessor>(); 
+            services.AddScoped<ISrtProcessor, SrtProcessor>();
+            
+            services.AddScoped<IFileProcessor>(provider => provider.GetService<ITextProcessor>());
+            services.AddScoped<IFileProcessor>(provider => provider.GetService<IWordProcessor>());
+            services.AddScoped<IFileProcessor>(provider => provider.GetService<IPdfProcessor>());
+            services.AddScoped<IFileProcessor>(provider => provider.GetService<ISrtProcessor>());
+            
+            services.AddScoped<IFileProcessorFactory, FileProcessorFactory>();
+            
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

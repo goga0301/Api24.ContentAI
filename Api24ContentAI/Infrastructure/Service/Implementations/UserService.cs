@@ -32,7 +32,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             return (await _userRepository.GetAll().ToListAsync()).Select(x => x.ToModel()).ToList();
         }
-
+        
         public async Task<UserModel> GetById(string id, CancellationToken cancellationToken)
         {
             return (await _userRepository.GetById(id, cancellationToken)).ToModel();

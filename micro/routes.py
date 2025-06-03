@@ -5,7 +5,7 @@ from pdf_utils import convert_pdf_to_images, convert_markdown_to_pdf_content
 from ocr_utils import run_tesseract_cli
 from config import TESS_LANGS, logger
 from pdf2image import convert_from_bytes
-from screenshot_utils import crop_image, encode_image
+from screenshot_utils import crop_image, encode_image, convert_office_to_pdf_bytes
 import os
 
 router = APIRouter()
@@ -46,13 +46,34 @@ async def ocr_pdf(file: UploadFile = File(...)):
 
 @router.post("/screenshot")
 async def screen_shot(file: UploadFile = File(...)):
-    pdf_bytes = await file.read()
-    pages = convert_from_bytes(pdf_bytes)
+    extension = os.path.splitext(file.filename)[1].lower()
+    file_bytes = await file.read()
+
+    if extension == ".pdf":
+        pdf_bytes = file_bytes
+    elif extension in [".doc", ".docx"]:
+        try:
+            pdf_bytes = convert_office_to_pdf_bytes(file_bytes, extension)
+        except Exception as e:
+            logger.error(f"Failed to convert Office document to PDF: {e}")
+            return {"error": "Failed to convert Word document to PDF."}
+    else:
+        return {
+            "error": "Unsupported file type. Only .pdf, .doc, and .docx are supported."
+        }
+
+    try:
+        pages = convert_from_bytes(pdf_bytes)
+    except Exception as e:
+        logger.error(f"Failed to convert PDF to images: {e}")
+        return {"error": "Failed to convert document to images."}
+
     result = []
     for i, page in enumerate(pages):
         cropped = crop_image(page)
         encoded = [encode_image(c) for c in cropped]
         result.append({"page": i + 1, "screenshots": encoded})
+
     return {"pages": result}
 
 

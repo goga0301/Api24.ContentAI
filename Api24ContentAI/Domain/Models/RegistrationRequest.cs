@@ -21,6 +21,12 @@
         public string Password { get; set; }
     }
 
+    public class LoginWithPhoneRequest
+    {
+        public string PhoneNumber { get; set; }
+        public string Password { get; set; }
+    }
+
     public class LoginResponse
     {
         public string Token { get; set; }

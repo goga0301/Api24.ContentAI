@@ -19,6 +19,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IConfiguration _configuration;
         private readonly ILogger<GptService> _logger;
         private readonly JsonSerializerOptions _jsonOptions;
+        
+        private static readonly Regex RatingRegex = new Regex(@"(\d+\.\d+)", RegexOptions.Compiled);
+
 
         public GptService(HttpClient httpClient, IConfiguration configuration, ILogger<GptService> logger)
         {
@@ -77,10 +80,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     },
                     temperature = 0.3
                 };
-
-                _logger.LogInformation("Sending verification request to GPT API");
                 
-                _logger.LogInformation("GPT Request: {Request}", JsonSerializer.Serialize(gptRequest, _jsonOptions));
+                _logger.LogInformation("Sending verification request to GPT API");
+
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("GPT Request for VerifyResponseQuality: {Request}", JsonSerializer.Serialize(gptRequest, _jsonOptions));
+                }
+                else
+                {
+                    _logger.LogInformation("Sending verification request to GPT API. Model: {Model}", gptRequest.model);
+                }
                 
                 var gptResponse = await SendToGptApi(gptRequest, cancellationToken);
                 
@@ -89,7 +99,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     _logger.LogWarning("Empty response from verification service");
                     return new VerificationResult { Success = false, ErrorMessage = "Empty response from verification service" };
                 }
-
                 _logger.LogInformation("GPT verification response: {Response}", gptResponse);
 
                 string[] parts = gptResponse.Split('|', 2);
@@ -378,7 +387,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 _logger.LogInformation("Sending evaluation request to GPT API");
                 
-                _logger.LogInformation("GPT Request: {Request}", JsonSerializer.Serialize(gptRequest, _jsonOptions));
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("GPT Request for EvaluateTranslationQuality: {Request}", JsonSerializer.Serialize(gptRequest, _jsonOptions));
+                }
+                else
+                {
+                    _logger.LogInformation("Sending evaluation request to GPT API. Model: {Model}", gptRequest.model);
+                }
                 
                 var gptResponse = await SendToGptApiWithRetry(gptRequest, cancellationToken);
                 
@@ -395,7 +411,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     _logger.LogWarning("Failed to parse evaluation response: {Response}", gptResponse);
                     
-                    var ratingMatch = Regex.Match(gptResponse, @"(\d+\.\d+)");
+                    var ratingMatch = RatingRegex.Match(gptResponse);
                     if (ratingMatch.Success && double.TryParse(ratingMatch.Value, out rating))
                     {
                         _logger.LogInformation("Extracted rating from unformatted response: {Rating}", rating);

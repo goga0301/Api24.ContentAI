@@ -10,7 +10,7 @@ namespace Api24ContentAI.Domain.Service
         Task RegisterWithPhone(RegisterWIthPhoneRequest registrationRequestDto, CancellationToken cancellation, UserType userType = UserType.Normal);
         Task RegisterAdmin(RegistrationRequest registrationRequest, CancellationToken cancellationToken);
         Task<LoginResponse> Login(LoginRequest loginRequest, CancellationToken cancellationToken);
-        Task<LoginResponse> LoginWithPhone(LoginRequest loginRequest, CancellationToken cancellationToken);
+        Task<LoginResponse> LoginWithPhone(LoginWithPhoneRequest loginRequest, CancellationToken cancellationToken);
         
         Task<LoginResponse> LoginWithFacebook(string credentials, CancellationToken cancellationToken);
         Task<LoginResponse> RefreshToken(TokenModel tokenModel, CancellationToken cancellationToken);
