@@ -115,7 +115,7 @@ namespace Api24ContentAI.Controllers
         }
 
         [HttpPost("login-with-phone")]
-        public async Task<IActionResult> LoginWithPhone(LoginRequest loginRequest, CancellationToken cancellation)
+        public async Task<IActionResult> LoginWithPhone(LoginWithPhoneRequest loginRequest, CancellationToken cancellation)
         {
             try
             {
