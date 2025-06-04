@@ -88,17 +88,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task RegisterWithPhone(RegisterWIthPhoneRequest request, CancellationToken cancellationToken, UserType userType = UserType.Normal)
         {
-            string uniqueEmail = $"phone_{request.PhoneNUmber}_{Guid.NewGuid()}@example.com"; // temporary
+            string uniqueEmail = $"phone_{request.PhoneNumber}_{Guid.NewGuid()}@example.com"; // temporary
             
             User user = new()
             {
-                UserName = request.PhoneNUmber,
-                FirstName = request.PhoneNUmber, // temporary
-                LastName = request.PhoneNUmber, // temporary
-                NormalizedUserName = request.PhoneNUmber.ToUpper(),
+                UserName = request.PhoneNumber, // this is required by dotnet
+                FirstName = request.PhoneNumber, // temporary
+                LastName = request.PhoneNumber, // temporary
+                NormalizedUserName = request.PhoneNumber.ToUpper(),
                 Email = uniqueEmail,
                 NormalizedEmail = uniqueEmail.ToUpper(),
-                PhoneNumber = request.PhoneNUmber,
+                PhoneNumber = request.PhoneNumber,
                 EmailConfirmed = true,
                 PhoneNumberConfirmed = true,
                 UserType = userType,
@@ -173,7 +173,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<LoginResponse> LoginWithPhone(LoginWithPhoneRequest loginRequest, CancellationToken cancellationToken)
         {
-            User user = await _userManager.Users.FirstOrDefaultAsync(u => u.PhoneNumber == loginRequest.PhoneNumber, cancellationToken: cancellationToken);;
+            User user = await _userManager.Users.FirstOrDefaultAsync(u => u.UserName == loginRequest.PhoneNumber, cancellationToken: cancellationToken);;
             if (user == null)
             {
                 throw new Exception($"User not found by phone number {loginRequest.PhoneNumber}");

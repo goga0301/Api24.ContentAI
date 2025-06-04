@@ -48,7 +48,17 @@ def convert_markdown_to_pdf_content(
         tmp_md_path = tmp_md.name
 
     output_pdf_path = tempfile.mktemp(suffix=".pdf")
-    cmd = ["pandoc", tmp_md_path, "-o", output_pdf_path, "--pdf-engine=xelatex"]
+    cmd = [
+        "pandoc",
+        tmp_md_path,
+        "-f",
+        "markdown+emoji+smart+pipe_tables+raw_html+tex_math_dollars+task_lists+multiline_tables",
+        "-o",
+        output_pdf_path,
+        "--pdf-engine=xelatex",
+        "--toc",  # Optional: table of contents
+        "--pdf-engine-opt=-shell-escape",  # Needed for some LaTeX tricks
+    ]
 
     try:
         logger.debug(f"Running: {' '.join(cmd)}")
