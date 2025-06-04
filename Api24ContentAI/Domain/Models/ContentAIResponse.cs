@@ -50,4 +50,13 @@ namespace Api24ContentAI.Domain.Models
         
         public string Feedback { get; set; }
     }
+    
+    public class EnhanceTranslateResponse
+    {
+        public string OriginalText { get; set; }
+        public string EnhancedText { get; set; }
+        public List<string> Suggestion { get; set; }
+        public int ChangeCount { get; set; }
+        
+    }
 }

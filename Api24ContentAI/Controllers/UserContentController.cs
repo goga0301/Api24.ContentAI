@@ -112,7 +112,7 @@ namespace Api24ContentAI.Controllers
                 {
                     return Unauthorized("User ID not found in the token");
                 }
-                TranslateResponse result = await _userContentService.EnhanceTranslate(request, userId, cancellationToken);
+                EnhanceTranslateResponse result = await _userContentService.EnhanceTranslate(request, userId, cancellationToken);
                 return Ok(result);
 
             }

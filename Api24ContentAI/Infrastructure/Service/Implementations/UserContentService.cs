@@ -50,31 +50,31 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
 
 
-                ContentFile message = new()
-                {
-                    Type = "text",
-                    Text = request.Message
-                };
+            ContentFile message = new()
+            {
+                Type = "text",
+                Text = request.Message
+            };
 
 
-                ClaudeRequestWithFile claudeRequest = new([message]);
-                var claudeResponse =
-                    await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-                var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+            ClaudeRequestWithFile claudeRequest = new([message]);
+            var claudeResponse =
+                await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-                var lastPeriod = claudResponseText.LastIndexOf('.');
+            var lastPeriod = claudResponseText.LastIndexOf('.');
 
-                if (lastPeriod != -1)
-                {
-                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
-                }
+            if (lastPeriod != -1)
+            {
+                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+            }
 
-                CopyrightAIResponse response = new()
-                {
-                    Text = claudResponseText
-                };
+            CopyrightAIResponse response = new()
+            {
+                Text = claudResponseText
+            };
 
-                return response;
+            return response;
                 
         }
 
@@ -271,7 +271,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             string textToTranslate = request.UserText;
             
             decimal requestPrice = GetRequestPrice(RequestType.Translate) * 
-                ((textToTranslate.Length / 250) + (textToTranslate.Length % 250 == 0 ? 0 : 1));
+                                   ((textToTranslate.Length / 250) + (textToTranslate.Length % 250 == 0 ? 0 : 1));
             
             if (user.UserBalance.Balance < requestPrice)
             {
@@ -361,67 +361,114 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task<TranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId,
+        public async Task<EnhanceTranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId,
             CancellationToken cancellationToken)
         {
             decimal requestPrice = GetRequestPrice(RequestType.EnhanceTranslate);
-
             User user = await _userRepository.GetById(userId, cancellationToken);
-
+    
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
-                throw new Exception("EnhanceTranslate რექვესთების ბალანსი ამოიწურა");
+                throw new Exception("EnhanceTranslate მოთხოვნისთვის არასაკმარისი ბალანსია");
             }
-
+    
             LanguageModel targetLanguage = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
-
-            string templateText =
-                GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
-            StringBuilder wholeRequest = new(templateText);
-            _ = wholeRequest.AppendLine("-----------------------------------");
-            _ = wholeRequest.AppendLine();
-            _ = wholeRequest.AppendLine();
-            _ = wholeRequest.AppendLine();
-            List<ContentFile> contents = [];
-
-            ContentFile message = new()
+            string templateText = GetEnhanceTranslateTemplate(targetLanguage.Name, request.UserInput, request.TranslateOutput);
+    
+            // Create content for Claude request
+            List<ContentFile> contents = new List<ContentFile>();
+            ContentFile message = new ContentFile
             {
                 Type = "text",
                 Text = templateText
             };
             contents.Add(message);
-            ClaudeRequestWithFile claudeRequest = new(contents);
+    
+            ClaudeRequestWithFile claudeRequest = new ClaudeRequestWithFile(contents);
             ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            string claudResponsePlainText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            TranslateResponse response = new()
+    
+            string claudeResponsePlainText = claudeResponse.Content.Single().Text;
+    
+            // Parse Claude's response to extract enhanced text and suggestions
+            // Assuming Claude returns structured response with enhanced text and explanations
+            var parsedResponse = ParseClaudeEnhanceResponse(claudeResponsePlainText);
+    
+            // Create the correct response type
+            EnhanceTranslateResponse response = new EnhanceTranslateResponse
             {
-                Text = claudResponsePlainText
+                OriginalText = request.TranslateOutput,
+                EnhancedText = parsedResponse.EnhancedText.Replace("\n", "<br>"),
+                Suggestion = parsedResponse.Suggestions,
+                ChangeCount = parsedResponse.Suggestions.Count
             };
-
+    
+            // Log the request
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
                 }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions
                 {
                     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
                     Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
                 }),
                 RequestType = RequestType.EnhanceTranslate
-
             }, cancellationToken);
-
+    
+            // Update user balance
             await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-
+    
             return response;
         }
 
-        private string GetSystemPromptForPdfToHtml()
+// Helper method to parse Claude's response
+        private (string EnhancedText, List<string> Suggestions) ParseClaudeEnhanceResponse(string claudeResponse)
+        {
+            string enhancedText = "";
+            List<string> suggestions = new List<string>();
+    
+            // Extract content between <enhanced_text> tags
+            var enhancedTextMatch = System.Text.RegularExpressions.Regex.Match(
+                claudeResponse, 
+                @"<enhanced_text>(.*?)</enhanced_text>", 
+                System.Text.RegularExpressions.RegexOptions.Singleline
+            );
+    
+            if (enhancedTextMatch.Success)
+            {
+                enhancedText = enhancedTextMatch.Groups[1].Value
+                    .Replace("<br>", "")
+                    .Replace("</br>", "")
+                    .Trim();
+            }
+    
+            // Extract content between <suggestions> tags
+            var suggestionsMatch = System.Text.RegularExpressions.Regex.Match(
+                claudeResponse, 
+                @"<suggestions>(.*?)</suggestions>", 
+                System.Text.RegularExpressions.RegexOptions.Singleline
+            );
+    
+            if (suggestionsMatch.Success)
+            {
+                string suggestionsContent = suggestionsMatch.Groups[1].Value;
+        
+                // Split by <br> and clean up each suggestion
+                var suggestionLines = suggestionsContent
+                    .Split(new[] { "<br>", "</br>" }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(s => s.Trim())
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+            
+                suggestions = suggestionLines;
+            }
+    
+            return (enhancedText, suggestions);
+        }        private string GetSystemPromptForPdfToHtml()
         {
             string systemPrompt = @"You are an AI assistant specialized in converting Word and PDF documents to HTML format. You maintain the original document's structure, formatting, and visual elements while ensuring compatibility with A4 page size (210mm x 297mm).
 
@@ -464,7 +511,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
 
         private decimal CalculateTranslateRequestPriceNew(string description, bool isPdf, int pageCount)
-        //private static decimal CalculateTranslateRequestPriceNew(string description)
+            //private static decimal CalculateTranslateRequestPriceNew(string description)
         {
             var defaultPrice = GetRequestPrice(RequestType.Translate);
             if (isPdf)
