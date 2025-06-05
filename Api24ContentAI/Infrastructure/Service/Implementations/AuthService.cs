@@ -93,8 +93,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             User user = new()
             {
                 UserName = request.PhoneNumber, // this is required by dotnet
-                FirstName = request.PhoneNumber, // temporary
-                LastName = request.PhoneNumber, // temporary
+                FirstName = request.FirstName, // temporary
+                LastName = request.LastName, // temporary
                 NormalizedUserName = request.PhoneNumber.ToUpper(),
                 Email = uniqueEmail,
                 NormalizedEmail = uniqueEmail.ToUpper(),

@@ -158,10 +158,17 @@ namespace Api24ContentAI
 
             _ = services.AddCors(options =>
             {
-                options.AddDefaultPolicy(builder =>
+                options.AddPolicy("AllowAll", builder =>
                 {
-                    _ = builder.AllowAnyHeader().AllowAnyOrigin().AllowAnyMethod();
+                    builder.AllowAnyOrigin()
+                        .AllowAnyMethod()
+                        .AllowAnyHeader();
                 });
+                
+                //options.AddDefaultPolicy(builder =>
+                //{
+                  //  builder.AllowAnyHeader().AllowAnyOrigin().AllowAnyMethod();
+                //});
             });
             
             services.AddScoped<IDocumentTranslationService>(sp => 
@@ -197,7 +204,7 @@ namespace Api24ContentAI
 
             _ = app.UseHttpsRedirection();
 
-            _ = app.UseCors();
+            _ = app.UseCors("AllowAll");
             _ = app.UseRouting();
             _ = app.UseAuthentication();
             _ = app.UseAuthorization();
