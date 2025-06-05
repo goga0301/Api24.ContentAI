@@ -127,5 +127,23 @@ namespace Api24ContentAI.Controllers
                 return BadRequest(e.Message);
             }
         }
+
+        [HttpPost("send-verification-code")]
+        [AllowAnonymous]
+        public async Task<IActionResult> SendVerificationCode(SendVerificationCodeRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var response =  await _authService.SendVerificationCode(request, cancellationToken);
+                return Ok(response);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "Error sending verification code");
+                return BadRequest(new { error = e.Message });
+            }
+        }
+        
     }
 }
