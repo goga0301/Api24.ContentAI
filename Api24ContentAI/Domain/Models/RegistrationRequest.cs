@@ -43,4 +43,24 @@
         public string RefreshToken { get; set; }
     }
     
+    public class SendVerificationCodeRequest
+    {
+        public string PhoneNumber { get; set; }
+    }
+
+    public class VerificationCodeResult
+    {
+        public bool IsSuccess { get; set; }
+        public string Message { get; set; }
+        public int Code { get; set; }
+    }
+
+    public class SmsApiResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; }
+        public object Output { get; set; }
+        public int ErrorCode { get; set; }
+    }
+    
 }
