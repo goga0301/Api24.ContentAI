@@ -358,79 +358,62 @@ public class WordProcessor(
 
             _logger.LogInformation("Starting translation verification for {Count} chunks", translationChunks.Count);
 
-            var verifiedChunks = new List<string>();
-            double totalQualityScore = 0.0;
-            int successfulVerifications = 0;
-
-            foreach (var chunk in translationChunks)
-            {
-                if (string.IsNullOrWhiteSpace(chunk.Value))
-                {
-                    verifiedChunks.Add(string.Empty);
-                    continue;
-                }
-
-                try
-                {
-                    _logger.LogInformation("Verifying chunk {ChunkNumber} with {Length} characters", 
-                        chunk.Key, chunk.Value.Length);
-
-                    var verificationPrompt = GenerateGptVerificationPrompt(targetLanguage.Name, chunk.Value);
-                    var verificationResult = await _gptService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
+            var verificationResult = await _gptService.VerifyTranslationBatch(
+                translationChunks, cancellationToken);
                     
-                    if (verificationResult?.Success == true)
-                    {
-                        verifiedChunks.Add(verificationResult.Feedback ?? chunk.Value);
-                        totalQualityScore += verificationResult.QualityScore ?? 0.5;
-                        successfulVerifications++;
-                        
-                        _logger.LogInformation("GPT verification completed for chunk {ChunkNumber} with quality score: {Score}", 
-                            chunk.Key, verificationResult.QualityScore);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("GPT verification failed for chunk {ChunkNumber}: {Error}", 
-                            chunk.Key, verificationResult?.ErrorMessage ?? "Unknown error");
-                        
-                        var claudeVerifiedText = await VerifyWithClaude(chunk.Value, targetLanguage.Name, cancellationToken);
-                        
-                        if (!string.IsNullOrWhiteSpace(claudeVerifiedText))
-                        {
-                            verifiedChunks.Add(claudeVerifiedText);
-                            totalQualityScore += 0.7;
-                            successfulVerifications++;
-                            _logger.LogInformation("Claude fallback verification completed for chunk {ChunkNumber}", chunk.Key);
-                        }
-                        else
-                        {
-                            _logger.LogWarning("Both GPT and Claude verification failed for chunk {ChunkNumber}, using original", chunk.Key);
-                            verifiedChunks.Add(chunk.Value);
-                            totalQualityScore += 0.5;
-                        }
-                    }
-                }
-                catch (Exception ex)
+            _logger.LogInformation("Translation verification completed. Success: {Success}, Score: {Score}, Verified: {Verified}/{Total}", 
+                verificationResult.Success, 
+                verificationResult.QualityScore,
+                verificationResult.VerifiedChunks,
+                translationChunks.Count);
+                    
+            if (verificationResult.ChunkWarnings is { Count: > 0 })
+            {
+                foreach (var warning in verificationResult.ChunkWarnings)
                 {
-                    _logger.LogError(ex, "Error verifying chunk {ChunkNumber}", chunk.Key);
-                    verifiedChunks.Add(chunk.Value);
-                    totalQualityScore += 0.5;
+                    _logger.LogWarning("Chunk {ChunkId} verification warning: {Warning}", 
+                        warning.Key, warning.Value);
+                }
+            }
+                    
+            if (verificationResult.Success && 
+                verificationResult.QualityScore < 0.8 && 
+                !string.IsNullOrEmpty(verificationResult.Feedback))
+            {
+                _logger.LogInformation("GPT suggested improvements: {Feedback}", verificationResult.Feedback);
+                        
+                string improvedTranslation = await ImproveTranslationWithFeedback(
+                    originalTranslation, targetLanguage.Name, verificationResult.Feedback, cancellationToken);
+                        
+                if (!string.IsNullOrEmpty(improvedTranslation))
+                {
+                    _logger.LogInformation("Applied GPT's suggestions to improve translation");
+                    originalTranslation = improvedTranslation;
+                            
+                    _logger.LogInformation("Re-verifying improved translation...");
+                        
+                    var improvedVerification = await _gptService.EvaluateTranslationQuality(
+                        $"Evaluate this translation to {targetLanguage.Name}:\n\n{improvedTranslation}", 
+                        cancellationToken);
+                            
+                    if (improvedVerification.Success)
+                    {
+                        _logger.LogInformation("Improved translation verification score: {Score} (was: {OldScore})", 
+                            improvedVerification.QualityScore, verificationResult.QualityScore);
+                        verificationResult = improvedVerification;
+                    }
                 }
             }
 
-            var averageQualityScore = translationChunks.Count > 0 ? totalQualityScore / translationChunks.Count : 0.0;
-            var verifiedTranslation = string.Join("\n\n", verifiedChunks.Where(c => !string.IsNullOrWhiteSpace(c)));
-
-            var result = new TranslationVerificationResult
+            // Convert VerificationResult to TranslationVerificationResult
+            var translationVerificationResult = new TranslationVerificationResult
             {
-                Success = successfulVerifications > 0,
-                QualityScore = averageQualityScore,
-                ErrorMessage = successfulVerifications == 0 ? "No chunks could be verified" : null
+                Success = verificationResult.Success,
+                QualityScore = verificationResult.QualityScore,
+                ErrorMessage = verificationResult.ErrorMessage
             };
 
-            _logger.LogInformation("Translation verification completed. Success rate: {Rate}%, Average quality: {Quality}", 
-                (successfulVerifications * 100.0) / translationChunks.Count, averageQualityScore);
-
-            return (result, verifiedTranslation);
+            return (translationVerificationResult, originalTranslation);
         }
         catch (Exception ex)
         {
@@ -443,31 +426,70 @@ public class WordProcessor(
         }
     }
 
-    private async Task<string> VerifyWithClaude(string text, string targetLanguageName, CancellationToken cancellationToken)
+    private async Task<string> ImproveTranslationWithFeedback(string translatedText, string targetLanguage, string feedback, CancellationToken cancellationToken)
     {
         try
         {
-            var claudeVerificationPrompt = GenerateVerificationPrompt(targetLanguageName, text);
-            
-            var message = new ContentFile { Type = "text", Text = claudeVerificationPrompt };
+            _logger.LogInformation("Attempting to improve translation based on GPT feedback");
+                
+            var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
+                
+            var message = new ContentFile { Type = "text", Text = prompt };
             var claudeRequest = new ClaudeRequestWithFile([message]);
-            
+                
+            _logger.LogInformation("Sending improvement request to Claude");
             var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var content = claudeResponse?.Content?.FirstOrDefault();
-            
-            if (content?.Text != null)
+                
+            var content = claudeResponse.Content?.SingleOrDefault();
+            if (content == null)
             {
-                var verifiedText = CleanAiResponsePrefix(content.Text.Trim());
-                return string.IsNullOrWhiteSpace(verifiedText) ? text : verifiedText;
+                _logger.LogWarning("No content received from Claude service for translation improvement");
+                return string.Empty;
             }
+                
+            string improvedTranslation = content.Text.Trim();
+                
+            if (improvedTranslation.Contains("Here's the improved translation") || 
+                improvedTranslation.Contains("Improved translation:"))
+            {
+                int startIndex = improvedTranslation.IndexOf('\n');
+                if (startIndex > 0)
+                {
+                    improvedTranslation = improvedTranslation[(startIndex + 1)..].Trim();
+                }
+            }
+                
+            if (string.IsNullOrWhiteSpace(improvedTranslation))
+            {
+                _logger.LogWarning("Claude returned empty improvement result");
+                return string.Empty;
+            }
+                
+            _logger.LogInformation("Received improved translation, length: {Length} characters", 
+                improvedTranslation.Length);
+
+            if (!(Math.Abs(improvedTranslation.Length - translatedText.Length) < translatedText.Length * 0.05))
+                return improvedTranslation;
+                
+            var verificationPrompt = GenerateVerificationPrompt(translatedText, targetLanguage, improvedTranslation);
+                    
+            var verificationResult = await _gptService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
+                    
+            if (verificationResult.Success && verificationResult.Feedback.StartsWith("A|"))
+            {
+                _logger.LogInformation("Verification indicates original translation was better, keeping original");
+                return string.Empty;
+            }
+
+            return improvedTranslation;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error in Claude verification fallback");
+            _logger.LogError(ex, "Error improving translation with feedback");
+            return string.Empty;
         }
-        
-        return text;
     }
+
 
     private async Task<string> CombineTranslatedWordSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, CancellationToken cancellationToken)
     {
@@ -662,21 +684,95 @@ public class WordProcessor(
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
+        // First, clean any GPT-specific responses
+        text = CleanGptResponse(text);
+
         var prefixes = new[]
         {
             "Here", "I've translated", "The translated", "I've combined", "Here's the",
-            "I've", "Here is", "The following", "Below is"
+            "I've", "Here is", "The following", "Below is", "Here's", "Translation:",
+            "Translated text:", "Combined document:", "Final document:", "Improved translation:",
+            "Here is the translation:", "Here is the combined document:", "Here is the final document:",
+            "Here is the improved translation:", "The translation is:", "The combined document is:",
+            "The final document is:", "The improved translation is:", "Here's the translation:",
+            "Here's the combined document:", "Here's the final document:", "Here's the improved translation:",
+            "Could not parse rating from response:", "Error:", "Warning:", "Note:", "Response:"
         };
 
         foreach (var prefix in prefixes)
         {
-            if (!text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
-            int firstLineBreak = text.IndexOf('\n');
-            if (firstLineBreak > 0)
+            if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             {
-                return text.Substring(firstLineBreak + 1).Trim();
+                int firstLineBreak = text.IndexOf('\n');
+                if (firstLineBreak > 0)
+                {
+                    text = text.Substring(firstLineBreak + 1).Trim();
+                }
+                else
+                {
+                    text = text.Substring(prefix.Length).Trim();
+                    if (text.StartsWith(":"))
+                    {
+                        text = text.Substring(1).Trim();
+                    }
+                }
+                break;
             }
         }
+
+        text = text.Replace("Translation:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Combined document:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Final document:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Improved translation:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Could not parse rating from response:", "", StringComparison.OrdinalIgnoreCase)
+                  .Trim();
+
+        return text;
+    }
+
+    private static string CleanGptResponse(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        // Remove GPT-specific error messages and prefixes
+        var gptPrefixes = new[]
+        {
+            "Could not parse rating from response:",
+            "Error parsing response:",
+            "Failed to parse:",
+            "Unable to parse:",
+            "Parse error:",
+            "Rating error:",
+            "Response error:"
+        };
+
+        foreach (var prefix in gptPrefixes)
+        {
+            if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                int firstLineBreak = text.IndexOf('\n');
+                if (firstLineBreak > 0)
+                {
+                    text = text.Substring(firstLineBreak + 1).Trim();
+                }
+                else
+                {
+                    text = text.Substring(prefix.Length).Trim();
+                }
+                break;
+            }
+        }
+
+        // Remove any remaining GPT-specific patterns
+        text = text.Replace("Could not parse rating from response:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Error parsing response:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Failed to parse:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Unable to parse:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Parse error:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Rating error:", "", StringComparison.OrdinalIgnoreCase)
+                  .Replace("Response error:", "", StringComparison.OrdinalIgnoreCase)
+                  .Trim();
 
         return text;
     }
@@ -690,7 +786,7 @@ public class WordProcessor(
             return [text];
 
         var chunks = new List<string>();
-        var sentences = text.Split(new[] { '.', '!', '?' }, StringSplitOptions.RemoveEmptyEntries);
+        var sentences = text.Split(['.', '!', '?'], StringSplitOptions.RemoveEmptyEntries);
     
         var currentChunk = new StringBuilder();
     
@@ -768,10 +864,10 @@ public class WordProcessor(
                 You are an advanced OCR (Optical Character Recognition) and translation system specialized in processing Microsoft Word documents.
                 Your task is to process an image snippet from a Word document.
 
-                **Document Context:**
-                -   Page Number: {pageNumber}
-                -   Section of Page: {sectionName} (representing approximately the {verticalPortion} vertical portion of the page)
-                -   Document Type: Microsoft Word Document (.docx or .doc)
+                **Context:**
+                - Page: {pageNumber}
+                - Section: {sectionName} ({verticalPortion})
+                - Target Language: {targetLanguageName}
 
                 **Required Actions:**
                 1.  **Extract Text**: Accurately extract ALL visible textual content from the provided Word document image section, including:
@@ -805,15 +901,11 @@ public class WordProcessor(
                 * Footnotes or endnotes if visible
                 * Any tracked changes or comments (if visible)
 
-                **CRITICAL OUTPUT REQUIREMENTS:**
-                - Your response must contain ONLY the translated text in {targetLanguageName}
-                - Format ONLY in Markdown
-                - Do NOT include ANY explanations, comments, reasoning, or meta-text
-                - Do NOT include phrases like "Here is the translation:", "Translation:", or similar
-                - Do NOT include any portion of the original untranslated text
-                - Do NOT add introductory or concluding statements
-                - Start your response directly with the translated content
-                - End your response immediately after the translated content
+                **Output:**
+                - ONLY the translated text in {targetLanguageName}
+                - NO explanations or comments
+                - NO prefixes like "Translation:" or "Here is:"
+                - Start directly with the translated content
                 """;
     }
 
@@ -874,62 +966,159 @@ public class WordProcessor(
                 """;
     }
 
-    private static string GenerateWordDocumentCombinationPrompt(string targetLanguage, string sectionsToCompine)
+    private static string GenerateWordDocumentCombinationPrompt(string targetLanguageName, string sectionsToCompine)
     {
         return $"""
-                You are a document assembly specialist working with translated Word document sections.
+                You are an expert document assembly specialist for Word document translations.
 
-                **Task**: Combine the following translated sections into a cohesive {targetLanguage} document.
+                **CRITICAL TASK**: Assemble the following translated sections into a properly ordered {targetLanguageName} document.
 
-                **Assembly Guidelines**:
-                1. Merge sections logically, removing redundant section headers
-                2. Ensure smooth transitions between sections
-                3. Maintain document hierarchy and structure
-                4. Preserve all technical information, codes, and formatting
-                5. Create a natural flow while keeping all content
-                6. Format as clean, professional Markdown
-                7. Remove section separators and page/section labels
+                **DOCUMENT STRUCTURE RULES**:
+                1. **MAINTAIN ORIGINAL ORDER**: Sections are labeled "PAGE X - SECTION Y" - preserve this sequential order
+                2. **LOGICAL FLOW**: Combine sections from PAGE 1 → PAGE 2 → PAGE 3, etc.
+                3. **SECTION SEQUENCE**: Within each page, combine TOP → MIDDLE → BOTTOM sections
+                4. **REMOVE LABELS**: Strip all "PAGE X - SECTION Y" markers from the final output
+                5. **PRESERVE HIERARCHY**: Maintain heading levels and document structure
+                6. **SEAMLESS TRANSITIONS**: Create natural flow between pages without gaps or redundancy
 
-                **Sections to combine**:
+                **DUPLICATE CONTENT ELIMINATION**:
+                - **CRITICAL**: Remove any duplicate sentences, paragraphs, or content blocks
+                - If the same text appears in multiple sections, include it only ONCE in the logical position
+                - Pay special attention to overlapping content between adjacent sections (TOP/MIDDLE, MIDDLE/BOTTOM)
+                - When content appears multiple times, keep the first occurrence and remove subsequent duplicates
+                - Check for identical or nearly identical sentences and merge them appropriately
 
+                **CONTENT HANDLING**:
+                - Keep ALL technical information, codes, and references exactly as translated
+                - Maintain table structures and formatting
+                - Preserve bullet points and numbered lists in order
+                - Ensure headings follow logical hierarchy (H1 → H2 → H3)
+                - Remove duplicate headers that appear across page boundaries
+                - Maintain paragraph spacing and document flow
+
+                **FORMATTING REQUIREMENTS**:
+                - Output in clean, professional Markdown
+                - Use proper heading syntax (# ## ###)
+                - Maintain consistent list formatting
+                - Preserve table structures
+                - Keep emphasis and formatting intact
+
+                **INPUT SECTIONS** (combine in the order they appear, removing duplicates):
                 {sectionsToCompine}
 
                 **CRITICAL OUTPUT REQUIREMENTS:**
-                - Provide ONLY the combined document in {targetLanguage}
+                - Provide ONLY the assembled document in {targetLanguageName}
                 - Format ONLY in Markdown
-                - Do NOT include explanations, comments, or reasoning
-                - Do NOT include phrases like "Combined document:", "Here is:", etc.
-                - Start your response directly with the combined document content
+                - MAINTAIN the page and section order as labeled
+                - Remove ALL page/section labels ("PAGE X - SECTION Y")
+                - **ELIMINATE ALL DUPLICATE CONTENT** - each sentence should appear only once unless it is explicitly mentioned in the context of the document
+                - Do NOT include explanations, comments, or meta-text
+                - Do NOT add phrases like "Combined document:", "Here is:", etc.
+                - Start immediately with the document content
+                - Create a single, flowing document that reads naturally from start to finish
                 """;
     }
 
-    private static string GenerateWordDocumentFinalPrompt(string targetLanguage, string documentsToFinalize)
+    private static string GenerateWordDocumentFinalPrompt(string targetLanguageName, string documentsToFinalize)
     {
         return $"""
-                You are a document finalization specialist for translated Word documents.
+                You are a professional document editor specializing in final document preparation.
 
-                **Task**: Create the final, polished version of this {targetLanguage} document.
+                **FINAL ASSEMBLY TASK**: Create the definitive, publication-ready version of this {targetLanguageName} document.
 
-                **Finalization Guidelines**:
-                1. Ensure the document flows naturally from beginning to end
-                2. Remove any remaining redundancies or awkward transitions
-                3. Maintain professional document structure
-                4. Preserve all technical information and formatting
-                5. Ensure consistent terminology throughout
-                6. Format as clean, publication-ready Markdown
-                7. Maintain the logical order and hierarchy of content
+                **DOCUMENT QUALITY STANDARDS**:
+                1. **STRUCTURAL INTEGRITY**: Ensure the document has proper beginning, middle, and end
+                2. **LOGICAL PROGRESSION**: Content should flow naturally from introduction to conclusion
+                3. **CONSISTENCY**: Uniform terminology, formatting, and style throughout
+                4. **COMPLETENESS**: All sections properly integrated without gaps or overlaps
+                5. **PROFESSIONAL POLISH**: Ready for business or academic use
 
-                **Document to finalize**:
+                **FINAL DEDUPLICATION CHECK**:
+                - **MANDATORY**: Scan the entire document for any remaining duplicate content
+                - Remove identical sentences, paragraphs, or content blocks
+                - If similar content appears multiple times with slight variations, merge into single, best version
+                - Ensure no repetitive content that disrupts document flow
+                - Pay special attention to endings and transitions where duplicates commonly occur
 
+                **EDITING GUIDELINES**:
+                - Verify document flows logically from start to finish
+                - Eliminate any remaining redundancies or awkward transitions
+                - Ensure consistent heading hierarchy and numbering
+                - Standardize formatting (lists, tables, emphasis)
+                - Maintain technical accuracy and preserve all codes/references
+                - Fix any grammatical issues or unclear passages
+                - Ensure proper paragraph breaks and spacing
+
+                **STRUCTURE VERIFICATION**:
+                - Title/header should be at the beginning
+                - Main content organized in logical sections
+                - Conclusion or summary at the end (if present)
+                - Consistent formatting throughout
+                - No orphaned headings or broken lists
+                - **NO DUPLICATE CONTENT ANYWHERE**
+
+                **DOCUMENT TO FINALIZE**:
                 {documentsToFinalize}
 
                 **CRITICAL OUTPUT REQUIREMENTS:**
-                - Provide ONLY the final, polished document in {targetLanguage}
-                - Format ONLY in Markdown
-                - Do NOT include explanations, comments, or reasoning
-                - Do NOT include phrases like "Final document:", "Here is:", etc.
-                - Start your response directly with the finalized document content
-                - End your response immediately after the document content
+                - Provide ONLY the final, polished document in {targetLanguageName}
+                - Format ONLY in clean, publication-ready Markdown
+                - Ensure the document reads as a single, cohesive piece
+                - **GUARANTEE NO DUPLICATE CONTENT** - every sentence must be unique
+                - Do NOT include explanations, comments, or editing notes
+                - Do NOT add phrases like "Final document:", "Here is:", "Edited version:", etc.
+                - Start immediately with the document title/content
+                - End immediately after the last line of document content
+                - The result should be indistinguishable from a professionally prepared document
+                """;
+    }
+
+        private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
+    {
+        return $"""
+                You are a translation system. Your task is to improve the translation.
+
+                **Rules:**
+                1. Address feedback points
+                2. Keep technical terms unchanged
+                3. Maintain structure
+                4. Format as Markdown
+
+                **Output:**
+                - ONLY the improved text in {targetLanguage}
+                - NO explanations or comments
+                - NO prefixes like "Improved translation:" or "Here is:"
+                - Start directly with the improved content
+
+                **Original:**
+                {translatedText}
+
+                **Feedback:**
+                {feedback}
+                """;
+    }
+
+    private static string GenerateVerificationPrompt(string originalText, string targetLanguage, string improvedText)
+    {
+        return $"""
+                You are a translation system. Your task is to compare translations.
+
+                **Rules:**
+                1. Compare accuracy
+                2. Check flow
+                3. Verify technical terms
+                4. Assess formatting
+
+                **Output:**
+                - Start with "A|" (original better) or "B|" (improved better)
+                - Follow with brief explanation
+                - NO other text
+
+                **Original:**
+                {originalText}
+
+                **Improved:**
+                {improvedText}
                 """;
     } 
 }
