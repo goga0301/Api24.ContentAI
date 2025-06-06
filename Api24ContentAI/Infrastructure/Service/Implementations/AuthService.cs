@@ -312,7 +312,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 var random = new Random();
                 var code = random.Next(100000, 999999);
                 
-                var smsApiKey = _configuration.GetValue<string>("SMS_API_KEY") ?? string.Empty ;
+
+                var smsApiKey = _configuration.GetSection("Security:SMS_API_KEY").Value ?? string.Empty ;
                 if (string.IsNullOrEmpty(smsApiKey))
                 {
                     return new VerificationCodeResult
