@@ -30,6 +30,15 @@ namespace Api24ContentAI.Domain.Models
         [JsonPropertyName("text")]
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public string Text { get; set; }
+        [JsonPropertyName("cache_control")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public CacheControl? CacheControl { get; set; }
+    }
+
+    public class CacheControl
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = "ephemeral";
     }
 
     public class Source
@@ -48,7 +57,8 @@ namespace Api24ContentAI.Domain.Models
         [JsonPropertyName("model")]
         public string Model { get; }
         [JsonPropertyName("system")]
-        public string System { get; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<SystemMessage>? System { get; set; }
         [JsonPropertyName("max_tokens")]
         public int MaxTokens { get; }
         [JsonPropertyName("temperature")]
@@ -56,7 +66,7 @@ namespace Api24ContentAI.Domain.Models
         [JsonPropertyName("messages")]
         public List<MessageWithFile> Messages { get; }
 
-        public ClaudeRequestWithFile(List<ContentFile> contents, string system = "")
+        public ClaudeRequestWithFile(List<ContentFile> contents, string system = "", bool cacheSystemPrompt = false)
         {
             Temperature = 0.5m;
             Model = "claude-4-sonnet-20250514";
@@ -64,7 +74,15 @@ namespace Api24ContentAI.Domain.Models
             Messages = new List<MessageWithFile> { new MessageWithFile("user", contents) };
             if (!string.IsNullOrWhiteSpace(system))
             {
-                System = system;
+                System = new List<SystemMessage>
+                {
+                    new SystemMessage
+                    {
+                        Type = "text",
+                        Text = system,
+                        CacheControl = cacheSystemPrompt ? new CacheControl() : null
+                    }
+                };
             }
         }
 
@@ -74,6 +92,26 @@ namespace Api24ContentAI.Domain.Models
             MaxTokens = 4096;
             Messages = messages;
         }
+
+        public ClaudeRequestWithFile(List<ContentFile> contents, List<SystemMessage> systemMessages)
+        {
+            Temperature = 0.5m;
+            Model = "claude-4-sonnet-20250514";
+            MaxTokens = 64000;
+            Messages = new List<MessageWithFile> { new MessageWithFile("user", contents) };
+            System = systemMessages;
+        }
+    }
+
+    public class SystemMessage
+    {
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = "text";
+        [JsonPropertyName("text")]
+        public string Text { get; set; }
+        [JsonPropertyName("cache_control")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public CacheControl? CacheControl { get; set; }
     }
 
     public class ClaudeRequest(string messageContent)

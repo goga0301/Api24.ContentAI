@@ -8,5 +8,6 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<ClaudeResponse> SendRequest(ClaudeRequest request, CancellationToken cancellationToken);
         Task<ClaudeResponse> SendRequestWithFile(ClaudeRequestWithFile request, CancellationToken cancellationToken);
+        Task<ClaudeResponse> SendRequestWithCachedPrompt(ClaudeRequestWithFile request, CancellationToken cancellationToken);
     }
 }

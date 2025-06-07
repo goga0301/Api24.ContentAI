@@ -77,13 +77,36 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task RegisterWithPhone(RegisterWIthPhoneRequest request, CancellationToken cancellationToken, UserType userType = UserType.Normal)
         {
-            string uniqueEmail = $"phone_{request.PhoneNumber}_{Guid.NewGuid()}@example.com"; // temporary
+            // Input validation
+            if (request == null)
+            {
+                throw new ArgumentException("Registration request cannot be null");
+            }
+            
+            if (string.IsNullOrWhiteSpace(request.PhoneNumber))
+            {
+                throw new ArgumentException("Phone number is required");
+            }
+            
+            if (string.IsNullOrWhiteSpace(request.Password))
+            {
+                throw new ArgumentException("Password is required");
+            }
+
+            // Check if user already exists with this phone number
+            var existingUser = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == request.PhoneNumber, cancellationToken);
+            if (existingUser != null)
+            {
+                throw new Exception($"User with phone number {request.PhoneNumber} already exists");
+            }
+
+            string uniqueEmail = $"phone_{request.PhoneNumber}_{Guid.NewGuid()}@example.com";
             
             User user = new()
             {
-                UserName = request.PhoneNumber, // this is required by dotnet
-                FirstName = request.FirstName, // temporary
-                LastName = request.LastName, // temporary
+                UserName = request.PhoneNumber,
+                FirstName = request.FirstName ?? "Unknown",
+                LastName = request.LastName ?? "Unknown",
                 NormalizedUserName = request.PhoneNumber.ToUpper(),
                 Email = uniqueEmail,
                 NormalizedEmail = uniqueEmail.ToUpper(),
@@ -94,11 +117,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 SecurityStamp = Guid.NewGuid().ToString()
             };
 
+            using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
             try
             {
                 await EnsureRolesExistsAsync(_customerRole);
 
                 Role role = await roleManager.FindByNameAsync(_customerRole);
+                if (role == null)
+                {
+                    throw new Exception($"Role '{_customerRole}' not found after creation attempt");
+                }
+                
                 user.RoleId = role.Id;
 
                 IdentityResult result = await userManager.CreateAsync(user, request.Password);
@@ -109,15 +138,19 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
 
                 User createdUser = await userRepository.GetByUserName(user.UserName, cancellationToken);
-                await userRepository.CreateUserBalance(createdUser.Id, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                Exception innerException = ex.InnerException;
-                string innerExceptionMessage = innerException != null ? 
-                    $" Inner exception: {innerException.Message}" : "";
+                if (createdUser == null)
+                {
+                    throw new Exception("Failed to retrieve created user");
+                }
                 
-                throw new Exception($"Registration failed: {ex.Message}{innerExceptionMessage}", ex);
+                await userRepository.CreateUserBalance(createdUser.Id, cancellationToken);
+                
+                await transaction.CommitAsync(cancellationToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                throw;
             }
         }
 
@@ -162,22 +195,80 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<LoginResponse> LoginWithPhone(LoginWithPhoneRequest loginRequest, CancellationToken cancellationToken)
         {
-            User user = await userManager.Users.FirstOrDefaultAsync(u => u.UserName == loginRequest.PhoneNumber, cancellationToken: cancellationToken);;
+            // Input validation
+            if (loginRequest == null)
+            {
+                throw new ArgumentException("Login request cannot be null");
+            }
+            
+            if (string.IsNullOrWhiteSpace(loginRequest.PhoneNumber))
+            {
+                throw new ArgumentException("Phone number is required");
+            }
+            
+            if (string.IsNullOrWhiteSpace(loginRequest.Password))
+            {
+                throw new ArgumentException("Password is required");
+            }
+
+            User user = await userManager.Users
+                .Include(u => u.Role)
+                .FirstOrDefaultAsync(u => u.UserName == loginRequest.PhoneNumber, cancellationToken);
+                
             if (user == null)
             {
-                throw new Exception($"User not found by phone number {loginRequest.PhoneNumber}");
+                throw new Exception($"User not found with phone number {loginRequest.PhoneNumber}");
             }
+            
             var isValid = await userManager.CheckPasswordAsync(user, loginRequest.Password);
             if (!isValid)
             {
-                throw new Exception("Password is not correct");
+                throw new Exception("Invalid password");
             }
-            var role = await context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId, cancellationToken: cancellationToken);
-            var (accessToken, refreshToken) = jwtTokenGenerator.GenerateTokens(user, new List<string>() { role.NormalizedName });
-            user.RefreshToken = refreshToken;
-            user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
-            await userManager.UpdateAsync(user);
-            return new LoginResponse()
+
+            if (user.Role == null)
+            {
+                var role = await context.Roles.SingleOrDefaultAsync(x => x.Id == user.RoleId, cancellationToken);
+                if (role == null)
+                {
+                    throw new Exception($"Role not found for user {user.UserName}");
+                }
+                user.Role = role;
+            }
+
+            var (accessToken, refreshToken) = jwtTokenGenerator.GenerateTokens(user, new List<string> { user.Role.NormalizedName });
+            
+            // Update refresh token with retry logic
+            int retryCount = 0;
+            const int maxRetries = 3;
+            
+            while (retryCount < maxRetries)
+            {
+                try
+                {
+                    user.RefreshToken = refreshToken;
+                    user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(7);
+                    await userManager.UpdateAsync(user);
+                    break;
+                }
+                catch (DbUpdateConcurrencyException) when (retryCount < maxRetries - 1)
+                {
+                    retryCount++;
+                    await Task.Delay(100 * retryCount, cancellationToken); // Exponential backoff
+                    
+                    // Refresh user from database
+                    user = await userManager.Users
+                        .Include(u => u.Role)
+                        .FirstOrDefaultAsync(u => u.UserName == loginRequest.PhoneNumber, cancellationToken);
+                        
+                    if (user == null)
+                    {
+                        throw new Exception("User not found during retry");
+                    }
+                }
+            }
+            
+            return new LoginResponse
             {
                 Token = accessToken,
                 RefreshToken = refreshToken
@@ -385,11 +476,30 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             Role role = await roleManager.FindByNameAsync(roleName);
             if (role == null)
             {
-                role = new Role(roleName);
-                IdentityResult roleResult = await roleManager.CreateAsync(role);
-                if (!roleResult.Succeeded)
+                try
                 {
-                    throw new Exception($"Failed to create role '{roleName}': {roleResult.Errors.FirstOrDefault()?.Description}");
+                    role = new Role(roleName);
+                    IdentityResult roleResult = await roleManager.CreateAsync(role);
+                    if (!roleResult.Succeeded)
+                    {
+                        var existingRole = await roleManager.FindByNameAsync(roleName);
+                        if (existingRole == null)
+                        {
+                            string errors = string.Join(", ", roleResult.Errors.Select(e => $"{e.Code}: {e.Description}"));
+                            throw new Exception($"Failed to create role '{roleName}': {errors}");
+                        }
+                        // Role exists now, so another thread created it - this is fine
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // This can happen if another thread creates the role at the same time
+                    // Double-check that the role now exists
+                    role = await roleManager.FindByNameAsync(roleName);
+                    if (role == null)
+                    {
+                        throw new Exception($"Failed to create or find role '{roleName}' after retry");
+                    }
                 }
             }
         }

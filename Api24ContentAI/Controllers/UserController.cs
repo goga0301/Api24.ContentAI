@@ -62,11 +62,19 @@ namespace Api24ContentAI.Controllers
             try
             {
                 await _userService.Delete(id, cancellationToken);
-                return Ok();
+                return Ok(new { message = "User deleted successfully", userId = id });
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(new { error = "Invalid input", message = ex.Message });
+            }
+            catch (InvalidOperationException ex)
+            {
+                return NotFound(new { error = "User not found", message = ex.Message });
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return StatusCode(500, new { error = "Internal server error", message = ex.Message });
             }
         }
     }
