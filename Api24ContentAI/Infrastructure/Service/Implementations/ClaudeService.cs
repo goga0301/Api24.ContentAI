@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using System.Net.Http.Headers;
 using Microsoft.Extensions.Logging;
 using System.Text.Encodings.Web;
+using System.Collections.Generic;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -146,6 +147,38 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
+        public async Task<ClaudeResponse> SendRequestWithCachedPrompt(ClaudeRequestWithFile request, CancellationToken cancellationToken)
+        {
+            // This method is identical to SendRequestWithFile but explicitly indicates caching is being used
+            // The actual caching behavior is controlled by the cache_control properties in the request
+            return await SendRequestWithFile(request, cancellationToken);
+        }
+
+        // Helper method to create a cached system prompt
+        public static List<SystemMessage> CreateCachedSystemPrompt(string promptText)
+        {
+            return new List<SystemMessage>
+            {
+                new SystemMessage
+                {
+                    Type = "text",
+                    Text = promptText,
+                    CacheControl = new CacheControl { Type = "ephemeral" }
+                }
+            };
+        }
+
+        // Helper method to create cacheable content
+        public static ContentFile CreateCacheableContent(string text, bool enableCaching = true)
+        {
+            return new ContentFile
+            {
+                Type = "text",
+                Text = text,
+                CacheControl = enableCaching ? new CacheControl { Type = "ephemeral" } : null
+            };
+        }
+
         private void EnsureHeaders()
         {
             if (_headersInitialized)
@@ -170,7 +203,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             if (!_httpClient.DefaultRequestHeaders.Contains("anthropic-beta"))
             {
-                _httpClient.DefaultRequestHeaders.Add("anthropic-beta", "max-tokens-3-5-sonnet-2024-07-15");
+                _httpClient.DefaultRequestHeaders.Add("anthropic-beta", "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15");
             }
 
             if (!_httpClient.DefaultRequestHeaders.Accept.Any(h => h.MediaType == "application/json"))

@@ -296,9 +296,16 @@ public class WordProcessor(
                     }
                 }
             };
+
+            // Create cached system prompt for Word document translation
+            var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
+                $"You are an expert OCR and translation system for Microsoft Word documents. " +
+                $"Target language: {targetLanguageName}. " +
+                $"Follow instructions precisely and output only the translated content."
+            );
     
-            var claudeRequest = new ClaudeRequestWithFile(messages);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudeRequest = new ClaudeRequestWithFile(messages, cachedSystemPrompt);
+            var claudeResponse = await _claudeService.SendRequestWithCachedPrompt(claudeRequest, cancellationToken);
     
             if (claudeResponse?.Content == null || !claudeResponse.Content.Any())
             {
@@ -433,12 +440,18 @@ public class WordProcessor(
             _logger.LogInformation("Attempting to improve translation based on GPT feedback");
                 
             var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
+
+            // Create cached system prompt for translation improvement
+            var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
+                $"You are a translation improvement specialist for {targetLanguage}. " +
+                $"Your task is to enhance translations based on feedback while maintaining accuracy."
+            );
                 
             var message = new ContentFile { Type = "text", Text = prompt };
-            var claudeRequest = new ClaudeRequestWithFile([message]);
+            var claudeRequest = new ClaudeRequestWithFile([message], cachedSystemPrompt);
                 
             _logger.LogInformation("Sending improvement request to Claude");
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudeResponse = await _claudeService.SendRequestWithCachedPrompt(claudeRequest, cancellationToken);
                 
             var content = claudeResponse.Content?.SingleOrDefault();
             if (content == null)
@@ -583,11 +596,17 @@ public class WordProcessor(
                 chunkIndex, totalChunks, chunk.Count, chunkContent.Length);
     
             var prompt = GenerateWordDocumentCombinationPrompt(targetLanguageName, chunkContent);
-    
+
+            // Create cached system prompt for document combination
+            var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
+                $"You are a document assembly specialist for {targetLanguageName} translations. " +
+                $"Your task is to combine document sections while eliminating duplicates and maintaining proper order."
+            );
+
             var message = new ContentFile { Type = "text", Text = prompt };
-            var claudeRequest = new ClaudeRequestWithFile([message]);
+            var claudeRequest = new ClaudeRequestWithFile([message], cachedSystemPrompt);
     
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            var claudeResponse = await _claudeService.SendRequestWithCachedPrompt(claudeRequest, cancellationToken);
     
             var content = claudeResponse?.Content?.FirstOrDefault();
             if (content?.Text == null)
@@ -622,11 +641,17 @@ public class WordProcessor(
         {
             var finalCombination = string.Join("\n\n", combinedChunks);
             var finalPrompt = GenerateWordDocumentFinalPrompt(targetLanguageName, finalCombination);
+
+            // Create cached system prompt for final document processing
+            var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
+                $"You are a professional document editor for {targetLanguageName} publications. " +
+                $"Your task is to create the final, polished version with guaranteed duplicate removal."
+            );
     
             var finalMessage = new ContentFile { Type = "text", Text = finalPrompt };
-            var finalRequest = new ClaudeRequestWithFile([finalMessage]);
+            var finalRequest = new ClaudeRequestWithFile([finalMessage], cachedSystemPrompt);
     
-            var finalResponse = await _claudeService.SendRequestWithFile(finalRequest, cancellationToken);
+            var finalResponse = await _claudeService.SendRequestWithCachedPrompt(finalRequest, cancellationToken);
     
             var finalContent = finalResponse?.Content?.FirstOrDefault();
             if (finalContent?.Text != null)

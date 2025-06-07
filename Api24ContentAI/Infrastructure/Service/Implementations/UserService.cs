@@ -5,6 +5,7 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -25,7 +26,34 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task Delete(string id, CancellationToken cancellationToken)
         {
-            await _userRepository.Delete(id, cancellationToken);
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                throw new ArgumentException("User ID cannot be null or empty", nameof(id));
+            }
+
+            try
+            {
+                // Check if user exists before attempting deletion
+                var user = await _userRepository.GetById(id, cancellationToken);
+                if (user == null)
+                {
+                    throw new InvalidOperationException($"User with ID '{id}' not found");
+                }
+
+                await _userRepository.Delete(id, cancellationToken);
+            }
+            catch (ArgumentException)
+            {
+                throw; // Re-throw validation errors
+            }
+            catch (InvalidOperationException)
+            {
+                throw; // Re-throw business logic errors
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to delete user with ID '{id}': {ex.Message}", ex);
+            }
         }
 
         public async Task<List<UserModel>> GetAll(CancellationToken cancellationToken)

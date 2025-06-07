@@ -110,8 +110,31 @@ namespace Api24ContentAI.Controllers
         [HttpPost("register-with-phone")]
         public async Task<IActionResult> RegisterWithPhone(RegisterWIthPhoneRequest registrationRequestDTO, CancellationToken cancellation)
         {
-            await _authService.RegisterWithPhone(registrationRequestDTO, cancellation);
-            return Ok();
+            try
+            {
+                if (registrationRequestDTO == null)
+                {
+                    _logger.LogWarning("RegisterWithPhone called with null request");
+                    return BadRequest(new { error = "Registration request is required" });
+                }
+
+                _logger.LogInformation("RegisterWithPhone called for phone: {PhoneNumber}", registrationRequestDTO.PhoneNumber);
+                
+                await _authService.RegisterWithPhone(registrationRequestDTO, cancellation);
+                
+                _logger.LogInformation("Successfully registered user with phone: {PhoneNumber}", registrationRequestDTO.PhoneNumber);
+                return Ok(new { message = "User registered successfully" });
+            }
+            catch (ArgumentException ex)
+            {
+                _logger.LogWarning(ex, "Invalid input for RegisterWithPhone: {PhoneNumber}", registrationRequestDTO?.PhoneNumber);
+                return BadRequest(new { error = "Invalid input", message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during RegisterWithPhone for phone: {PhoneNumber}", registrationRequestDTO?.PhoneNumber);
+                return BadRequest(new { error = "Registration failed", message = ex.Message });
+            }
         }
 
         [HttpPost("login-with-phone")]
@@ -119,12 +142,28 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
+                if (loginRequest == null)
+                {
+                    _logger.LogWarning("LoginWithPhone called with null request");
+                    return BadRequest(new { error = "Login request is required" });
+                }
+
+                _logger.LogInformation("LoginWithPhone called for phone: {PhoneNumber}", loginRequest.PhoneNumber);
+                
                 LoginResponse loginResponse = await _authService.LoginWithPhone(loginRequest, cancellation);
+                
+                _logger.LogInformation("Successfully logged in user with phone: {PhoneNumber}", loginRequest.PhoneNumber);
                 return Ok(loginResponse);
             }
-            catch (Exception e)
+            catch (ArgumentException ex)
             {
-                return BadRequest(e.Message);
+                _logger.LogWarning(ex, "Invalid input for LoginWithPhone: {PhoneNumber}", loginRequest?.PhoneNumber);
+                return BadRequest(new { error = "Invalid input", message = ex.Message });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during LoginWithPhone for phone: {PhoneNumber}", loginRequest?.PhoneNumber);
+                return BadRequest(new { error = "Login failed", message = ex.Message });
             }
         }
 
