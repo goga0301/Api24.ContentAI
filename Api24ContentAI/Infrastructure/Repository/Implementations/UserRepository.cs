@@ -41,13 +41,32 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
 
         public async Task Delete(string id, CancellationToken cancellationToken)
         {
-            UserBalance balancEntity = await _context.UserBalances.SingleOrDefaultAsync(x => x.UserId == id);
-            _context.UserBalances.Remove(balancEntity);
+            var userRequestLogs = await _context.UserRequestLogs
+                .Where(x => x.UserId == id)
+                .ToListAsync(cancellationToken);
+            
+            if (userRequestLogs.Any())
+            {
+                _context.UserRequestLogs.RemoveRange(userRequestLogs);
+            }
 
-            User entity = await _context.Users.SingleOrDefaultAsync(x => x.Id == id);
-            _context.Users.Remove(entity);
+            UserBalance balancEntity = await _context.UserBalances
+                .SingleOrDefaultAsync(x => x.UserId == id, cancellationToken);
+            
+            if (balancEntity != null)
+            {
+                _context.UserBalances.Remove(balancEntity);
+            }
 
-            await _context.SaveChangesAsync();
+            User entity = await _context.Users
+                .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
+            
+            if (entity != null)
+            {
+                _context.Users.Remove(entity);
+            }
+
+            await _context.SaveChangesAsync(cancellationToken);
         }
 
         public IQueryable<User> GetAll()
