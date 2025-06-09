@@ -973,7 +973,7 @@ Your final output should be a well-formatted HTML file that closely replicates t
                       The target language for translation: <target_language>{targetLanguage}</target_language> from source language <source_language>{sourceLanguge}</source_language>.
                       
                       Important guidelines:
-                      1. Preserve all mathematical formulas and equations in LaTeX format. Do not translate variables or mathematical symbols.
+                      1. Convert all mathematical formulas and equations to regular text using Unicode symbols (e.g., α, β, π, ², ³, ≤, ≥, ±, ÷, ×). Do not use LaTeX formatting.
                       2. Preserve technical identifiers, standards (like ISO, EN), codes, and reference numbers in their original form
                       3. Translate technical terms using standard {targetLanguage} equivalents when they exist
                       

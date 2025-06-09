@@ -93,7 +93,7 @@ namespace Api24ContentAI.Controllers
         {
             try
             {
-                PromptResponse response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={prompt.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
+                PromptResponse response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={prompt.Prompt}&k=5&model=claude-3-7-sonnet-20250219", cancellationToken);
                 return Ok(response);
 
             }

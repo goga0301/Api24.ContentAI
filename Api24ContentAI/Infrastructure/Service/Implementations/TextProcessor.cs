@@ -150,7 +150,7 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
 
     private async Task<string> TranslateTextContent(string textContent, LanguageModel targetLanguage, CancellationToken cancellationToken)
     {
-        const int maxChunkSize = 8000;
+        const int maxChunkSize = 15000; // Increased from 8000 for fewer API calls
         
         if (textContent.Length <= maxChunkSize)
         {
@@ -160,37 +160,44 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
         var chunks = SplitTextIntoChunks(textContent, maxChunkSize);
         _logger.LogInformation("Split text into {ChunkCount} chunks for translation", chunks.Count);
 
-        var translatedChunks = new List<string>();
+        // Process chunks in parallel for better performance (with limited concurrency to avoid rate limits)
+        var semaphore = new SemaphoreSlim(5, 5); // Allow max 5 concurrent requests (increased for speed)
+        var translatedChunks = new List<string>(new string[chunks.Count]);
 
-        for (int i = 0; i < chunks.Count; i++)
+        var tasks = chunks.Select(async (chunk, index) =>
         {
-            var chunk = chunks[i];
-            
-            _logger.LogInformation("Translating text chunk {ChunkIndex}/{ChunkCount} with {CharacterCount} characters", 
-                i + 1, chunks.Count, chunk.Length);
-            
+            await semaphore.WaitAsync(cancellationToken);
             try
             {
-                var translatedChunk = await TranslateTextChunk(chunk, targetLanguage.Name, i + 1, chunks.Count, cancellationToken);
+                _logger.LogInformation("Translating text chunk {ChunkIndex}/{ChunkCount} with {CharacterCount} characters", 
+                    index + 1, chunks.Count, chunk.Length);
+                
+                var translatedChunk = await TranslateTextChunk(chunk, targetLanguage.Name, index + 1, chunks.Count, cancellationToken);
                 
                 if (string.IsNullOrWhiteSpace(translatedChunk))
                 {
-                    _logger.LogWarning("Empty translation result for text chunk {ChunkIndex}", i + 1);
-                    translatedChunks.Add(chunk); // Fallback to original
+                    _logger.LogWarning("Empty translation result for text chunk {ChunkIndex}", index + 1);
+                    translatedChunks[index] = chunk; // Fallback to original
                 }
                 else
                 {
-                    translatedChunks.Add(translatedChunk);
+                    translatedChunks[index] = translatedChunk;
                 }
                 
-                _logger.LogInformation("Successfully translated text chunk {ChunkIndex}/{ChunkCount}", i + 1, chunks.Count);
+                _logger.LogInformation("Successfully translated text chunk {ChunkIndex}/{ChunkCount}", index + 1, chunks.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error translating text chunk {ChunkIndex}", i + 1);
-                translatedChunks.Add(chunk);
+                _logger.LogError(ex, "Error translating text chunk {ChunkIndex}", index + 1);
+                translatedChunks[index] = chunk;
             }
-        }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks);
 
         var fullTranslation = string.Join("", translatedChunks);
         _logger.LogInformation("Completed chunked text translation. Original: {OriginalLength}, Translated: {TranslatedLength}", 

@@ -2,7 +2,6 @@
 using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.AspNetCore.Http;
 using System;
 using System.Collections.Generic;
@@ -424,7 +423,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("Lawyer რექვესთების ბალანსი ამოიწურა");
             }
 
-            PromptResponse response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={request.Prompt}&k=5&model=claude-3-sonnet-20240229", cancellationToken);
+            PromptResponse response = await _httpClient.GetFromJsonAsync<PromptResponse>($"http://localhost:8000/rag/?prompt={request.Prompt}&k=5&model=claude-3-7-sonnet-20250219", cancellationToken);
             LawyerResponse result = new LawyerResponse
             {
                 Text = response.Response
