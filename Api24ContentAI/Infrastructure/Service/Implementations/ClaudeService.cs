@@ -91,13 +91,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 StringContent httpContent = new(jsonContent, Encoding.UTF8, "application/json");
                 
+                // Determine timeout based on request size
+                TimeSpan timeout = jsonContent.Length switch
+                {
+                    > 5000000 => TimeSpan.FromMinutes(15), // 5MB+ = 15 minutes
+                    > 2000000 => TimeSpan.FromMinutes(10), // 2MB+ = 10 minutes
+                    > 1000000 => TimeSpan.FromMinutes(5),  // 1MB+ = 5 minutes
+                    _ => TimeSpan.FromMinutes(2)           // Default = 2 minutes
+                };
+
                 if (jsonContent.Length > 1000000) // 1MB
                 {
-                    _logger.LogInformation("Request is large ({Size} bytes), using a new HttpClient instance with extended timeout", 
-                        jsonContent.Length);
+                    _logger.LogInformation("Request is large ({Size} bytes), using extended timeout of {Timeout} minutes", 
+                        jsonContent.Length, timeout.TotalMinutes);
                     
                     using var requestClient = new HttpClient();
-                    requestClient.Timeout = TimeSpan.FromMinutes(5);
+                    requestClient.Timeout = timeout;
                     
                     foreach (var header in _httpClient.DefaultRequestHeaders)
                     {

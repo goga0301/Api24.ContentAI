@@ -32,6 +32,7 @@ namespace Api24ContentAI.Infrastructure.Repository
             services.AddScoped<IUserRequestLogRepository, UserRequestLogRepository>();
             services.AddScoped<ILanguageRepository, LanguageRepository>();
             services.AddScoped<IUserRepository, UserRepository>();
+            services.AddScoped<ITranslationJobRepository, TranslationJobRepository>();
         }
     }
 }

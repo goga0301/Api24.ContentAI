@@ -14,6 +14,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using System.Collections.Generic;
+using System.Linq;
 using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
@@ -23,6 +24,7 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Infrastructure.Middleware;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using System.Threading.Tasks;
 
 
 namespace Api24ContentAI
@@ -82,16 +84,18 @@ namespace Api24ContentAI
                         client.DefaultRequestHeaders.Clear();
                         client.DefaultRequestHeaders.Add("x-api-key", apiKey);
                         client.DefaultRequestHeaders.Add("anthropic-version", "2023-06-01");
-                        client.DefaultRequestHeaders.Add("anthropic-beta", "max-tokens-3-5-sonnet-2024-07-15");
+                        client.DefaultRequestHeaders.Add("anthropic-beta", "prompt-caching-2024-07-31,max-tokens-3-5-sonnet-2024-07-15");
                         client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
                         client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
+                        client.Timeout = TimeSpan.FromMinutes(15); // Extended timeout for large translations
                     })
             .ConfigurePrimaryHttpMessageHandler(() =>
                     {
                         return new SocketsHttpHandler()
                         {
-                            PooledConnectionLifetime = TimeSpan.FromMinutes(15)
+                            PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+                            RequestHeaderEncodingSelector = (_, _) => System.Text.Encoding.UTF8
                         };
                     })
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
@@ -158,17 +162,36 @@ namespace Api24ContentAI
 
             _ = services.AddCors(options =>
             {
-                options.AddPolicy("AllowAll", builder =>
+                var allowedOrigins = Configuration.GetSection("CorsSettings:AllowedOrigins").Get<string[]>() 
+                                   ?? new[] { "http://localhost:3000" };
+
+                options.AddPolicy("AllowSpecificOrigins", builder =>
                 {
-                    builder.AllowAnyOrigin()
-                        .AllowAnyMethod()
-                        .AllowAnyHeader();
+                    builder.WithOrigins(allowedOrigins)
+                           .AllowAnyMethod()
+                           .AllowAnyHeader()
+                           .AllowCredentials()
+                           .SetPreflightMaxAge(TimeSpan.FromMinutes(5));
                 });
-                
-                //options.AddDefaultPolicy(builder =>
-                //{
-                  //  builder.AllowAnyHeader().AllowAnyOrigin().AllowAnyMethod();
-                //});
+
+                // Development-only policy (more permissive but still secure)
+                options.AddPolicy("AllowAllForDevelopment", builder =>
+                {
+                    builder.SetIsOriginAllowed(origin => 
+                    {
+                        if (string.IsNullOrEmpty(origin)) return false;
+                        
+                        // Allow localhost with any port
+                        var uri = new Uri(origin);
+                        return uri.Host == "localhost" || 
+                               uri.Host == "127.0.0.1" || 
+                               uri.Host.EndsWith(".local") ||
+                               allowedOrigins.Any(o => o.Equals(origin, StringComparison.OrdinalIgnoreCase));
+                    })
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials();
+                });
             });
             
             services.AddScoped<IDocumentTranslationService>(sp => 
@@ -178,6 +201,9 @@ namespace Api24ContentAI
                     sp.GetRequiredService<ILogger<DocumentTranslationService>>()
                 )
             );
+            services.AddScoped<ITranslationJobService, TranslationJobService>();
+            
+            services.AddHostedService<TranslationJobCleanupService>();
             services.AddScoped<IGptService, GptService>();
             services.AddScoped<IPdfService, PdfService>();
             services.AddScoped<ITextProcessor, TextProcessor>();
@@ -197,21 +223,56 @@ namespace Api24ContentAI
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
         public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
         {
-            _ = env.IsDevelopment() ? app.UseDeveloperExceptionPage() : app.UseGlobalExceptionHandling();
-            _ = app.UseDeveloperExceptionPage();
-            _ = app.UseSwagger();
-            _ = app.UseSwaggerUI(static c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "Api24ContentAI v1"));
-
-            _ = app.UseHttpsRedirection();
-
-            _ = app.UseCors("AllowAll");
-            _ = app.UseRouting();
-            _ = app.UseAuthentication();
-            _ = app.UseAuthorization();
-
-            _ = app.UseEndpoints(static endpoints =>
+            if (env.IsDevelopment())
             {
-                _ = endpoints.MapControllers();
+                app.UseDeveloperExceptionPage();
+                app.UseSwagger();
+                app.UseSwaggerUI(c => 
+                {
+                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Api24ContentAI v1");
+                    c.RoutePrefix = "swagger";
+                });
+            }
+            else
+            {
+                app.UseGlobalExceptionHandling();
+                app.UseSwagger();
+                app.UseSwaggerUI(c => 
+                {
+                    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Api24ContentAI v1");
+                    c.RoutePrefix = "swagger";
+                });
+            }
+
+            // Only use HTTPS redirection in production
+            if (!env.IsDevelopment())
+            {
+                app.UseHttpsRedirection();
+            }
+
+            // Use different CORS policies based on environment
+            if (env.IsDevelopment())
+            {
+                app.UseCors("AllowAllForDevelopment");
+            }
+            else
+            {
+                app.UseCors("AllowSpecificOrigins");
+            }
+
+            app.UseRouting();
+            app.UseAuthentication();
+            app.UseAuthorization();
+
+            app.UseEndpoints(endpoints =>
+            {
+                endpoints.MapControllers();
+                // Add a default route to redirect to Swagger
+                endpoints.MapGet("/", context =>
+                {
+                    context.Response.Redirect("/swagger");
+                    return Task.CompletedTask;
+                });
             });
         }
     }

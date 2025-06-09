@@ -187,9 +187,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                                                  4. Proper formatting and structure
                                                  5. Check for untranslated text or codes that should have remained untranslated
                                                  6. Proper handling of mathematical formulas:
-                                                    - All mathematical formulas should be in LaTeX format (enclosed in $ or $$ delimiters)
-                                                    - Complex equations should use proper LaTeX notation
-                                                    - Variables and mathematical symbols should be preserved correctly
+                                                    - All mathematical formulas should use regular text characters (no LaTeX formatting)
+                                                    - Use Unicode symbols where appropriate (e.g., α, β, π, ², ³, ≤, ≥, ±, ÷, ×)
+                                                    - Variables and mathematical symbols should be preserved as plain text
                                                  
                                                  Be VERY CRITICAL in your evaluation. If you see any of the following issues, reduce the score significantly:
                                                  - Untranslated words that should have been translated
@@ -197,7 +197,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                                                  - Inconsistent terminology
                                                  - Awkward phrasing or unnatural language
                                                  - Formatting issues
-                                                 - Mathematical formulas not properly formatted in LaTeX
+                                                 - Mathematical formulas using LaTeX formatting instead of plain text
                                                  
                                                  Rate the translation on a scale from 0.0 to 1.0 where:
                                                  - 0.0 means poor quality, potentially machine-translated text with errors
@@ -213,7 +213,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         model = GetDefaultModel(),
                         messages = new[]
                         {
-                            new { role = "system", content = "You are a translation quality expert evaluating translated text. Always provide a rating even with limited context. Be very critical and thorough in your evaluation. Pay special attention to mathematical formulas - they should be properly formatted in LaTeX with $ or $$ delimiters." },
+                            new { role = "system", content = "You are a translation quality expert evaluating translated text. Always provide a rating even with limited context. Be very critical and thorough in your evaluation. Pay special attention to mathematical formulas - they should use regular text characters with Unicode symbols where appropriate." },
                             new { role = "user", content = verificationPrompt }
                         },
                         temperature = 0.3
@@ -379,7 +379,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     model = GetDefaultModel(),
                     messages = new[]
                     {
-                        new { role = "system", content = "You are a translation quality expert evaluating translated text. Focus on fluency and naturalness of the language, not on comparing to an original text. Be very critical in your evaluation. If you see any untranslated text that should have been translated, mixed languages, inconsistent terminology, or improperly handled mathematical formulas, reduce the score significantly. Mathematical formulas should be properly formatted in LaTeX (enclosed in $ or $$ delimiters). Variables and mathematical symbols within formulas should be preserved exactly as they appear in the original." },
+                        new { role = "system", content = "You are a translation quality expert evaluating translated text. Focus on fluency and naturalness of the language, not on comparing to an original text. Be very critical in your evaluation. If you see any untranslated text that should have been translated, mixed languages, inconsistent terminology, or improperly handled mathematical formulas, reduce the score significantly. Mathematical formulas should use regular text characters and Unicode symbols (e.g., α, β, π, ², ³, ≤, ≥, ±, ÷, ×) instead of LaTeX formatting. Variables and mathematical symbols should be converted to appropriate plain text equivalents." },
                         new { role = "user", content = prompt }
                     },
                     temperature = 0.3
@@ -457,14 +457,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     shorterPrompt += prompt.Substring(0, Math.Min(prompt.Length, 2000));
                 }
                 
-                shorterPrompt += "\n\nCheck especially for proper formatting of mathematical formulas in LaTeX (with $ or $$ delimiters).\nProvide rating as: <rating>|<brief explanation>";
+                shorterPrompt += "\n\nCheck especially that mathematical formulas use plain text and Unicode symbols instead of LaTeX formatting.\nProvide rating as: <rating>|<brief explanation>";
                 
                 var shorterRequest = new
                 {
                     model = GetDefaultModel(),
                     messages = new[]
                     {
-                        new { role = "system", content = "You are a translation quality expert. Be concise. Pay special attention to mathematical formulas - they should be properly formatted in LaTeX." },
+                        new { role = "system", content = "You are a translation quality expert. Be concise. Pay special attention to mathematical formulas - they should use regular text characters and Unicode symbols instead of LaTeX." },
                         new { role = "user", content = shorterPrompt }
                     },
                     temperature = 0.3
