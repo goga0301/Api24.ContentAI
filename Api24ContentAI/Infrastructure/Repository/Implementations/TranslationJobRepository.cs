@@ -1,10 +1,13 @@
 using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Repository;
+using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -56,7 +59,7 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             }
         }
 
-        public async Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType, CancellationToken cancellationToken)
+        public async Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType, List<TranslationSuggestion>? suggestions, CancellationToken cancellationToken)
         {
             var job = await _dbContext.TranslationJobs
                 .FirstOrDefaultAsync(x => x.JobId == jobId, cancellationToken);
@@ -71,9 +74,20 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
                 job.CompletedAt = DateTime.UtcNow;
                 job.UpdatedAt = DateTime.UtcNow;
                 
+                // Serialize suggestions to JSON
+                if (suggestions != null && suggestions.Any())
+                {
+                    job.Suggestions = JsonSerializer.Serialize(suggestions, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                        WriteIndented = false
+                    });
+                }
+                
                 await _dbContext.SaveChangesAsync(cancellationToken);
                 
-                _logger.LogInformation("Translation job {JobId} completed successfully", jobId);
+                _logger.LogInformation("Translation job {JobId} completed successfully with {SuggestionCount} suggestions", 
+                    jobId, suggestions?.Count ?? 0);
             }
         }
 

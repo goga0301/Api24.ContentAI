@@ -114,10 +114,8 @@ public class PdfService(ILogger<PdfService> logger, IConfiguration configuration
                     e.InnerException.GetType().FullName, e.InnerException.Message);
             }
             
-            // Log stack trace for better debugging
             _logger.LogError("Stack trace: {StackTrace}", e.StackTrace);
             
-            // Provide more specific error messages based on exception type
             var errorMessage = e switch
             {
                 UnauthorizedAccessException => "Access denied to file system resources. Check permissions.",

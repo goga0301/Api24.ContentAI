@@ -4,6 +4,8 @@ using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Entities;
 using Microsoft.Extensions.Logging;
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -49,9 +51,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             await _repository.UpdateProgress(jobId, progress, CancellationToken.None);
         }
 
-        public async Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType)
+        public async Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType, List<TranslationSuggestion>? suggestions = null)
         {
-            await _repository.CompleteJob(jobId, resultData, fileName, contentType, CancellationToken.None);
+            await _repository.CompleteJob(jobId, resultData, fileName, contentType, suggestions, CancellationToken.None);
         }
 
         public async Task FailJob(string jobId, string errorMessage)
@@ -63,6 +65,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             var jobEntity = await _repository.GetByJobId(jobId, CancellationToken.None);
             if (jobEntity == null) return null;
+
+            // Deserialize suggestions from JSON
+            var suggestions = new List<TranslationSuggestion>();
+            if (!string.IsNullOrEmpty(jobEntity.Suggestions))
+            {
+                try
+                {
+                    suggestions = JsonSerializer.Deserialize<List<TranslationSuggestion>>(jobEntity.Suggestions, new JsonSerializerOptions
+                    {
+                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                    }) ?? new List<TranslationSuggestion>();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning("Failed to deserialize suggestions for job {JobId}: {Error}", jobId, ex.Message);
+                }
+            }
 
             return new TranslationJob
             {
@@ -76,7 +95,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ErrorMessage = jobEntity.ErrorMessage,
                 EstimatedTimeMinutes = jobEntity.EstimatedTimeMinutes,
                 FileType = jobEntity.FileType,
-                FileSizeKB = jobEntity.FileSizeKB
+                FileSizeKB = jobEntity.FileSizeKB,
+                Suggestions = suggestions
             };
         }
 

@@ -10,6 +10,8 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Path = System.IO.Path;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Api24ContentAI.Controllers
 {
@@ -21,7 +23,8 @@ namespace Api24ContentAI.Controllers
         IPdfService pdfService,
         ILogger<DocumentController> logger,
         IServiceScopeFactory serviceScopeFactory,
-        ITranslationJobService translationJobService)
+        ITranslationJobService translationJobService,
+        IDocumentSuggestionService documentSuggestionService)
         : ControllerBase
     {
         private readonly IDocumentTranslationService _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
@@ -29,6 +32,7 @@ namespace Api24ContentAI.Controllers
         private readonly ILogger<DocumentController> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         private readonly IServiceScopeFactory _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
         private readonly ITranslationJobService _translationJobService = translationJobService ?? throw new ArgumentNullException(nameof(translationJobService));
+        private readonly IDocumentSuggestionService _documentSuggestionService = documentSuggestionService ?? throw new ArgumentNullException(nameof(documentSuggestionService));
         
         private const long MaxFileSizeBytes = 100 * 1024 * 1024; // 100MB limit
         
@@ -87,12 +91,33 @@ namespace Api24ContentAI.Controllers
 
                         if (result.Success)
                         {
-                            // Complete the job with the translation result
+                            // Generate suggestions after successful translation
+                            List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
+                            try
+                            {
+                                var suggestionService = scope.ServiceProvider.GetRequiredService<IDocumentSuggestionService>();
+                                suggestions = await suggestionService.GenerateSuggestions(
+                                    result.OriginalContent ?? "",
+                                    result.TranslatedContent ?? "",
+                                    request.TargetLanguageId,
+                                    cancellationToken);
+                                
+                                _logger.LogInformation("Generated {Count} suggestions for tesseract translation job {JobId}", 
+                                    suggestions.Count, jobId);
+                            }
+                            catch (Exception suggestionEx)
+                            {
+                                _logger.LogWarning(suggestionEx, "Failed to generate suggestions for tesseract translation job {JobId}", jobId);
+                                // Continue without suggestions rather than failing the job
+                            }
+
+                            // Complete the job with the translation result and suggestions
                             await jobService.CompleteJob(
                                 jobId, 
                                 result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
                                 result.FileName ?? "translated-file",
-                                result.ContentType ?? "text/plain");
+                                result.ContentType ?? "text/plain",
+                                suggestions);
                                 
                             _logger.LogInformation("Tesseract translation job {JobId} completed successfully", jobId);
                         }
@@ -186,12 +211,33 @@ namespace Api24ContentAI.Controllers
 
                         if (result.Success)
                         {
-                            // Complete the job with the translation result
+                            // Generate suggestions after successful translation
+                            List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
+                            try
+                            {
+                                var suggestionService = scope.ServiceProvider.GetRequiredService<IDocumentSuggestionService>();
+                                suggestions = await suggestionService.GenerateSuggestions(
+                                    result.OriginalContent ?? "",
+                                    result.TranslatedContent ?? "",
+                                    request.TargetLanguageId,
+                                    cancellationToken);
+                                
+                                _logger.LogInformation("Generated {Count} suggestions for translation job {JobId}", 
+                                    suggestions.Count, jobId);
+                            }
+                            catch (Exception suggestionEx)
+                            {
+                                _logger.LogWarning(suggestionEx, "Failed to generate suggestions for translation job {JobId}", jobId);
+                                // Continue without suggestions rather than failing the job
+                            }
+
+                            // Complete the job with the translation result and suggestions
                             await jobService.CompleteJob(
                                 jobId, 
                                 result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
                                 result.FileName ?? "translated-file",
-                                result.ContentType ?? "text/plain");
+                                result.ContentType ?? "text/plain",
+                                suggestions);
                                 
                             _logger.LogInformation("Translation job {JobId} completed successfully", jobId);
                         }
@@ -300,6 +346,45 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpGet("translate/suggestions/{jobId}")]
+        public async Task<IActionResult> GetTranslationSuggestions(string jobId)
+        {
+            try
+            {
+                var job = await _translationJobService.GetJob(jobId);
+                if (job == null)
+                {
+                    return NotFound(new { JobId = jobId, Message = "Job not found" });
+                }
+
+                if (job.Status != "Completed")
+                {
+                    return BadRequest(new 
+                    { 
+                        JobId = jobId, 
+                        Status = job.Status,
+                        Message = job.Status == "Failed" 
+                            ? $"Translation failed: {job.ErrorMessage}" 
+                            : "Translation not completed yet" 
+                    });
+                }
+
+                return Ok(new
+                {
+                    JobId = jobId,
+                    SuggestionCount = job.Suggestions.Count,
+                    Suggestions = job.Suggestions,
+                    Message = job.Suggestions.Any() 
+                        ? $"Found {job.Suggestions.Count} suggestions for improving the translation"
+                        : "No suggestions available for this translation"
+                });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Error retrieving translation suggestions: {ex.Message}");
+            }
+        }
+
         [HttpPost("srt/translate")]
         public async Task<IActionResult> TranslateSrtFile([FromForm] DocumentTranslationRequest request,
             CancellationToken cancellationToken)
@@ -361,12 +446,33 @@ namespace Api24ContentAI.Controllers
 
                         if (result.Success)
                         {
-                            // Complete the job with the translation result
+                            // Generate suggestions after successful translation
+                            List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
+                            try
+                            {
+                                var suggestionService = scope.ServiceProvider.GetRequiredService<IDocumentSuggestionService>();
+                                suggestions = await suggestionService.GenerateSuggestions(
+                                    result.OriginalContent ?? "",
+                                    result.TranslatedContent ?? "",
+                                    request.TargetLanguageId,
+                                    cancellationToken);
+                                
+                                _logger.LogInformation("Generated {Count} suggestions for SRT translation job {JobId}", 
+                                    suggestions.Count, jobId);
+                            }
+                            catch (Exception suggestionEx)
+                            {
+                                _logger.LogWarning(suggestionEx, "Failed to generate suggestions for SRT translation job {JobId}", jobId);
+                                // Continue without suggestions rather than failing the job
+                            }
+
+                            // Complete the job with the translation result and suggestions
                             await jobService.CompleteJob(
                                 jobId, 
                                 result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
                                 result.FileName ?? "translated-file",
-                                result.ContentType ?? "text/plain");
+                                result.ContentType ?? "text/plain",
+                                suggestions);
                                 
                             _logger.LogInformation("SRT translation job {JobId} completed successfully", jobId);
                         }
@@ -437,6 +543,55 @@ namespace Api24ContentAI.Controllers
             
         }
 
+        [HttpPost("apply-suggestion")]
+        public async Task<IActionResult> ApplySuggestion([FromBody] ApplySuggestionRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var userId = User.FindFirst("sub")?.Value;
+                if (string.IsNullOrEmpty(userId))
+                {
+                    userId = User.FindFirst("UserId")?.Value;
+                    if (string.IsNullOrEmpty(userId))
+                    {
+                        return Unauthorized("User ID not found in token");
+                    }
+                }
+
+                if (request == null)
+                {
+                    return BadRequest("Request cannot be null");
+                }
+
+                if (string.IsNullOrEmpty(request.TranslatedContent))
+                {
+                    return BadRequest("Translated content is required");
+                }
+
+                if (request.Suggestion == null)
+                {
+                    return BadRequest("Suggestion is required");
+                }
+
+                var result = await _documentSuggestionService.ApplySuggestion(request, cancellationToken);
+
+                if (!result.Success)
+                {
+                    return BadRequest(new { error = result.ErrorMessage });
+                }
+
+                _logger.LogInformation("Successfully applied suggestion {SuggestionId} for user {UserId}", 
+                    request.SuggestionId, userId);
+
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error applying suggestion");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Error applying suggestion: {ex.Message}");
+            }
+        }
+
         private async Task<string> SaveToTempFile(IFormFile file, string jobId, CancellationToken cancellationToken)
         {
             var tempDir = Path.Combine(Path.GetTempPath(), "ContentAI_Uploads");
@@ -485,5 +640,6 @@ namespace Api24ContentAI.Controllers
             // Generic estimate - actual time varies based on content complexity, not file type
             return 3; // 3 minutes for all files - realistic average estimate
         }
+
     }
 }
