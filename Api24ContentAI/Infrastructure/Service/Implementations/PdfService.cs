@@ -36,9 +36,7 @@ public class PdfService(ILogger<PdfService> logger, IConfiguration configuration
             _logger.LogInformation("Starting PDF conversion for file: {FileName}, Size: {FileSize} bytes", 
                 markdown.FileName, markdown.Length);
             
-            // Check for API key in multiple locations
-            var apiKey = _configuration["CONVERT_API_KEY"] ?? 
-                         _configuration["ConvertApiKey"] ?? 
+            var apiKey = _configuration["Security:ConvertApiKey"] ?? 
                          Environment.GetEnvironmentVariable("CONVERT_API_KEY");
             
             if (string.IsNullOrEmpty(apiKey))
@@ -49,7 +47,6 @@ public class PdfService(ILogger<PdfService> logger, IConfiguration configuration
             
             _logger.LogDebug("ConvertApi key found, length: {KeyLength}", apiKey.Length);
             
-            // Test temp directory access
             var testTempDir = Path.GetTempPath();
             _logger.LogDebug("Temp directory: {TempDir}", testTempDir);
             
