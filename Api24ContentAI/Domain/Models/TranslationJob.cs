@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Api24ContentAI.Domain.Models
 {
@@ -15,5 +16,6 @@ namespace Api24ContentAI.Domain.Models
         public int EstimatedTimeMinutes { get; set; }
         public string FileType { get; set; } = string.Empty;
         public long FileSizeKB { get; set; }
+        public List<TranslationSuggestion> Suggestions { get; set; } = new List<TranslationSuggestion>();
     }
 } 

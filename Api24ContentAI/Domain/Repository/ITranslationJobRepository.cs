@@ -1,4 +1,6 @@
 using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Domain.Models;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -9,7 +11,7 @@ namespace Api24ContentAI.Domain.Repository
         Task<string> Create(TranslationJobEntity entity, CancellationToken cancellationToken);
         Task<TranslationJobEntity?> GetByJobId(string jobId, CancellationToken cancellationToken);
         Task UpdateProgress(string jobId, int progress, CancellationToken cancellationToken);
-        Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType, CancellationToken cancellationToken);
+        Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType, List<TranslationSuggestion>? suggestions, CancellationToken cancellationToken);
         Task FailJob(string jobId, string errorMessage, CancellationToken cancellationToken);
         Task CleanupExpiredJobs(CancellationToken cancellationToken);
     }
