@@ -50,9 +50,10 @@ public class GlobalExceptionHandlingMiddleware
         {
             StatusCode = context.Response.StatusCode,
             Message = message,
-            DetailedError = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"
+            DetailedError = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development" ||
+                          Environment.GetEnvironmentVariable("SHOW_DETAILED_ERRORS") == "true"
                 ? exception.ToString()
-                : null
+                : $"Error Type: {exception.GetType().Name}, Message: {exception.Message}"
         };
         
         var jsonResponse = JsonSerializer.Serialize(response);
