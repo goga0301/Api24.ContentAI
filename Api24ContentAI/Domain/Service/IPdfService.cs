@@ -7,6 +7,8 @@ namespace Api24ContentAI.Domain.Service
     public interface IPdfService
     {
         Task<byte[]> ConvertMarkdownToPdf(IFormFile markdownFile, CancellationToken cancellationToken);
+        Task<byte[]> ConvertPdfToWord(IFormFile pdfFile, CancellationToken cancellationToken);
+
     }
 }
 

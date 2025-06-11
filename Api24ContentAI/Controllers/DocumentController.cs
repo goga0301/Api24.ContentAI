@@ -537,10 +537,41 @@ namespace Api24ContentAI.Controllers
             }
             catch (Exception e)
             {
-                Console.WriteLine(e);
+                _logger.LogError(e, "Error converting markdown to pdf");
                 throw;
             }
             
+        }
+
+        [HttpPost("convert/pdf-to-word")]
+        public async Task<IActionResult> ConvertPdfToWord([FromForm] DocumentConvertRequest convertRequest, CancellationToken cancellation)
+        {
+            try
+            {
+                if (convertRequest.File == null || convertRequest.File.Length == 0)
+                {
+                    return BadRequest("No file uploaded");
+                }
+
+                if (!convertRequest.File.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest("Only PDF files are supported for this endpoint");
+                }   
+
+                var wordBytes = await _pdfService.ConvertPdfToWord(convertRequest.File, cancellation);
+                var fileName = Path.GetFileNameWithoutExtension(convertRequest.File.FileName) + ".docx";
+
+                return File(
+                    fileContents: wordBytes,
+                    contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    fileDownloadName: fileName
+                );
+            }
+            catch (Exception e)
+            {   
+                _logger.LogError(e, "Error converting pdf to word");
+                throw;
+            }
         }
 
         [HttpPost("apply-suggestion")]
