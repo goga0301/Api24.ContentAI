@@ -158,4 +158,290 @@ public class PdfService(ILogger<PdfService> logger, IConfiguration configuration
             }
         }
     }
+
+    public async Task<byte[]> ConvertPdfToWord(IFormFile pdf, CancellationToken cancellation = default)
+    {
+        if (pdf == null || pdf.Length == 0)
+        {
+            throw new ArgumentException("PDF file is required");
+        }
+
+        if (!pdf.FileName.EndsWith(".pdf"))
+        {
+            throw new ArgumentException("PDF file must be a .pdf file");
+        }
+
+        string tempFilePath = null;
+        string tempDirectory = null;
+
+        try
+        {
+            _logger.LogInformation("Starting PDF to Word conversion for file: {FileName}, Size: {FileSize} bytes", 
+                pdf.FileName, pdf.Length);
+
+            var apiKey = _configuration["Security:ConvertApiKey"] ?? 
+                         Environment.GetEnvironmentVariable("CONVERT_API_KEY");
+            
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogError("ConvertApi API key is not configured in any location");
+                throw new InvalidOperationException("ConvertApi API key is not configured. Please set CONVERT_API_KEY environment variable or configuration.");
+            }
+
+            _logger.LogDebug("ConvertApi API key found, length: {KeyLength}", apiKey.Length);
+            
+            var testTempDir = Path.GetTempPath();
+            _logger.LogDebug("Temp directory: {TempDir}", testTempDir);
+            
+            if (!Directory.Exists(testTempDir))
+            {
+                _logger.LogError("Temp directory does not exist: {TempDir}", testTempDir);
+                throw new InvalidOperationException($"Temp directory not accessible: {testTempDir}");
+            }
+
+            var convertApi = new ConvertApi(apiKey);
+            _logger.LogDebug("ConvertApi instance created successfully");
+            
+            _logger.LogDebug("Starting ConvertApi conversion from pdf to docx");
+            var convert = await convertApi.ConvertAsync("pdf", "docx",
+                new ConvertApiFileParam("File", pdf.OpenReadStream(), pdf.FileName)
+            );
+            _logger.LogInformation("ConvertApi conversion completed successfully");
+            
+            tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            _logger.LogDebug("Creating temp directory: {TempDirectory}", tempDirectory);
+
+            try
+            {
+                Directory.CreateDirectory(tempDirectory);
+                _logger.LogDebug("Temp directory created successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create temp directory: {TempDirectory}", tempDirectory);
+                throw new InvalidOperationException($"Cannot create temp directory: {tempDirectory}. Check file system permissions.", ex);
+            }
+
+            _logger.LogDebug("Saving converted files to temp directory");
+            try
+            {
+                await convert.SaveFilesAsync(tempDirectory);
+                _logger.LogDebug("Files saved successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save converted files to: {TempDirectory}", tempDirectory);
+                throw new InvalidOperationException($"Cannot save files to temp directory: {tempDirectory}", ex);
+            }
+            
+            var wordFiles = Directory.GetFiles(tempDirectory, "*.docx");
+            if (wordFiles.Length == 0)
+            {
+                throw new InvalidOperationException("No Word file was generated");
+            }
+            
+            tempFilePath = wordFiles[0];
+            
+            var wordBytes = await File.ReadAllBytesAsync(tempFilePath, cancellation);
+
+            return wordBytes;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "PDF to Word conversion failed. Exception Type: {ExceptionType}, Message: {Message}", 
+                e.GetType().FullName, e.Message);
+
+            if (e.InnerException != null)
+            {
+                _logger.LogError("Inner Exception: {InnerExceptionType} - {InnerMessage}", 
+                    e.InnerException.GetType().FullName, e.InnerException.Message);
+            }
+
+            _logger.LogError("Stack trace: {StackTrace}", e.StackTrace);
+
+            var errorMessage = e switch
+            {
+                UnauthorizedAccessException => "Access denied to file system resources. Check permissions.",
+                DirectoryNotFoundException => "Directory not found. Check temp directory permissions.",
+                FileNotFoundException => "Required file not found. Check ConvertAPI package deployment.",
+                System.Net.Http.HttpRequestException => "Network error connecting to ConvertAPI service.",
+                ArgumentException => $"Invalid argument: {e.Message}",
+                InvalidOperationException => e.Message,
+                _ => $"PDF to Word conversion failed: {e.Message}"
+            };
+            
+            throw new InvalidOperationException(errorMessage, e);
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
+            {
+                try
+                {
+                    File.Delete(tempFilePath);
+                    _logger.LogDebug("Temporary file deleted: {TempFilePath}", tempFilePath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete temporary file: {TempFilePath}", tempFilePath);
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(tempDirectory) && Directory.Exists(tempDirectory))
+            {
+                try
+                {
+                    Directory.Delete(tempDirectory, true);
+                    _logger.LogDebug("Temporary directory deleted: {TempDirectory}", tempDirectory);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete temporary directory: {TempDirectory}", tempDirectory);
+                }
+            }
+        }
+    }
+
+    public async Task<byte[]> ConvertPdftoWord(IFormFile pdf, CancellationToken cancellation = default)
+    {
+        if (pdf == null || pdf.Length == 0)
+        {
+            throw new ArgumentException("PDF file is required");
+        }
+        
+        if (!pdf.FileName.EndsWith(".pdf"))
+        {
+            throw new ArgumentException("File must be a .pdf file");
+        }
+
+        string tempFilePath = null;
+        string tempDirectory = null;
+        
+        try
+        {
+            _logger.LogInformation("Starting Word conversion for file: {FileName}, Size: {FileSize} bytes", 
+                pdf.FileName, pdf.Length);
+            
+            var apiKey = _configuration["Security:ConvertApiKey"] ?? 
+                         Environment.GetEnvironmentVariable("CONVERT_API_KEY");
+            
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                _logger.LogError("ConvertApi API key is not configured in any location");
+                throw new InvalidOperationException("ConvertApi API key is not configured. Please set CONVERT_API_KEY environment variable or configuration.");
+            }
+            
+            _logger.LogDebug("ConvertApi key found, length: {KeyLength}", apiKey.Length);
+            
+            var testTempDir = Path.GetTempPath();
+            _logger.LogDebug("Temp directory: {TempDir}", testTempDir);
+            
+            if (!Directory.Exists(testTempDir))
+            {
+                _logger.LogError("Temp directory does not exist: {TempDir}", testTempDir);
+                throw new InvalidOperationException($"Temp directory not accessible: {testTempDir}");
+            }
+            
+            var convertApi = new ConvertApi(apiKey);
+            _logger.LogDebug("ConvertApi instance created successfully");
+            
+            _logger.LogDebug("Starting ConvertApi conversion from pdf to docx");
+            var convert = await convertApi.ConvertAsync("pdf", "docx",
+                new ConvertApiFileParam("File", pdf.OpenReadStream(), pdf.FileName)
+            );
+            _logger.LogInformation("ConvertApi conversion completed successfully");
+            
+            tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            _logger.LogDebug("Creating temp directory: {TempDirectory}", tempDirectory);
+            
+            try
+            {
+                Directory.CreateDirectory(tempDirectory);
+                _logger.LogDebug("Temp directory created successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create temp directory: {TempDirectory}", tempDirectory);
+                throw new InvalidOperationException($"Cannot create temp directory: {tempDirectory}. Check file system permissions.", ex);
+            }
+            
+            _logger.LogDebug("Saving converted files to temp directory");
+            try
+            {
+                await convert.SaveFilesAsync(tempDirectory);
+                _logger.LogDebug("Files saved successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save converted files to: {TempDirectory}", tempDirectory);
+                throw new InvalidOperationException($"Cannot save files to temp directory: {tempDirectory}", ex);
+            }
+            
+            var docxFiles = Directory.GetFiles(tempDirectory, "*.docx");
+            if (docxFiles.Length == 0)
+            {
+                throw new InvalidOperationException("No Word document file was generated");
+            }
+            
+            tempFilePath = docxFiles[0];
+            
+            var docxBytes = await File.ReadAllBytesAsync(tempFilePath, cancellation);
+            
+            return docxBytes;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Word conversion failed. Exception Type: {ExceptionType}, Message: {Message}", 
+                e.GetType().FullName, e.Message);
+            
+            if (e.InnerException != null)
+            {
+                _logger.LogError("Inner Exception: {InnerExceptionType} - {InnerMessage}", 
+                    e.InnerException.GetType().FullName, e.InnerException.Message);
+            }
+            
+            _logger.LogError("Stack trace: {StackTrace}", e.StackTrace);
+            
+            var errorMessage = e switch
+            {
+                UnauthorizedAccessException => "Access denied to file system resources. Check permissions.",
+                DirectoryNotFoundException => "Directory not found. Check temp directory permissions.",
+                FileNotFoundException => "Required file not found. Check ConvertAPI package deployment.",
+                System.Net.Http.HttpRequestException => "Network error connecting to ConvertAPI service.",
+                ArgumentException => $"Invalid argument: {e.Message}",
+                InvalidOperationException => e.Message,
+                _ => $"Word conversion failed: {e.Message}"
+            };
+            
+            throw new InvalidOperationException(errorMessage, e);
+        }
+        finally
+        {
+            if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
+            {
+                try
+                {
+                    File.Delete(tempFilePath);
+                    _logger.LogDebug("Temporary file deleted: {TempFilePath}", tempFilePath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete temporary file: {TempFilePath}", tempFilePath);
+                }
+            }
+            
+            if (!string.IsNullOrEmpty(tempDirectory) && Directory.Exists(tempDirectory))
+            {
+                try
+                {
+                    Directory.Delete(tempDirectory, true);
+                    _logger.LogDebug("Temporary directory deleted: {TempDirectory}", tempDirectory);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to delete temporary directory: {TempDirectory}", tempDirectory);
+                }
+            }
+        }
+    }
 }
