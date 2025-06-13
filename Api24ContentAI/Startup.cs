@@ -210,13 +210,22 @@ namespace Api24ContentAI
             services.AddScoped<IWordProcessor, WordProcessor>();
             services.AddScoped<IPdfProcessor, PdfProcessor>(); 
             services.AddScoped<ISrtProcessor, SrtProcessor>();
+            services.AddScoped<IImageProcessor, ImageProcessor>();
             
             services.AddScoped<IFileProcessor>(provider => provider.GetService<ITextProcessor>());
             services.AddScoped<IFileProcessor>(provider => provider.GetService<IWordProcessor>());
             services.AddScoped<IFileProcessor>(provider => provider.GetService<IPdfProcessor>());
             services.AddScoped<IFileProcessor>(provider => provider.GetService<ISrtProcessor>());
+            services.AddScoped<IFileProcessor>(provider => provider.GetService<IImageProcessor>());
             
             services.AddScoped<IFileProcessorFactory, FileProcessorFactory>();
+
+            // Add HttpClient for OCR microservice
+            services.AddHttpClient<IImageProcessor, ImageProcessor>(client =>
+            {
+                client.BaseAddress = new Uri("http://localhost:8000/");
+                client.Timeout = TimeSpan.FromMinutes(5);
+            });
             
         }
 
