@@ -322,7 +322,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 RequestType = RequestType.Translate,
             }, cancellationToken);
             
-            await _userRepository.UpdateUserBalance(userId, -requestPrice, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
             
             return response;
         }
