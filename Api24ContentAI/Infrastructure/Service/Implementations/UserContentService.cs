@@ -19,6 +19,7 @@ using iText.Kernel.Pdf;
 using iText.Kernel.Pdf.Canvas.Parser;
 using System.Text.RegularExpressions;
 using SelectPdf;
+using System.Net.Http;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -48,7 +49,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<CopyrightAIResponse> BasicMessage(BasicMessageRequest request,
             CancellationToken cancellationToken)
         {
-
+            _logger.LogInformation("Starting BasicMessage request");
 
             ContentFile message = new()
             {
@@ -56,40 +57,60 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Text = request.Message
             };
 
-
             ClaudeRequestWithFile claudeRequest = new([message]);
-            var claudeResponse =
-                await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            var lastPeriod = claudResponseText.LastIndexOf('.');
-
-            if (lastPeriod != -1)
+            
+            try
             {
-                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
-            }
-
-            CopyrightAIResponse response = new()
-            {
-                Text = claudResponseText
-            };
-
-            return response;
+                _logger.LogInformation("Sending BasicMessage request to Claude API. Message length: {MessageLength}", request.Message?.Length ?? 0);
                 
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for BasicMessage");
+                
+                var claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+                var lastPeriod = claudResponseText.LastIndexOf('.');
+
+                if (lastPeriod != -1)
+                {
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                }
+
+                CopyrightAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
+
+                _logger.LogInformation("BasicMessage request completed successfully. Response length: {ResponseLength}", response.Text?.Length ?? 0);
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while calling Claude API for BasicMessage. Request: {Request}", 
+                    JsonSerializer.Serialize(request, new JsonSerializerOptions 
+                    { 
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                    }));
+                throw new Exception($"Failed to process BasicMessage request: {ex.Message}", ex);
+            }
         }
 
         public async Task<CopyrightAIResponse> CopyrightAI(IFormFile file, UserCopyrightAIRequest request, string userId, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Starting CopyrightAI request for user {UserId}", userId);
+            
             var requestPrice = GetRequestPrice(RequestType.Copyright);
             var user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
+                _logger.LogWarning("Insufficient balance for CopyrightAI request. User: {UserId}, Balance: {Balance}, Required: {Required}", 
+                    userId, user.UserBalance.Balance, requestPrice);
                 throw new Exception("CopyrightAI რექვესთების ბალანსი ამოიწურა");
             }
 
             var language = await _languageService.GetById(request.LanguageId, cancellationToken);
-
 
             var templateText = GetCopyrightTemplate(language.Name, request.ProductName);
 
@@ -102,6 +123,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var extension = file.FileName.Split('.').Last();
             if (!SupportedFileExtensions.Contains(extension))
             {
+                _logger.LogWarning("Unsupported file extension for CopyrightAI: {Extension}. File: {FileName}", extension, file.FileName);
                 throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
             }
 
@@ -117,51 +139,77 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
 
             ClaudeRequestWithFile claudeRequest = new([fileMessage, message]);
-            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            int lastPeriod = claudResponseText.LastIndexOf('.');
-
-            if (lastPeriod != -1)
+            
+            try
             {
-                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                _logger.LogInformation("Sending CopyrightAI request to Claude API. User: {UserId}, Language: {Language}, File: {FileName}", 
+                    userId, language.Name, file.FileName);
+                    
+                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for CopyrightAI. User: {UserId}", userId);
+                
+                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+                int lastPeriod = claudResponseText.LastIndexOf('.');
+
+                if (lastPeriod != -1)
+                {
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                }
+
+                CopyrightAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
+
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                    }),
+                    Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }),
+                    RequestType = RequestType.Copyright
+                }, cancellationToken);
+
+                await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+
+                _logger.LogInformation("CopyrightAI request completed successfully. User: {UserId}, Response length: {ResponseLength}", 
+                    userId, response.Text?.Length ?? 0);
+                return response;
             }
-
-            CopyrightAIResponse response = new()
+            catch (Exception ex)
             {
-                Text = claudResponseText
-            };
-
-            await _requestLogService.Create(new CreateUserRequestLogModel
-            {
-                UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.Copyright
-            }, cancellationToken);
-
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-
-            return response;
+                _logger.LogError(ex, "Error occurred while calling Claude API for CopyrightAI. User: {UserId}, Request: {Request}", 
+                    userId, JsonSerializer.Serialize(request, new JsonSerializerOptions 
+                    { 
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                    }));
+                throw new Exception($"Failed to process CopyrightAI request: {ex.Message}", ex);
+            }
         }
 
         public async Task<ContentAIResponse> SendRequest(UserContentAIRequest request, string userId,
             CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Starting ContentAI request for user {UserId}", userId);
+            
             decimal requestPrice = GetRequestPrice(RequestType.Copyright);
 
             User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
+                _logger.LogWarning("Insufficient balance for ContentAI request. User: {UserId}, Balance: {Balance}, Required: {Required}", 
+                    userId, user.UserBalance.Balance, requestPrice);
                 throw new Exception("ContentAI რექვესთების ბალანსი ამოიწურა");
             }
 
@@ -177,46 +225,66 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             ClaudeRequest claudeRequest = new(claudRequestContent);
 
-            ClaudeResponse claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
-            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-            int lastPeriod = claudResponseText.LastIndexOf('.');
-
-            if (lastPeriod != -1)
+            try
             {
-                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                _logger.LogInformation("Sending ContentAI request to Claude API. User: {UserId}, ProductCategory: {Category}, Language: {Language}, Content length: {ContentLength}", 
+                    userId, productCategory.NameEng, language.Name, claudRequestContent.Length);
+                    
+                ClaudeResponse claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for ContentAI. User: {UserId}", userId);
+                
+                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+                int lastPeriod = claudResponseText.LastIndexOf('.');
+
+                if (lastPeriod != -1)
+                {
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                }
+
+                ContentAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
+
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                    }),
+                    Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }),
+                    RequestType = RequestType.Content
+
+                }, cancellationToken);
+
+                await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+
+                _logger.LogInformation("ContentAI request completed successfully. User: {UserId}, Response length: {ResponseLength}", 
+                    userId, response.Text?.Length ?? 0);
+                return response;
             }
-
-            ContentAIResponse response = new()
+            catch (Exception ex)
             {
-                Text = claudResponseText
-            };
-
-            await _requestLogService.Create(new CreateUserRequestLogModel
-            {
-                UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.Content
-
-            }, cancellationToken);
-
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-
-            return response;
+                _logger.LogError(ex, "Error occurred while calling Claude API for ContentAI. User: {UserId}, Request: {Request}", 
+                    userId, JsonSerializer.Serialize(request, new JsonSerializerOptions 
+                    { 
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                    }));
+                throw new Exception($"Failed to process ContentAI request: {ex.Message}", ex);
+            }
         }
-
-
 
         public async Task<string> TestTranslateTextAsync(IFormFile file, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Starting TestTranslateTextAsync request. File: {FileName}", file.FileName);
 
             var templateText = GetDocumentToMarkdownTemplate1(file.FileName);
             var contents = new List<ContentFile>();
@@ -242,13 +310,33 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             string systemPrompt = GetSystemPromptForPdfToHtml();
             var claudeRequest = new ClaudeRequestWithFile(contents, systemPrompt);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            var claudResponsePlainText = claudeResponse.Content.Single().Text;
+            
+            try
+            {
+                _logger.LogInformation("Sending TestTranslateTextAsync request to Claude API. File: {FileName}, Size: {FileSize} bytes", 
+                    file.FileName, file.Length);
+                    
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for TestTranslateTextAsync. File: {FileName}", file.FileName);
+                
+                var claudResponsePlainText = claudeResponse.Content.Single().Text;
 
-            var start = claudResponsePlainText.IndexOf("<html_output>", StringComparison.Ordinal) + 13;
-            var end = claudResponsePlainText.IndexOf("</html_output>", StringComparison.Ordinal);
+                var start = claudResponsePlainText.IndexOf("<html_output>", StringComparison.Ordinal) + 13;
+                var end = claudResponsePlainText.IndexOf("</html_output>", StringComparison.Ordinal);
 
-            return claudResponsePlainText.Substring(start, end - start);
+                var result = claudResponsePlainText.Substring(start, end - start);
+                
+                _logger.LogInformation("TestTranslateTextAsync request completed successfully. File: {FileName}, Result length: {ResultLength}", 
+                    file.FileName, result.Length);
+                    
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while calling Claude API for TestTranslateTextAsync. File: {FileName}", file.FileName);
+                throw new Exception($"Failed to process TestTranslateTextAsync request: {ex.Message}", ex);
+            }
         }
 
         public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequestWithChunks request, string userId, CancellationToken cancellationToken)
@@ -318,7 +406,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             await _requestLogService.Create(new CreateUserRequestLogModel
             {
                 UserId = userId,
-                Request = "translate text",
+                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                }),
+                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                }),
                 RequestType = RequestType.Translate,
             }, cancellationToken);
             
@@ -364,11 +461,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<EnhanceTranslateResponse> EnhanceTranslate(UserTranslateEnhanceRequest request, string userId,
             CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Starting EnhanceTranslate request for user {UserId}", userId);
+            
             decimal requestPrice = GetRequestPrice(RequestType.EnhanceTranslate);
             User user = await _userRepository.GetById(userId, cancellationToken);
     
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
+                _logger.LogWarning("Insufficient balance for EnhanceTranslate request. User: {UserId}, Balance: {Balance}, Required: {Required}", 
+                    userId, user.UserBalance.Balance, requestPrice);
                 throw new Exception("EnhanceTranslate მოთხოვნისთვის არასაკმარისი ბალანსია");
             }
     
@@ -385,47 +486,69 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             contents.Add(message);
     
             ClaudeRequestWithFile claudeRequest = new ClaudeRequestWithFile(contents);
-            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-    
-            string claudeResponsePlainText = claudeResponse.Content.Single().Text;
-    
-            // Parse Claude's response to extract enhanced text and suggestions
-            // Assuming Claude returns structured response with enhanced text and explanations
-            var parsedResponse = ParseClaudeEnhanceResponse(claudeResponsePlainText);
-    
-            // Create the correct response type
-            EnhanceTranslateResponse response = new EnhanceTranslateResponse
+            
+            try
             {
-                OriginalText = request.TranslateOutput,
-                EnhancedText = parsedResponse.EnhancedText.Replace("\n", "<br>"),
-                Suggestion = parsedResponse.Suggestions,
-                ChangeCount = parsedResponse.Suggestions.Count
-            };
+                _logger.LogInformation("Sending EnhanceTranslate request to Claude API. User: {UserId}, TargetLanguage: {Language}, InputLength: {InputLength}, TranslateOutputLength: {OutputLength}", 
+                    userId, targetLanguage.Name, request.UserInput?.Length ?? 0, request.TranslateOutput?.Length ?? 0);
+                    
+                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for EnhanceTranslate. User: {UserId}", userId);
     
-            // Log the request
-            await _requestLogService.Create(new CreateUserRequestLogModel
+                string claudeResponsePlainText = claudeResponse.Content.Single().Text;
+    
+                // Parse Claude's response to extract enhanced text and suggestions
+                // Assuming Claude returns structured response with enhanced text and explanations
+                var parsedResponse = ParseClaudeEnhanceResponse(claudeResponsePlainText);
+    
+                // Create the correct response type
+                EnhanceTranslateResponse response = new EnhanceTranslateResponse
+                {
+                    OriginalText = request.TranslateOutput,
+                    EnhancedText = parsedResponse.EnhancedText.Replace("\n", "<br>"),
+                    Suggestion = parsedResponse.Suggestions,
+                    ChangeCount = parsedResponse.Suggestions.Count
+                };
+    
+                // Log the request
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(request, new JsonSerializerOptions
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                    }),
+                    Response = JsonSerializer.Serialize(response, new JsonSerializerOptions
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }),
+                    RequestType = RequestType.EnhanceTranslate
+                }, cancellationToken);
+    
+                // Update user balance
+                await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+    
+                _logger.LogInformation("EnhanceTranslate request completed successfully. User: {UserId}, EnhancedTextLength: {EnhancedLength}, SuggestionCount: {SuggestionCount}", 
+                    userId, response.EnhancedText?.Length ?? 0, response.ChangeCount);
+                    
+                return response;
+            }
+            catch (Exception ex)
             {
-                UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.EnhanceTranslate
-            }, cancellationToken);
-    
-            // Update user balance
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-    
-            return response;
+                _logger.LogError(ex, "Error occurred while calling Claude API for EnhanceTranslate. User: {UserId}, Request: {Request}", 
+                    userId, JsonSerializer.Serialize(request, new JsonSerializerOptions 
+                    { 
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                    }));
+                throw new Exception($"Failed to process EnhanceTranslate request: {ex.Message}", ex);
+            }
         }
 
-// Helper method to parse Claude's response
+        // Helper method to parse Claude's response
         private (string EnhancedText, List<string> Suggestions) ParseClaudeEnhanceResponse(string claudeResponse)
         {
             string enhancedText = "";
@@ -601,11 +724,24 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     {
                         _logger.LogWarning("Retry still returned an error for chunk {Order}, trying regular API", order);
                         
-                        ClaudeRequest finalRequest = new($"Translate this text to {targetLanguage}: {text}");
-                        ClaudeResponse finalResponse = await _claudeService.SendRequest(finalRequest, cancellationToken);
-                        string finalResult = finalResponse.Content.Single().Text.Trim();
-                        
-                        return new KeyValuePair<int, string>(order, finalResult);
+                        try
+                        {
+                            _logger.LogInformation("Sending fallback translation request to Claude API for chunk {Order}", order);
+                            
+                            ClaudeRequest finalRequest = new($"Translate this text to {targetLanguage}: {text}");
+                            ClaudeResponse finalResponse = await _claudeService.SendRequest(finalRequest, cancellationToken);
+                            string finalResult = finalResponse.Content.Single().Text.Trim();
+                            
+                            _logger.LogInformation("Successfully received fallback translation response for chunk {Order}, length: {Length} chars", 
+                                order, finalResult.Length);
+                            
+                            return new KeyValuePair<int, string>(order, finalResult);
+                        }
+                        catch (Exception fallbackEx)
+                        {
+                            _logger.LogError(fallbackEx, "Error occurred in fallback Claude API call for chunk {Order}", order);
+                            return new KeyValuePair<int, string>(order, $"Error in fallback translation: {fallbackEx.Message}");
+                        }
                     }
                     
                     return new KeyValuePair<int, string>(order, retryResult);
@@ -650,17 +786,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         public async Task<VideoScriptAIResponse> VideoScript(IFormFile file, UserVideoScriptAIRequest request,
             string userId, CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Starting VideoScript request for user {UserId}", userId);
+            
             decimal requestPrice = GetRequestPrice(RequestType.Copyright);
 
             User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
+                _logger.LogWarning("Insufficient balance for VideoScript request. User: {UserId}, Balance: {Balance}, Required: {Required}", 
+                    userId, user.UserBalance.Balance, requestPrice);
                 throw new Exception("VideoScriptAI რექვესთების ბალანსი ამოიწურა");
             }
 
             LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
-
 
             string templateText = GetVideoScriptTemplate(language.Name, request.ProductName);
 
@@ -673,6 +812,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             string extention = file.FileName.Split('.').Last();
             if (!SupportedFileExtensions.Contains(extention))
             {
+                _logger.LogWarning("Unsupported file extension for VideoScript: {Extension}. File: {FileName}", extention, file.FileName);
                 throw new Exception("ფოტო უნდა იყოს შემდეგი ფორმატებიდან ერთერთში: jpeg, png, gif, webp!");
             }
 
@@ -688,55 +828,80 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
 
             ClaudeRequestWithFile claudeRequest = new([fileMessage, message]);
-            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            int lastPeriod = claudResponseText.LastIndexOf('.');
-
-            if (lastPeriod != -1)
+            
+            try
             {
-                claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                _logger.LogInformation("Sending VideoScript request to Claude API. User: {UserId}, Language: {Language}, File: {FileName}", 
+                    userId, language.Name, file.FileName);
+                    
+                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for VideoScript. User: {UserId}", userId);
+                
+                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
+
+                int lastPeriod = claudResponseText.LastIndexOf('.');
+
+                if (lastPeriod != -1)
+                {
+                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                }
+
+                VideoScriptAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
+
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                    }),
+                    Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }),
+                    RequestType = RequestType.VideoScript
+                }, cancellationToken);
+
+                await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+
+                _logger.LogInformation("VideoScript request completed successfully. User: {UserId}, Response length: {ResponseLength}", 
+                    userId, response.Text?.Length ?? 0);
+                return response;
             }
-
-            VideoScriptAIResponse response = new()
+            catch (Exception ex)
             {
-                Text = claudResponseText
-            };
-
-            await _requestLogService.Create(new CreateUserRequestLogModel
-            {
-                UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.VideoScript
-            }, cancellationToken);
-
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-
-            return response;
+                _logger.LogError(ex, "Error occurred while calling Claude API for VideoScript. User: {UserId}, Request: {Request}", 
+                    userId, JsonSerializer.Serialize(request, new JsonSerializerOptions 
+                    { 
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                    }));
+                throw new Exception($"Failed to process VideoScript request: {ex.Message}", ex);
+            }
         }
 
         public async Task<EmailAIResponse> Email(UserEmailRequest request, string userId,
             CancellationToken cancellationToken)
         {
+            _logger.LogInformation("Starting Email request for user {UserId}", userId);
+            
             decimal requestPrice = GetRequestPrice(RequestType.Email);
             User user = await _userRepository.GetById(userId, cancellationToken);
 
             if (user != null && user.UserBalance.Balance < requestPrice)
             {
+                _logger.LogWarning("Insufficient balance for Email request. User: {UserId}, Balance: {Balance}, Required: {Required}", 
+                    userId, user.UserBalance.Balance, requestPrice);
                 throw new Exception("EmailAI რექვესთების ბალანსი ამოიწურა");
             }
 
             LanguageModel language = await _languageService.GetById(request.LanguageId, cancellationToken);
-
 
             string templateText = GetEmailTemplate(request.Email, language.Name, request.Form);
 
@@ -745,44 +910,67 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Type = "text",
                 Text = templateText
             };
+            
             ClaudeRequestWithFile claudeRequest = new([message]);
-            ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
-
-            if (!claudResponseText.Contains("</response>"))
+            
+            try
             {
-                int lastPeriod = claudResponseText.LastIndexOf('.');
+                _logger.LogInformation("Sending Email request to Claude API. User: {UserId}, Language: {Language}, EmailLength: {EmailLength}, Form: {Form}", 
+                    userId, language.Name, request.Email?.Length ?? 0, request.Form);
+                    
+                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                
+                _logger.LogInformation("Successfully received response from Claude API for Email. User: {UserId}", userId);
+                
+                string claudResponseText = claudeResponse.Content.Single().Text.Replace("\n", "<br>");
 
-                if (lastPeriod != -1)
+                if (!claudResponseText.Contains("</response>"))
                 {
-                    claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                    int lastPeriod = claudResponseText.LastIndexOf('.');
+
+                    if (lastPeriod != -1)
+                    {
+                        claudResponseText = new string([.. claudResponseText.Take(lastPeriod + 1)]);
+                    }
                 }
+
+                EmailAIResponse response = new()
+                {
+                    Text = claudResponseText
+                };
+
+                await _requestLogService.Create(new CreateUserRequestLogModel
+                {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                    }),
+                    Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                    {
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                    }),
+                    RequestType = RequestType.Email
+                }, cancellationToken);
+
+                await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+
+                _logger.LogInformation("Email request completed successfully. User: {UserId}, Response length: {ResponseLength}", 
+                    userId, response.Text?.Length ?? 0);
+                return response;
             }
-
-            EmailAIResponse response = new()
+            catch (Exception ex)
             {
-                Text = claudResponseText
-            };
-
-            await _requestLogService.Create(new CreateUserRequestLogModel
-            {
-                UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.Email
-            }, cancellationToken);
-
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-
-            return response;
+                _logger.LogError(ex, "Error occurred while calling Claude API for Email. User: {UserId}, Request: {Request}", 
+                    userId, JsonSerializer.Serialize(request, new JsonSerializerOptions 
+                    { 
+                        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping 
+                    }));
+                throw new Exception($"Failed to process Email request: {ex.Message}", ex);
+            }
         }
 
         private static string ConvertAttributes(List<Domain.Models.Attribute> attributes)
@@ -1102,6 +1290,116 @@ Your final output should be a well-formatted HTML file that closely replicates t
                 EmailSpeechForm.Formal => "Formal",
                 EmailSpeechForm.Familiar => "Familiar",
                 _ => "Neutral"
+            };
+        }
+
+        /// <summary>
+        /// Handles Claude API errors and returns appropriate user-friendly error messages for background jobs
+        /// </summary>
+        /// <param name="ex">The exception that occurred</param>
+        /// <param name="operationType">The type of operation (e.g., "translation", "content generation")</param>
+        /// <param name="context">Additional context about the operation</param>
+        /// <returns>A user-friendly error message</returns>
+        private string HandleClaudeApiErrorForBackgroundJob(Exception ex, string operationType, string context = "")
+        {
+            _logger.LogError(ex, "Claude API error in background job for {OperationType}. Context: {Context}", operationType, context);
+
+            return ex switch
+            {
+                // HTTP-related errors (likely Anthropic API issues)
+                HttpRequestException httpEx when httpEx.Message.Contains("timeout") =>
+                    $"The AI service is temporarily unavailable. Your {operationType} request could not be completed due to timeout. Please try again later.",
+
+                HttpRequestException httpEx when httpEx.Message.Contains("503") || httpEx.Message.Contains("502") || httpEx.Message.Contains("500") =>
+                    $"The Anthropic AI service is temporarily unavailable. Your {operationType} request could not be completed. Please try again in a few minutes.",
+
+                HttpRequestException httpEx when httpEx.Message.Contains("429") =>
+                    $"The AI service is experiencing high load. Your {operationType} request could not be completed. Please wait a few minutes and try again.",
+
+                HttpRequestException httpEx when httpEx.Message.Contains("401") || httpEx.Message.Contains("403") =>
+                    $"AI service authorization problem. Your {operationType} request could not be completed due to authentication error. Please contact support.",
+
+                HttpRequestException =>
+                    $"AI service connection problem. Your {operationType} request could not be completed. Please check your internet connection and try again.",
+
+                // Task/Operation cancelled
+                OperationCanceledException =>
+                    $"Your {operationType} request was cancelled or timed out. Please try again.",
+
+                // JSON/Serialization errors
+                var jsonEx when jsonEx.Message.Contains("JSON") || jsonEx.Message.Contains("Deserialize") =>
+                    $"Received invalid response from AI service. Your {operationType} request could not be completed. Please try again.",
+
+                // Rate limiting or quota errors
+                var quotaEx when quotaEx.Message.Contains("quota") || quotaEx.Message.Contains("rate") || quotaEx.Message.Contains("limit") =>
+                    $"AI service quota exceeded. Your {operationType} request could not be completed. Please try again in a few hours.",
+
+                // File-related errors
+                var fileEx when fileEx.Message.Contains("file") && fileEx.Message.Contains("size") =>
+                    $"File is too large for {operationType}. Please use a smaller file.",
+
+                var fileEx when fileEx.Message.Contains("file") && fileEx.Message.Contains("format") =>
+                    $"File format is not supported for {operationType}. Please check the file type.",
+
+                // Content-related errors
+                var contentEx when contentEx.Message.Contains("content") && contentEx.Message.Contains("empty") =>
+                    $"File is empty or contains no processable text for {operationType}.",
+
+                var contentEx when contentEx.Message.Contains("content") && contentEx.Message.Contains("large") =>
+                    $"Content is too large for {operationType}. Please split into smaller parts.",
+
+                // Authentication/API key issues
+                var authEx when authEx.Message.Contains("API") && authEx.Message.Contains("key") =>
+                    $"AI service configuration error. Your {operationType} request could not be completed. Please contact support.",
+
+                // Memory or resource issues
+                OutOfMemoryException =>
+                    $"File or content is too large for {operationType}. Please use a smaller file.",
+
+                // Argument/validation errors
+                ArgumentException argEx =>
+                    $"Invalid parameters for {operationType}: {GetSafeErrorMessage(argEx.Message)}",
+
+                // Generic fallback
+                _ => $"Your {operationType} request could not be completed due to an unexpected error. Please try again or contact support."
+            };
+        }
+
+        /// <summary>
+        /// Safely extracts error message parts that are safe to show to users
+        /// </summary>
+        private static string GetSafeErrorMessage(string errorMessage)
+        {
+            if (string.IsNullOrWhiteSpace(errorMessage))
+                return "Unknown error";
+
+            // Remove potentially sensitive information
+            var safeMessage = errorMessage
+                .Replace("API key", "***")
+                .Replace("token", "***")
+                .Replace("password", "***")
+                .Replace("secret", "***");
+
+            // Limit length to prevent overly long error messages
+            if (safeMessage.Length > 200)
+                safeMessage = safeMessage.Substring(0, 200) + "...";
+
+            return safeMessage;
+        }
+
+        /// <summary>
+        /// Determines if an error is likely due to a temporary issue that might resolve with retry
+        /// </summary>
+        private static bool IsRetryableError(Exception ex)
+        {
+            return ex switch
+            {
+                HttpRequestException httpEx when httpEx.Message.Contains("timeout") => true,
+                HttpRequestException httpEx when httpEx.Message.Contains("503") || httpEx.Message.Contains("502") => true,
+                HttpRequestException httpEx when httpEx.Message.Contains("429") => true,
+                OperationCanceledException => true,
+                _ when ex.Message.Contains("rate") || ex.Message.Contains("limit") => true,
+                _ => false
             };
         }
         
