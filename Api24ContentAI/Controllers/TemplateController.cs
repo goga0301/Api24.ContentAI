@@ -12,9 +12,14 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class TemplateController(ITemplateService templateService) : ControllerBase
+    public class TemplateController : ControllerBase
     {
-        private readonly ITemplateService _templateService = templateService;
+        private readonly ITemplateService _templateService;
+
+        public TemplateController(ITemplateService templateService)
+        {
+            _templateService = templateService;
+        }
 
         [HttpGet]
         public async Task<List<TemplateModel>> GetAll(CancellationToken cancellationToken)

@@ -16,12 +16,21 @@ namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService, ILogger<AuthController> logger) : ControllerBase
+    public class AuthController : ControllerBase
     {
-        private readonly IConfiguration _configuration = configuration;
-        private readonly IAuthService _authService = authService;
-        private readonly IUserContentService _userContentService = userContentService;
-        private readonly ILogger<AuthController> _logger = logger;
+        private readonly IConfiguration _configuration;
+        private readonly IAuthService _authService;
+        private readonly IUserContentService _userContentService;
+        private readonly ILogger<AuthController> _logger;
+
+        public AuthController(IConfiguration configuration, IAuthService authService, IUserContentService userContentService, ILogger<AuthController> logger)
+        {
+            _configuration = configuration;
+            _authService = authService;
+            _userContentService = userContentService;
+            _logger = logger;
+        }
+
 
         [HttpPost("basic")]
         [AllowAnonymous]

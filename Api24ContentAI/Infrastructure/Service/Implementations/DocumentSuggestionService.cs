@@ -55,7 +55,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return new List<TranslationSuggestion>();
                 }
 
-                // Extract JSON from the response
                 var jsonStart = responseText.IndexOf('[');
                 var jsonEnd = responseText.LastIndexOf(']');
 
@@ -108,9 +107,24 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     };
                 }
 
+                // Create effective suggestion using edited values when provided, otherwise original values
+                var effectiveSuggestion = new TranslationSuggestion
+                {
+                    Id = request.Suggestion.Id,
+                    Title = request.Suggestion.Title,
+                    Description = request.Suggestion.Description,
+                    Type = request.Suggestion.Type,
+                    OriginalText = request.EditedOriginalText ?? request.Suggestion.OriginalText,
+                    SuggestedText = request.EditedSuggestedText ?? request.Suggestion.SuggestedText,
+                    Priority = request.Suggestion.Priority
+                };
+
+                _logger.LogInformation("Using effective suggestion - Title: {Title}, Type: {Type}, OriginalText: {OriginalText}, SuggestedText: {SuggestedText}", 
+                    effectiveSuggestion.Title, effectiveSuggestion.Type, effectiveSuggestion.OriginalText, effectiveSuggestion.SuggestedText);
+
                 var prompt = GenerateApplySuggestionPrompt(
                     request.TranslatedContent, 
-                    request.Suggestion, 
+                    effectiveSuggestion, 
                     language.Name);
 
                 var claudeRequest = new ClaudeRequest(prompt);
@@ -126,14 +140,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     };
                 }
 
-                // Generate new suggestions for the updated content
                 var newSuggestions = await GenerateSuggestions("", updatedContent, request.TargetLanguageId, cancellationToken);
+
+                var changeDescription = request.HasEdits 
+                    ? $"Applied edited suggestion: {effectiveSuggestion.Title}"
+                    : $"Applied suggestion: {effectiveSuggestion.Title}";
 
                 return new ApplySuggestionResponse
                 {
                     Success = true,
                     UpdatedContent = updatedContent,
-                    ChangeDescription = $"Applied {request.Suggestion.Type} suggestion: {request.Suggestion.Title}",
+                    ChangeDescription = changeDescription,
                     NewSuggestions = newSuggestions
                 };
             }

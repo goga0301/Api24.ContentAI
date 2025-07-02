@@ -12,9 +12,14 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class ProductCategoryController(IProductCategoryService productCategoryService) : ControllerBase
+    public class ProductCategoryController : ControllerBase
     {
-        private readonly IProductCategoryService _productCategoryService = productCategoryService;
+        private readonly IProductCategoryService _productCategoryService;
+
+        public ProductCategoryController(IProductCategoryService productCategoryService)
+        {
+            _productCategoryService = productCategoryService;
+        }
 
         [HttpGet]
         [AllowAnonymous]

@@ -17,22 +17,38 @@ using Microsoft.Extensions.Options;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class AuthService(
-        ContentDbContext context,
-        UserManager<User> userManager,
-        RoleManager<Role> roleManager,
-        IUserRepository userRepository,
-        IJwtGenerator jwtTokenGenerator,
-        HttpClient httpClient,
-        IOptions<FbOptions> fbOptions,
-        IConfiguration configuration
-        )
-        : IAuthService
+    public class AuthService : IAuthService
     {
-        private readonly FbOptions _fbOptions = fbOptions.Value;
+        private readonly ContentDbContext context;
+        private readonly UserManager<User> userManager;
+        private readonly RoleManager<Role> roleManager;
+        private readonly IUserRepository userRepository;
+        private readonly IJwtGenerator jwtTokenGenerator;
+        private readonly HttpClient httpClient;
+        private readonly FbOptions _fbOptions;
+        private readonly IConfiguration _configuration;
         private const string _adminRole = "administrator";
         private const string _customerRole = "user";
-        private readonly IConfiguration _configuration = configuration;
+
+        public AuthService(
+            ContentDbContext context,
+            UserManager<User> userManager,
+            RoleManager<Role> roleManager,
+            IUserRepository userRepository,
+            IJwtGenerator jwtTokenGenerator,
+            HttpClient httpClient,
+            IOptions<FbOptions> fbOptions,
+            IConfiguration configuration)
+        {
+            this.context = context;
+            this.userManager = userManager;
+            this.roleManager = roleManager;
+            this.userRepository = userRepository;
+            this.jwtTokenGenerator = jwtTokenGenerator;
+            this.httpClient = httpClient;
+            this._fbOptions = fbOptions.Value;
+            this._configuration = configuration;
+        }
 
 
         public async Task Register(RegistrationRequest registrationRequest, CancellationToken cancellationToken, UserType userType = UserType.Normal)

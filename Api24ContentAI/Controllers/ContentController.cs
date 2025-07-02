@@ -12,10 +12,16 @@ namespace Api24ContentAI.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    public class ContentController(IContentService contentService, HttpClient httpClient) : ControllerBase
+    public class ContentController : ControllerBase
     {
-        private readonly IContentService _contentService = contentService;
-        private readonly HttpClient _httpClient = httpClient;
+        private readonly IContentService _contentService;
+        private readonly HttpClient _httpClient;
+
+        public ContentController(IContentService contentService, HttpClient httpClient)
+        {
+            _contentService = contentService;
+            _httpClient = httpClient;
+        }
 
         [HttpPost]
         public async Task<IActionResult> Send([FromBody] ContentAIRequest request, CancellationToken cancellationToken)

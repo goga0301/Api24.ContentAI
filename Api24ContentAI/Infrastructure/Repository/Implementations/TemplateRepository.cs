@@ -1,6 +1,5 @@
 ﻿using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Repository;
-using Api24ContentAI.Domain.Service;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using System;

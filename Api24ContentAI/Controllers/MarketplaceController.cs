@@ -12,9 +12,14 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class MarketplaceController(IMarketplaceService marketplaceService) : ControllerBase
+    public class MarketplaceController : ControllerBase
     {
-        private readonly IMarketplaceService _marketplaceService = marketplaceService;
+        private readonly IMarketplaceService _marketplaceService;
+
+        public MarketplaceController(IMarketplaceService marketplaceService)
+        {
+            _marketplaceService = marketplaceService;
+        }
 
         [HttpGet]
         public async Task<List<MarketplaceModel>> GetAll(CancellationToken cancellationToken)

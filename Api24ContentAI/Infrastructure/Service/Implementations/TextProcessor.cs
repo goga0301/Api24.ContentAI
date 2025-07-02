@@ -6,7 +6,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Api24ContentAI.Domain.Models;
-using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Service;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
