@@ -16,9 +16,13 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class UserContentController(IUserContentService userContentService) : ControllerBase
+    public class UserContentController: ControllerBase
     {
-        private readonly IUserContentService _userContentService = userContentService;
+        private readonly IUserContentService _userContentService;
+
+        public UserContentController(IUserContentService userContentService){
+            this._userContentService = userContentService;
+        }
 
         [HttpPost]
         public async Task<IActionResult> Send([FromBody] UserContentAIRequest request,

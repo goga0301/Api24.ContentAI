@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Threading;
-using Api24ContentAI.Domain.Entities;
 
 namespace Api24ContentAI.Domain.Service
 {

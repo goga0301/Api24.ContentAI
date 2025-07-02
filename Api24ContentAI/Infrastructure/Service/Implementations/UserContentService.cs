@@ -23,20 +23,30 @@ using System.Net.Http;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    public class UserContentService(
-        IClaudeService claudeService,
-        IUserRequestLogService requestLogService,
-        IProductCategoryService productCategoryService,
-        ILanguageService languageService,
-        IUserRepository userRepository,
-        ILogger<UserContentService> logger) : IUserContentService
+    public class UserContentService : IUserContentService
     {
-        private readonly IClaudeService _claudeService = claudeService;
-        private readonly IUserRequestLogService _requestLogService = requestLogService;
-        private readonly IProductCategoryService _productCategoryService = productCategoryService;
-        private readonly ILanguageService _languageService = languageService;
-        private readonly IUserRepository _userRepository = userRepository;
-        private readonly ILogger<UserContentService> _logger = logger;
+        private readonly IClaudeService _claudeService;
+        private readonly IUserRequestLogService _requestLogService;
+        private readonly IProductCategoryService _productCategoryService;
+        private readonly ILanguageService _languageService;
+        private readonly IUserRepository _userRepository;
+        private readonly ILogger<UserContentService> _logger;
+
+        public UserContentService(
+            IClaudeService claudeService,
+            IUserRequestLogService requestLogService,
+            IProductCategoryService productCategoryService,
+            ILanguageService languageService,
+            IUserRepository userRepository,
+            ILogger<UserContentService> logger)
+        {
+            _claudeService = claudeService;
+            _requestLogService = requestLogService;
+            _productCategoryService = productCategoryService;
+            _languageService = languageService;
+            _userRepository = userRepository;
+            _logger = logger;
+        }
 
         private static readonly string[] SupportedFileExtensions =
         [
@@ -1071,47 +1081,47 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             return $@"You are an AI assistant tasked with converting Word or PDF documents into HTML format while preserving the original document's structure, formatting, and visual elements. Your goal is to create an HTML file that, when rendered, will replicate the original document as closely as possible. The resulting HTML should be formatted to fit an A4 page size to ensure compatibility with standard printing formats.
 
-Here are the steps you should follow:
+                    Here are the steps you should follow:
 
-1. Analyze the input file:
-<input_file> {fileName} </input_file>
+                    1. Analyze the input file:
+                    <input_file> {fileName} </input_file>
 
-Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
+                    Determine the file type (Word or PDF) and assess its content, including text, tables, images, and other visual elements.
 
-2. Process the document content:
-- Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
-- Identify and preserve any special formatting (bold, italic, underline, etc.).
-- Locate all tables and images within the document.
+                    2. Process the document content:
+                    - Extract all text from the document, maintaining its original structure (headings, paragraphs, lists, etc.).
+                    - Identify and preserve any special formatting (bold, italic, underline, etc.).
+                    - Locate all tables and images within the document.
 
-3. Handle tables and visual elements:
-- For tables, convert them into HTML table format.
-- For images, extract them and save them as separate files. In the HTML document, use the appropriate <img> tags to reference these images.
+                    3. Handle tables and visual elements:
+                    - For tables, convert them into HTML table format.
+                    - For images, extract them and save them as separate files. In the HTML document, use the appropriate <img> tags to reference these images.
 
-4. Convert to HTML format:
-- Use appropriate HTML tags for headings, lists, emphasis, and links.
-- Ensure that the document's hierarchy and structure are maintained through proper use of HTML elements (<h1>, <h2>, <p>, <ul>, <ol>, etc.).
-- Convert any footnotes or endnotes to HTML format using appropriate tags such as <sup> and <a>.
+                    4. Convert to HTML format:
+                    - Use appropriate HTML tags for headings, lists, emphasis, and links.
+                    - Ensure that the document's hierarchy and structure are maintained through proper use of HTML elements (<h1>, <h2>, <p>, <ul>, <ol>, etc.).
+                    - Convert any footnotes or endnotes to HTML format using appropriate tags such as <sup> and <a>.
 
-5. Ensure A4 Page Compatibility:
-- Use inline CSS or a <style> block to format the page for A4 size:
-  - Set the page dimensions to A4 size (210mm x 297mm).
-  - Include margins and padding to match standard print layout.
-  - Use @media print in the CSS to optimize the document for printing.
-- Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
+                    5. Ensure A4 Page Compatibility:
+                    - Use inline CSS or a <style> block to format the page for A4 size:
+                    - Set the page dimensions to A4 size (210mm x 297mm).
+                    - Include margins and padding to match standard print layout.
+                    - Use @media print in the CSS to optimize the document for printing.
+                    - Maintain the original document's layout as closely as possible, including page breaks, columns, and text alignment.
 
-6. Generate the output:
-Create an HTML (.html) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
+                    6. Generate the output:
+                    Create an HTML (.html) file that contains the converted content. Ensure that all references to external files (such as images) are correctly linked.
 
-7. Review and format check:
-- Verify that all content from the original document has been transferred to the HTML file.
-- Check that the HTML syntax is correct and will render properly when opened in a browser or printed.
-- Ensure that the overall structure and appearance of the document are preserved as much as possible, with adherence to A4 format.
+                    7. Review and format check:
+                    - Verify that all content from the original document has been transferred to the HTML file.
+                    - Check that the HTML syntax is correct and will render properly when opened in a browser or printed.
+                    - Ensure that the overall structure and appearance of the document are preserved as much as possible, with adherence to A4 format.
 
-Your final output should be a well-formatted HTML file that closely replicates the original document. Include only the converted HTML content in your response, enclosed in <html_output> tags. Do not include any explanations or comments outside of these tags.
+                    Your final output should be a well-formatted HTML file that closely replicates the original document. Include only the converted HTML content in your response, enclosed in <html_output> tags. Do not include any explanations or comments outside of these tags.
 
-<html_output>
-[Insert the converted HTML content here]
-</html_output>";
+                    <html_output>
+                    [Insert the converted HTML content here]
+                    </html_output>";
         }
 
         private static string GetChainTranslateTemplate(string initialPrompt, string lastResponse)
@@ -1387,9 +1397,6 @@ Your final output should be a well-formatted HTML file that closely replicates t
             return safeMessage;
         }
 
-        /// <summary>
-        /// Determines if an error is likely due to a temporary issue that might resolve with retry
-        /// </summary>
         private static bool IsRetryableError(Exception ex)
         {
             return ex switch

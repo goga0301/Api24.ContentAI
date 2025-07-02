@@ -12,9 +12,14 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class RequestLogController(IRequestLogService requestLogService) : ControllerBase
+    public class RequestLogController : ControllerBase
     {
-        private readonly IRequestLogService _requestLogService = requestLogService;
+        private readonly IRequestLogService _requestLogService;
+
+        public RequestLogController(IRequestLogService requestLogService)
+        {
+            _requestLogService = requestLogService;
+        }
 
         [HttpGet]
         public async Task<List<RequestLogModel>> GetAll(CancellationToken cancellationToken)

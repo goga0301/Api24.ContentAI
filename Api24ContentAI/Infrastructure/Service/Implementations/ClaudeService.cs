@@ -91,7 +91,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 StringContent httpContent = new(jsonContent, Encoding.UTF8, "application/json");
                 
-                // Determine timeout based on request size
                 TimeSpan timeout = jsonContent.Length switch
                 {
                     > 5000000 => TimeSpan.FromMinutes(15), // 5MB+ = 15 minutes
@@ -158,12 +157,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         public async Task<ClaudeResponse> SendRequestWithCachedPrompt(ClaudeRequestWithFile request, CancellationToken cancellationToken)
         {
-            // This method is identical to SendRequestWithFile but explicitly indicates caching is being used
-            // The actual caching behavior is controlled by the cache_control properties in the request
             return await SendRequestWithFile(request, cancellationToken);
         }
 
-        // Helper method to create a cached system prompt
         public static List<SystemMessage> CreateCachedSystemPrompt(string promptText)
         {
             return new List<SystemMessage>
@@ -177,7 +173,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
-        // Helper method to create cacheable content
         public static ContentFile CreateCacheableContent(string text, bool enableCaching = true)
         {
             return new ContentFile

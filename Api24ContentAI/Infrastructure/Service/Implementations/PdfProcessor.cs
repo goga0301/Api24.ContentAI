@@ -12,61 +12,191 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using static System.Text.RegularExpressions.Regex;
 
-namespace Api24ContentAI.Infrastructure.Service.Implementations;
-
-public class PdfProcessor(
-    IClaudeService claudeService,
-    ILanguageService languageService,
-    IUserService userService,
-    IGptService gptService,
-    ILogger<DocumentTranslationService> logger
-) : IPdfProcessor
+namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
-    private readonly IClaudeService _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
-    private readonly ILanguageService _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
-    private readonly IUserService _userService = userService ?? throw new ArgumentNullException(nameof(userService));
-    private readonly IGptService _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
-    private readonly ILogger<DocumentTranslationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    
-    
-    public bool CanProcess(string fileExtension)
+    public class PdfProcessor : IPdfProcessor
     {
-        var ext = fileExtension.ToLowerInvariant();
-        return ext is ".pdf";
-    }
+        private readonly IClaudeService _claudeService;
+        private readonly ILanguageService _languageService;
+        private readonly IUserService _userService;
+        private readonly IGptService _gptService;
+        private readonly ILogger<DocumentTranslationService> _logger;
 
-    public async Task<DocumentTranslationResult> TranslateWithTesseract(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
-        CancellationToken cancellationToken)
-    {
-        
-        try
+        public PdfProcessor(
+            IClaudeService claudeService,
+            ILanguageService languageService,
+            IUserService userService,
+            IGptService gptService,
+            ILogger<DocumentTranslationService> logger)
         {
-            if (file == null || file.Length == 0)
-            {
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "No file provided" };
-            }
+            _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
+            _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
+            _userService = userService ?? throw new ArgumentNullException(nameof(userService));
+            _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        }
 
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "User ID is required" };
-            }
+        public bool CanProcess(string fileExtension)
+        {
+            var ext = fileExtension.ToLowerInvariant();
+            return ext is ".pdf";
+        }
 
-            var user = await _userService.GetById(userId, cancellationToken);
-            if (user == null)
+        public async Task<DocumentTranslationResult> TranslateWithTesseract(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
+            CancellationToken cancellationToken)
+        {
+        
+            try
             {
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "User not found" };
-            }
+                if (file == null || file.Length == 0)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "No file provided" };
+                }
 
-            var ocrTxtContent = await SendFileToOcrService(file, cancellationToken);
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "User ID is required" };
+                }
+
+                var user = await _userService.GetById(userId, cancellationToken);
+                if (user == null)
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "User not found" };
+                }
+
+                var ocrTxtContent = await SendFileToOcrService(file, cancellationToken);
                 
-            var translationResult = await TranslateOcrContent(ocrTxtContent, targetLanguageId, userId, cancellationToken);
+                var translationResult = await TranslateOcrContent(ocrTxtContent, targetLanguageId, userId, cancellationToken);
                 
-            if (!translationResult.Success)
-            {
-                _logger.LogWarning("Translation failed: {ErrorMessage}", translationResult.ErrorMessage);
+                if (!translationResult.Success)
+                {
+                    _logger.LogWarning("Translation failed: {ErrorMessage}", translationResult.ErrorMessage);
+                    return translationResult;
+                }
+                
+                if (outputFormat != Domain.Models.DocumentFormat.Markdown)
+                {
+                    _logger.LogInformation("Note: Requested format was {OutputFormat}, but returning Markdown due to conversion limitations", outputFormat);
+                    translationResult.OutputFormat = Domain.Models.DocumentFormat.Markdown;
+                    
+                    if (!string.IsNullOrEmpty(translationResult.TranslatedContent))
+                    {
+                        translationResult.FileData = Encoding.UTF8.GetBytes(translationResult.TranslatedContent);
+                        translationResult.FileName = $"translated_{translationResult.TranslationId}.md";
+                        translationResult.ContentType = "text/markdown";
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Translation result has null or empty content");
+                        return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation resulted in empty content" };
+                    }
+                }
+
                 return translationResult;
             }
-                
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in TranslateDocument");
+                return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error in document translation workflow: {ex.Message}" };
+            }
+        }
+    
+        public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, CancellationToken cancellationToken)
+        {
+            if (file?.Length == 0)
+                throw new ArgumentException("Uploaded file is empty or null", nameof(file));
+
+            var targetLanguage = await _languageService.GetById(targetLanguageId, cancellationToken);
+
+            if (targetLanguage == null || string.IsNullOrWhiteSpace(targetLanguage.Name))
+                throw new ArgumentException("Invalid target language ID", nameof(targetLanguageId));
+
+            var screenshotResult = await GetDocumentScreenshots(file, cancellationToken);
+            var translatedPages = new List<List<string>>();
+
+            foreach (var page in screenshotResult.Pages)
+            {
+                var pageTranslations = new List<string>();
+                for (int i = 0; i < page.ScreenShots.Count; i++)
+                {
+                    var base64Data = page.ScreenShots[i];
+                    var sectionName = $"section-{i + 1}";
+
+                    if (string.IsNullOrWhiteSpace(base64Data))
+                    {
+                        _logger.LogWarning("Empty screenshot data for page {Page} section {Section}", page.Page, i);
+                        pageTranslations.Add(string.Empty);
+                        continue;
+                    }
+
+                    var imageData = Convert.FromBase64String(base64Data);
+
+                    var translated = await ExtractAndTranslateWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, cancellationToken);
+                    pageTranslations.Add(translated);
+                }
+
+                translatedPages.Add(pageTranslations);
+            }
+
+            var finalMarkdown = await CombineTranslatedSectionsWithClaude(translatedPages, targetLanguage.Name, cancellationToken);
+            
+            string improvedTranslation = finalMarkdown;
+            double qualityScore = 0.0;
+    
+            if (!string.IsNullOrWhiteSpace(finalMarkdown))
+            {
+                _logger.LogInformation("Starting translation verification for Claude-translated document");
+        
+                try
+                {
+                    List<KeyValuePair<int, string>> translationChunksForVerification;
+            
+                    if (finalMarkdown.Length > 8000)
+                    {
+                        _logger.LogInformation("Translation is large ({Length} chars), splitting into chunks for verification", finalMarkdown.Length);
+                        var chunks = GetChunksOfText(finalMarkdown, 8000);
+                        translationChunksForVerification = chunks.Select((chunk, index) => 
+                            new KeyValuePair<int, string>(index + 1, chunk)).ToList();
+                        _logger.LogInformation("Split into {Count} chunks for verification", chunks.Count);
+                    }
+                    else
+                    {
+                        translationChunksForVerification = [new KeyValuePair<int, string>(1, finalMarkdown)];
+                    }
+
+                    var (verificationResult, verifiedTranslation) = await ProcessTranslationVerification(
+                        cancellationToken, translationChunksForVerification, targetLanguage, finalMarkdown);
+            
+                    if (verificationResult.Success)
+                    {
+                        improvedTranslation = verifiedTranslation;
+                        qualityScore = verificationResult.QualityScore ?? 1.0;
+                        _logger.LogInformation("Claude translation verification completed with score: {Score}", qualityScore);
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Translation verification failed: {Error}", verificationResult.ErrorMessage);
+                        qualityScore = 0.5;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error during Claude translation verification, using original translation");
+                    qualityScore = 0.5; 
+                }
+            }
+
+            string translationId = Guid.NewGuid().ToString();
+            
+            var translationResult = new DocumentTranslationResult
+            {
+                TranslatedContent = improvedTranslation,
+                OutputFormat = outputFormat,
+                Success = true,
+                TranslationQualityScore = qualityScore,
+                TranslationId = translationId
+            };
+            
             if (outputFormat != Domain.Models.DocumentFormat.Markdown)
             {
                 _logger.LogInformation("Note: Requested format was {OutputFormat}, but returning Markdown due to conversion limitations", outputFormat);
@@ -87,724 +217,603 @@ public class PdfProcessor(
 
             return translationResult;
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in TranslateDocument");
-            return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error in document translation workflow: {ex.Message}" };
-        }
-    }
+
+
     
-    public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, CancellationToken cancellationToken)
-    {
-        if (file?.Length == 0)
-            throw new ArgumentException("Uploaded file is empty or null", nameof(file));
-
-        var targetLanguage = await _languageService.GetById(targetLanguageId, cancellationToken);
-
-        if (targetLanguage == null || string.IsNullOrWhiteSpace(targetLanguage.Name))
-            throw new ArgumentException("Invalid target language ID", nameof(targetLanguageId));
-
-        var screenshotResult = await GetDocumentScreenshots(file, cancellationToken);
-        var translatedPages = new List<List<string>>();
-
-        foreach (var page in screenshotResult.Pages)
+        private async Task<string> SendFileToOcrService(IFormFile file, CancellationToken cancellationToken)
         {
-            var pageTranslations = new List<string>();
-            for (int i = 0; i < page.ScreenShots.Count; i++)
-            {
-                var base64Data = page.ScreenShots[i];
-                var sectionName = $"section-{i + 1}";
-
-                if (string.IsNullOrWhiteSpace(base64Data))
-                {
-                    _logger.LogWarning("Empty screenshot data for page {Page} section {Section}", page.Page, i);
-                    pageTranslations.Add(string.Empty);
-                    continue;
-                }
-
-                var imageData = Convert.FromBase64String(base64Data);
-
-                var translated = await ExtractAndTranslateWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, cancellationToken);
-                pageTranslations.Add(translated);
-            }
-
-            translatedPages.Add(pageTranslations);
-        }
-
-        var finalMarkdown = await CombineTranslatedSectionsWithClaude(translatedPages, targetLanguage.Name, cancellationToken);
-            
-        string improvedTranslation = finalMarkdown;
-        double qualityScore = 0.0;
-    
-        if (!string.IsNullOrWhiteSpace(finalMarkdown))
-        {
-            _logger.LogInformation("Starting translation verification for Claude-translated document");
-        
             try
             {
-                List<KeyValuePair<int, string>> translationChunksForVerification;
-            
-                if (finalMarkdown.Length > 8000)
+                _logger.LogInformation("Sending file {FileName} to OCR service, size: {Size} bytes", 
+                    file.FileName, file.Length);
+                
+                using var httpClient = new HttpClient();
+                using var formContent = new MultipartFormDataContent();
+
+                await using var fileStream = file.OpenReadStream();
+                using var streamContent = new StreamContent(fileStream);
+                
+                formContent.Add(streamContent, "file", file.FileName);
+                
+                var response = await httpClient.PostAsync("http://127.0.0.1:8000/ocr", formContent, cancellationToken);
+                response.EnsureSuccessStatusCode();
+                
+                var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+                _logger.LogInformation("Received OCR response, length: {Length} characters", responseContent.Length);
+                
+                if (!string.IsNullOrEmpty(responseContent))
                 {
-                    _logger.LogInformation("Translation is large ({Length} chars), splitting into chunks for verification", finalMarkdown.Length);
-                    var chunks = GetChunksOfText(finalMarkdown, 8000);
-                    translationChunksForVerification = chunks.Select((chunk, index) => 
-                        new KeyValuePair<int, string>(index + 1, chunk)).ToList();
-                    _logger.LogInformation("Split into {Count} chunks for verification", chunks.Count);
+                    _logger.LogDebug("OCR response sample: {Sample}", 
+                        responseContent[..Math.Min(responseContent.Length, 200)]);
                 }
                 else
                 {
-                    translationChunksForVerification = [new KeyValuePair<int, string>(1, finalMarkdown)];
+                    _logger.LogWarning("OCR service returned empty response");
                 }
-
-                var (verificationResult, verifiedTranslation) = await ProcessTranslationVerification(
-                    cancellationToken, translationChunksForVerification, targetLanguage, finalMarkdown);
-            
-                if (verificationResult.Success)
-                {
-                    improvedTranslation = verifiedTranslation;
-                    qualityScore = verificationResult.QualityScore ?? 1.0;
-                    _logger.LogInformation("Claude translation verification completed with score: {Score}", qualityScore);
-                }
-                else
-                {
-                    _logger.LogWarning("Translation verification failed: {Error}", verificationResult.ErrorMessage);
-                    qualityScore = 0.5;
-                }
+                
+                return responseContent;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during Claude translation verification, using original translation");
-                qualityScore = 0.5; 
+                _logger.LogError(ex, "Error sending file to OCR service");
+                throw new Exception($"Failed to process file with OCR service: {ex.Message}");
             }
         }
-
-        string translationId = Guid.NewGuid().ToString();
-            
-        var translationResult = new DocumentTranslationResult
-        {
-            TranslatedContent = improvedTranslation,
-            OutputFormat = outputFormat,
-            Success = true,
-            TranslationQualityScore = qualityScore,
-            TranslationId = translationId
-        };
-            
-        if (outputFormat != Domain.Models.DocumentFormat.Markdown)
-        {
-            _logger.LogInformation("Note: Requested format was {OutputFormat}, but returning Markdown due to conversion limitations", outputFormat);
-            translationResult.OutputFormat = Domain.Models.DocumentFormat.Markdown;
-                    
-            if (!string.IsNullOrEmpty(translationResult.TranslatedContent))
-            {
-                translationResult.FileData = Encoding.UTF8.GetBytes(translationResult.TranslatedContent);
-                translationResult.FileName = $"translated_{translationResult.TranslationId}.md";
-                translationResult.ContentType = "text/markdown";
-            }
-            else
-            {
-                _logger.LogWarning("Translation result has null or empty content");
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation resulted in empty content" };
-            }
-        }
-
-        return translationResult;
-    }
-
-
     
-    private async Task<string> SendFileToOcrService(IFormFile file, CancellationToken cancellationToken)
-    {
-        try
+        private async Task<DocumentTranslationResult> TranslateOcrContent(string ocrTxtContent, int targetLanguageId, string userId, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Sending file {FileName} to OCR service, size: {Size} bytes", 
-                file.FileName, file.Length);
-                
-            using var httpClient = new HttpClient();
-            using var formContent = new MultipartFormDataContent();
-
-            await using var fileStream = file.OpenReadStream();
-            using var streamContent = new StreamContent(fileStream);
-                
-            formContent.Add(streamContent, "file", file.FileName);
-                
-            var response = await httpClient.PostAsync("http://127.0.0.1:8000/ocr", formContent, cancellationToken);
-            response.EnsureSuccessStatusCode();
-                
-            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
-            _logger.LogInformation("Received OCR response, length: {Length} characters", responseContent.Length);
-                
-            if (!string.IsNullOrEmpty(responseContent))
-            {
-                _logger.LogDebug("OCR response sample: {Sample}", 
-                    responseContent[..Math.Min(responseContent.Length, 200)]);
-            }
-            else
-            {
-                _logger.LogWarning("OCR service returned empty response");
-            }
-                
-            return responseContent;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error sending file to OCR service");
-            throw new Exception($"Failed to process file with OCR service: {ex.Message}");
-        }
-    }
-    
-    private async Task<DocumentTranslationResult> TranslateOcrContent(string ocrTxtContent, int targetLanguageId, string userId, CancellationToken cancellationToken)
-    {
-        try
-        {
-            if (string.IsNullOrWhiteSpace(ocrTxtContent))
-            {
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "No OCR content provided" };
-            }
-
-            if (string.IsNullOrWhiteSpace(userId))
-            {
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "User ID is required" };
-            }
-
-            _logger.LogInformation("Deserializing OCR JSON response");
-                
-            string extractedText = ocrTxtContent;
-                
-            LanguageModel language;
             try
             {
-                language = await _languageService.GetById(targetLanguageId, cancellationToken);
-                if (language == null)
+                if (string.IsNullOrWhiteSpace(ocrTxtContent))
                 {
-                    _logger.LogWarning("Target language not found: {LanguageId}", targetLanguageId);
-                    return new DocumentTranslationResult { Success = false, ErrorMessage = "Target language not found" };
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "No OCR content provided" };
                 }
-                _logger.LogInformation("Target language: {LanguageName} (ID: {LanguageId})", language.Name, targetLanguageId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting language with ID {LanguageId}", targetLanguageId);
-                return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error getting language: {ex.Message}" };
-            }
-                
-            List<string> chunks;
-            if (extractedText.Length > 8000)
-            {
-                _logger.LogInformation("Text is too large ({Length} chars), splitting into chunks", extractedText.Length);
-                chunks = GetChunksOfText(extractedText, 8000);
-                _logger.LogInformation("Split into {Count} chunks", chunks.Count);
-            }
-            else
-            {
-                chunks = [extractedText];
-            }
 
-            var translatedChunks = new List<string>();
-            var translationChunksForVerification = new List<KeyValuePair<int, string>>();
+                if (string.IsNullOrWhiteSpace(userId))
+                {
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "User ID is required" };
+                }
+
+                _logger.LogInformation("Deserializing OCR JSON response");
                 
-            for (var i = 0; i < chunks.Count; i++)
-            {
-                var chunk = chunks[i];
-                _logger.LogInformation("Translating chunk {Index}/{Total}, size: {Size} characters", 
-                    i + 1, chunks.Count, chunk.Length);
-                    
-                var prompt = GenerateTranslationPrompt(language, i, chunks, chunk);
+                string extractedText = ocrTxtContent;
+                
+                LanguageModel language;
                 try
                 {
-                    var message = new ContentFile { Type = "text", Text = prompt };
-                    var claudeRequest = new ClaudeRequestWithFile([message]);
-                        
-                    _logger.LogInformation("Sending chunk {Index}/{Total} to Claude for translation", 
-                        i + 1, chunks.Count);
-                        
-                    var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-                        
-                    var content = claudeResponse.Content?.SingleOrDefault();
-                    if (content == null)
+                    language = await _languageService.GetById(targetLanguageId, cancellationToken);
+                    if (language == null)
                     {
-                        _logger.LogWarning("No content received from Claude service for chunk {Index}/{Total}", 
-                            i + 1, chunks.Count);
-                        continue;
+                        _logger.LogWarning("Target language not found: {LanguageId}", targetLanguageId);
+                        return new DocumentTranslationResult { Success = false, ErrorMessage = "Target language not found" };
                     }
-                        
-                    string translatedChunk = content.Text.Trim();
-                    if (string.IsNullOrWhiteSpace(translatedChunk))
-                    {
-                        _logger.LogWarning("Claude returned empty translation result for chunk {Index}/{Total}", 
-                            i + 1, chunks.Count);
-                        continue;
-                    }
-                        
-                    _logger.LogInformation("Received translation for chunk {Index}/{Total}, length: {Length} characters", 
-                        i + 1, chunks.Count, translatedChunk.Length);
-                        
-                    translatedChunks.Add(translatedChunk);
-                    translationChunksForVerification.Add(new KeyValuePair<int, string>(i + 1, translatedChunk));
+                    _logger.LogInformation("Target language: {LanguageName} (ID: {LanguageId})", language.Name, targetLanguageId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error translating chunk {Index}/{Total}", i + 1, chunks.Count);
+                    _logger.LogError(ex, "Error getting language with ID {LanguageId}", targetLanguageId);
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error getting language: {ex.Message}" };
+                }
+                
+                List<string> chunks;
+                if (extractedText.Length > 8000)
+                {
+                    _logger.LogInformation("Text is too large ({Length} chars), splitting into chunks", extractedText.Length);
+                    chunks = GetChunksOfText(extractedText, 8000);
+                    _logger.LogInformation("Split into {Count} chunks", chunks.Count);
+                }
+                else
+                {
+                    chunks = [extractedText];
+                }
+
+                var translatedChunks = new List<string>();
+                var translationChunksForVerification = new List<KeyValuePair<int, string>>();
+                
+                for (var i = 0; i < chunks.Count; i++)
+                {
+                    var chunk = chunks[i];
+                    _logger.LogInformation("Translating chunk {Index}/{Total}, size: {Size} characters", 
+                        i + 1, chunks.Count, chunk.Length);
+                    
+                    var prompt = GenerateTranslationPrompt(language, i, chunks, chunk);
+                    try
+                    {
+                        var message = new ContentFile { Type = "text", Text = prompt };
+                        var claudeRequest = new ClaudeRequestWithFile([message]);
+                        
+                        _logger.LogInformation("Sending chunk {Index}/{Total} to Claude for translation", 
+                            i + 1, chunks.Count);
+                        
+                        var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                        
+                        var content = claudeResponse.Content?.SingleOrDefault();
+                        if (content == null)
+                        {
+                            _logger.LogWarning("No content received from Claude service for chunk {Index}/{Total}", 
+                                i + 1, chunks.Count);
+                            continue;
+                        }
+                        
+                        string translatedChunk = content.Text.Trim();
+                        if (string.IsNullOrWhiteSpace(translatedChunk))
+                        {
+                            _logger.LogWarning("Claude returned empty translation result for chunk {Index}/{Total}", 
+                                i + 1, chunks.Count);
+                            continue;
+                        }
+                        
+                        _logger.LogInformation("Received translation for chunk {Index}/{Total}, length: {Length} characters", 
+                            i + 1, chunks.Count, translatedChunk.Length);
+                        
+                        translatedChunks.Add(translatedChunk);
+                        translationChunksForVerification.Add(new KeyValuePair<int, string>(i + 1, translatedChunk));
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error translating chunk {Index}/{Total}", i + 1, chunks.Count);
+                    }
+                }
+                
+                if (translatedChunks.Count == 0)
+                {
+                    _logger.LogWarning("All translation chunks failed");
+                    return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation service failed to translate any content" };
+                }
+                
+                string translatedText = string.Join("\n\n", translatedChunks);
+                
+                _logger.LogInformation("Combined translated text, total length: {Length} characters", translatedText.Length);
+
+                _logger.LogInformation("Translated {ChunkCount} chunks with lengths: {ChunkLengths}", 
+                    translatedChunks.Count,
+                    string.Join(", ", translatedChunks.Select(c => c.Length)));
+                
+                _logger.LogInformation("Starting translation verification for all {Count} chunks...", translationChunksForVerification.Count);
+                var verificationResultAndText = await ProcessTranslationVerification(cancellationToken, translationChunksForVerification, language, translatedText);
+                var verificationResult = verificationResultAndText.Item1;
+                translatedText = verificationResultAndText.Item2;
+
+                string translationId = Guid.NewGuid().ToString();
+                
+                return new DocumentTranslationResult
+                {
+                    Success = true,
+                    OriginalContent = extractedText,
+                    TranslatedContent = translatedText,
+                    OutputFormat = Domain.Models.DocumentFormat.Markdown,
+                    FileName = $"translated_{translationId}.md",
+                    ContentType = "text/markdown",
+                    TranslationQualityScore = verificationResult.QualityScore ?? (verificationResult.Success ? 1.0 : 0.0),
+                    TranslationId = translationId
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in TranslateOcrJson");
+                return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error translating OCR content: {ex.Message}" };
+            }
+        }
+
+        private static List<string> GetChunksOfText(string text, int maxChunkSize)
+        {
+            var chunks = new List<string>();
+            
+            var paragraphs = text.Split(["\n\n", "\r\n\r\n"], StringSplitOptions.None);
+            
+            var currentChunk = new StringBuilder();
+            
+            foreach (string paragraph in paragraphs)
+            {
+                if (currentChunk.Length + paragraph.Length > maxChunkSize && currentChunk.Length > 0)
+                {
+                    chunks.Add(currentChunk.ToString().Trim());
+                    currentChunk.Clear();
+                }
+                
+                if (paragraph.Length > maxChunkSize)
+                {
+                    string[] sentences = Split(paragraph, @"(?<=[.!?])\s+");
+                    
+                    foreach (string sentence in sentences)
+                    {
+                        if (currentChunk.Length + sentence.Length > maxChunkSize && currentChunk.Length > 0)
+                        {
+                            chunks.Add(currentChunk.ToString().Trim());
+                            currentChunk.Clear();
+                        }
+                        
+                        currentChunk.Append(sentence + " ");
+                    }
+                }
+                else
+                {
+                    currentChunk.AppendLine(paragraph);
+                    currentChunk.AppendLine();
                 }
             }
-                
-            if (translatedChunks.Count == 0)
-            {
-                _logger.LogWarning("All translation chunks failed");
-                return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation service failed to translate any content" };
-            }
-                
-            string translatedText = string.Join("\n\n", translatedChunks);
-                
-            _logger.LogInformation("Combined translated text, total length: {Length} characters", translatedText.Length);
-
-            _logger.LogInformation("Translated {ChunkCount} chunks with lengths: {ChunkLengths}", 
-                translatedChunks.Count,
-                string.Join(", ", translatedChunks.Select(c => c.Length)));
-                
-            _logger.LogInformation("Starting translation verification for all {Count} chunks...", translationChunksForVerification.Count);
-            (var verificationResult, translatedText) = await ProcessTranslationVerification(cancellationToken, translationChunksForVerification, language, translatedText);
-
-            string translationId = Guid.NewGuid().ToString();
-                
-            return new DocumentTranslationResult
-            {
-                Success = true,
-                OriginalContent = extractedText,
-                TranslatedContent = translatedText,
-                OutputFormat = Domain.Models.DocumentFormat.Markdown,
-                FileName = $"translated_{translationId}.md",
-                ContentType = "text/markdown",
-                TranslationQualityScore = verificationResult.QualityScore ?? (verificationResult.Success ? 1.0 : 0.0),
-                TranslationId = translationId
-            };
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in TranslateOcrJson");
-            return new DocumentTranslationResult { Success = false, ErrorMessage = $"Error translating OCR content: {ex.Message}" };
-        }
-    }
-
-    private static List<string> GetChunksOfText(string text, int maxChunkSize)
-    {
-        var chunks = new List<string>();
             
-        var paragraphs = text.Split(["\n\n", "\r\n\r\n"], StringSplitOptions.None);
-            
-        var currentChunk = new StringBuilder();
-            
-        foreach (string paragraph in paragraphs)
-        {
-            if (currentChunk.Length + paragraph.Length > maxChunkSize && currentChunk.Length > 0)
+            if (currentChunk.Length > 0)
             {
                 chunks.Add(currentChunk.ToString().Trim());
-                currentChunk.Clear();
             }
-                
-            if (paragraph.Length > maxChunkSize)
-            {
-                string[] sentences = Split(paragraph, @"(?<=[.!?])\s+");
-                    
-                foreach (string sentence in sentences)
-                {
-                    if (currentChunk.Length + sentence.Length > maxChunkSize && currentChunk.Length > 0)
-                    {
-                        chunks.Add(currentChunk.ToString().Trim());
-                        currentChunk.Clear();
-                    }
-                        
-                    currentChunk.Append(sentence + " ");
-                }
-            }
-            else
-            {
-                currentChunk.AppendLine(paragraph);
-                currentChunk.AppendLine();
-            }
-        }
             
-        if (currentChunk.Length > 0)
-        {
-            chunks.Add(currentChunk.ToString().Trim());
+            return chunks;
         }
-            
-        return chunks;
-    }
     
-    private async Task<(VerificationResult verificationResult, string translatedText)> ProcessTranslationVerification(CancellationToken cancellationToken,
-        List<KeyValuePair<int, string>> translationChunksForVerification, LanguageModel language, string translatedText)
-    {
-        VerificationResult verificationResult;
-        try
+        private async Task<(VerificationResult verificationResult, string translatedText)> ProcessTranslationVerification(CancellationToken cancellationToken,
+            List<KeyValuePair<int, string>> translationChunksForVerification, LanguageModel language, string translatedText)
         {
-            verificationResult = await _gptService.VerifyTranslationBatch(
-                translationChunksForVerification, cancellationToken);
-                    
-            _logger.LogInformation("Translation verification completed. Success: {Success}, Score: {Score}, Verified: {Verified}/{Total}", 
-                verificationResult.Success, 
-                verificationResult.QualityScore,
-                verificationResult.VerifiedChunks,
-                translationChunksForVerification.Count);
-                    
-            if (verificationResult.ChunkWarnings is { Count: > 0 })
+            VerificationResult verificationResult;
+            try
             {
-                foreach (var warning in verificationResult.ChunkWarnings)
+                verificationResult = await _gptService.VerifyTranslationBatch(
+                    translationChunksForVerification, cancellationToken);
+                    
+                _logger.LogInformation("Translation verification completed. Success: {Success}, Score: {Score}, Verified: {Verified}/{Total}", 
+                    verificationResult.Success, 
+                    verificationResult.QualityScore,
+                    verificationResult.VerifiedChunks,
+                    translationChunksForVerification.Count);
+                    
+                if (verificationResult.ChunkWarnings is { Count: > 0 })
                 {
-                    _logger.LogWarning("Chunk {ChunkId} verification warning: {Warning}", 
-                        warning.Key, warning.Value);
+                    foreach (var warning in verificationResult.ChunkWarnings)
+                    {
+                        _logger.LogWarning("Chunk {ChunkId} verification warning: {Warning}", 
+                            warning.Key, warning.Value);
+                    }
                 }
-            }
                     
-            if (verificationResult.Success && 
-                verificationResult.QualityScore < 0.8 && 
-                !string.IsNullOrEmpty(verificationResult.Feedback))
-            {
-                _logger.LogInformation("GPT suggested improvements: {Feedback}", verificationResult.Feedback);
-                        
-                string improvedTranslation = await ImproveTranslationWithFeedback(
-                    translatedText, language.Name, verificationResult.Feedback, cancellationToken);
-                        
-                if (!string.IsNullOrEmpty(improvedTranslation))
+                if (verificationResult.Success && 
+                    verificationResult.QualityScore < 0.8 && 
+                    !string.IsNullOrEmpty(verificationResult.Feedback))
                 {
-                    _logger.LogInformation("Applied GPT's suggestions to improve translation");
-                    translatedText = improvedTranslation;
+                    _logger.LogInformation("GPT suggested improvements: {Feedback}", verificationResult.Feedback);
+                        
+                    string improvedTranslation = await ImproveTranslationWithFeedback(
+                        translatedText, language.Name, verificationResult.Feedback, cancellationToken);
+                        
+                    if (!string.IsNullOrEmpty(improvedTranslation))
+                    {
+                        _logger.LogInformation("Applied GPT's suggestions to improve translation");
+                        translatedText = improvedTranslation;
                             
-                    _logger.LogInformation("Re-verifying improved translation...");
+                        _logger.LogInformation("Re-verifying improved translation...");
                         
-                    var improvedVerification = await _gptService.EvaluateTranslationQuality(
-                        $"Evaluate this translation to {language.Name}:\n\n{improvedTranslation}", 
-                        cancellationToken);
+                        var improvedVerification = await _gptService.EvaluateTranslationQuality(
+                            $"Evaluate this translation to {language.Name}:\n\n{improvedTranslation}", 
+                            cancellationToken);
                             
-                    if (improvedVerification.Success)
-                    {
-                        _logger.LogInformation("Improved translation verification score: {Score} (was: {OldScore})", improvedVerification.QualityScore, verificationResult.QualityScore);
-                        verificationResult = improvedVerification;
+                        if (improvedVerification.Success)
+                        {
+                            _logger.LogInformation("Improved translation verification score: {Score} (was: {OldScore})", improvedVerification.QualityScore, verificationResult.QualityScore);
+                            verificationResult = improvedVerification;
+                        }
                     }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error verifying translation");
-            verificationResult = new VerificationResult { Success = false, ErrorMessage = ex.Message };
-        }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error verifying translation");
+                verificationResult = new VerificationResult { Success = false, ErrorMessage = ex.Message };
+            }
 
-        return (verificationResult, translatedText);
-    }
+            return (verificationResult, translatedText);
+        }
     
-    private async Task<string> ImproveTranslationWithFeedback(string translatedText, string targetLanguage, string feedback, CancellationToken cancellationToken)
-    {
-        try
+        private async Task<string> ImproveTranslationWithFeedback(string translatedText, string targetLanguage, string feedback, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("Attempting to improve translation based on GPT feedback");
+            try
+            {
+                _logger.LogInformation("Attempting to improve translation based on GPT feedback");
                 
-            var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
+                var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
                 
-            var message = new ContentFile { Type = "text", Text = prompt };
-            var claudeRequest = new ClaudeRequestWithFile([message]);
-                
-            _logger.LogInformation("Sending improvement request to Claude");
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-                
-            var content = claudeResponse.Content?.SingleOrDefault();
-            if (content == null)
-            {
-                _logger.LogWarning("No content received from Claude service for translation improvement");
-                return string.Empty;
-            }
-                
-            string improvedTranslation = content.Text.Trim();
-                
-            if (improvedTranslation.Contains("Here's the improved translation") || 
-                improvedTranslation.Contains("Improved translation:"))
-            {
-                int startIndex = improvedTranslation.IndexOf('\n');
-                if (startIndex > 0)
-                {
-                    improvedTranslation = improvedTranslation[(startIndex + 1)..].Trim();
-                }
-            }
-                
-            if (string.IsNullOrWhiteSpace(improvedTranslation))
-            {
-                _logger.LogWarning("Claude returned empty improvement result");
-                return string.Empty;
-            }
-                
-            _logger.LogInformation("Received improved translation, length: {Length} characters", 
-                improvedTranslation.Length);
-
-            if (!(Math.Abs(improvedTranslation.Length - translatedText.Length) < translatedText.Length * 0.05))
-                return improvedTranslation;
-                
-            _logger.LogInformation("Improved translation has similar length to original, performing quality check");
-                    
-            var verificationPrompt = GenerateVerificationPrompt(translatedText, targetLanguage, improvedTranslation);
-                    
-            var verificationResult = await _gptService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
-                    
-            if (verificationResult.Success && verificationResult.Feedback.StartsWith("A|"))
-            {
-                _logger.LogInformation("Verification indicates original translation was better, keeping original");
-                return string.Empty;
-            }
-
-            return improvedTranslation;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error improving translation with feedback");
-            return string.Empty;
-        }
-    }
-    
-    private async Task<ScreenShotResult> GetDocumentScreenshots(IFormFile file, CancellationToken cancellationToken)
-    {
-        if (file == null || file.Length == 0)
-            throw new ArgumentException("Uploaded file is empty or null", nameof(file));
-
-        using var httpClient = new HttpClient();
-        await using var fileStream = file.OpenReadStream();
-        using var content = new MultipartFormDataContent();
-        using var streamContent = new StreamContent(fileStream);
-        content.Add(streamContent, "file", file.FileName);
-            
-        HttpResponseMessage response;
-        try
-        {
-            response = await httpClient.PostAsync("http://127.0.0.1:8000/screenshot", content, cancellationToken);
-            response.EnsureSuccessStatusCode();
-        }
-        catch (HttpRequestException ex)
-        {
-            throw new InvalidOperationException("Failed to contact screenshot service", ex);
-        }
-
-        var result = await response.Content.ReadFromJsonAsync<ScreenShotResult>(cancellationToken: cancellationToken);
-        if (result == null)
-            throw new InvalidOperationException("Screenshot service returned null");
-
-        return result;
-    }
-    
-    private async Task<string> ExtractAndTranslateWithClaude(byte[] imageData, int pageNumber, string sectionName, string targetLanguageName, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogInformation("Extracting and translating text from page {PageNumber} {SectionName} section with Claude", pageNumber, sectionName);
-        
-            string base64Image = Convert.ToBase64String(imageData);
-        
-            var messages = new List<ContentFile>
-            {
-                new ContentFile 
-                { 
-                    Type = "text", 
-                    Text = ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName) 
-                },
-                new ContentFile 
-                { 
-                    Type = "image", 
-                    Source = new Source()
-                    {
-                        Type = "base64",
-                        MediaType = "image/png",
-                        Data = base64Image
-                    }
-                }
-            };
-        
-            var claudeRequest = new ClaudeRequestWithFile(messages);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-        
-            var content = claudeResponse.Content?.SingleOrDefault();
-            if (content == null)
-            {
-                _logger.LogWarning("No content received from Claude for page {PageNumber} {SectionName} section", pageNumber, sectionName);
-                return string.Empty;
-            }
-        
-            string translatedText = content.Text.Trim();
-        
-            if (string.IsNullOrWhiteSpace(translatedText))
-            {
-                _logger.LogWarning("Claude returned empty result for page {PageNumber} {SectionName} section", pageNumber, sectionName);
-                return string.Empty;
-            }
-        
-            if (translatedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                translatedText.StartsWith("I've translated", StringComparison.OrdinalIgnoreCase) ||
-                translatedText.StartsWith("The translated", StringComparison.OrdinalIgnoreCase))
-            {
-                int firstLineBreak = translatedText.IndexOf('\n');
-                if (firstLineBreak > 0)
-                {
-                    translatedText = translatedText.Substring(firstLineBreak + 1).Trim();
-                }
-            }
-        
-            _logger.LogInformation("Successfully extracted and translated {Length} characters from page {PageNumber} {SectionName} section", 
-                translatedText.Length, pageNumber, sectionName);
-        
-            return translatedText;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error extracting and translating text with Claude from page {PageNumber} {SectionName} section", pageNumber, sectionName);
-            return string.Empty;
-        }
-    }
-    private async Task<string> CombineTranslatedSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, CancellationToken cancellationToken)
-    {
-        try
-        {
-            _logger.LogInformation("Combining translated sections from {PageCount} pages using Claude", translatedPageSections.Count);
-        
-            var allSections = new List<string>();
-            for (int i = 0; i < translatedPageSections.Count; i++)
-            {
-                var pageSections = translatedPageSections[i];
-                allSections.AddRange(pageSections.Select((section, idx) => 
-                    $"PAGE {i + 1} - SECTION {idx + 1} ({(idx == 0 ? "TOP" : (idx == 1 ? "MIDDLE" : "BOTTOM"))}):\n\n{section}"));
-            }
-        
-            var chunks = new List<List<string>>();
-            var currentChunk = new List<string>();
-            int currentLength = 0;
-            const int maxChunkLength = 80000;
-        
-            foreach (var section in allSections)
-            {
-                if (currentLength + section.Length > maxChunkLength)
-                {
-                    chunks.Add([..currentChunk]);
-                    currentChunk.Clear();
-                    currentLength = 0;
-                }
-            
-                currentChunk.Add(section);
-                currentLength += section.Length;
-            }
-        
-            if (currentChunk.Count > 0)
-            {
-                chunks.Add(currentChunk);
-            }
-        
-            _logger.LogInformation("Split sections into {ChunkCount} chunks for combination", chunks.Count);
-        
-            var combinedChunks = new List<string>();
-        
-            for (int i = 0; i < chunks.Count; i++)
-            {
-                var chunk = chunks[i];
-                var chunkContent = string.Join("\n\n===== SECTION SEPARATOR =====\n\n", chunk);
-            
-                _logger.LogInformation("Processing chunk {ChunkIndex}/{ChunkCount} with {SectionCount} sections, size: {Size} characters", 
-                    i + 1, chunks.Count, chunk.Count, chunkContent.Length);
-            
-                var prompt = GenerateDocumentCombinationPrompt(targetLanguageName, chunkContent);
-            
                 var message = new ContentFile { Type = "text", Text = prompt };
                 var claudeRequest = new ClaudeRequestWithFile([message]);
-            
+                
+                _logger.LogInformation("Sending improvement request to Claude");
                 var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            
+                
                 var content = claudeResponse.Content?.SingleOrDefault();
                 if (content == null)
                 {
-                    _logger.LogWarning("No content received from Claude for combining chunk {ChunkIndex}", i + 1);
-                    continue;
+                    _logger.LogWarning("No content received from Claude service for translation improvement");
+                    return string.Empty;
                 }
-            
-                string combinedChunk = content.Text.Trim();
-                if (string.IsNullOrWhiteSpace(combinedChunk))
+                
+                string improvedTranslation = content.Text.Trim();
+                
+                if (improvedTranslation.Contains("Here's the improved translation") || 
+                    improvedTranslation.Contains("Improved translation:"))
                 {
-                    _logger.LogWarning("Claude returned empty result for combining chunk {ChunkIndex}", i + 1);
-                    continue;
-                }
-            
-                if (combinedChunk.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                    combinedChunk.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
-                    combinedChunk.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase))
-                {
-                    int firstLineBreak = combinedChunk.IndexOf('\n');
-                    if (firstLineBreak > 0)
+                    int startIndex = improvedTranslation.IndexOf('\n');
+                    if (startIndex > 0)
                     {
-                        combinedChunk = combinedChunk.Substring(firstLineBreak + 1).Trim();
+                        improvedTranslation = improvedTranslation[(startIndex + 1)..].Trim();
                     }
                 }
-            
-                _logger.LogInformation("Successfully combined chunk {ChunkIndex}, result length: {Length} characters", 
-                    i + 1, combinedChunk.Length);
-            
-                combinedChunks.Add(combinedChunk);
-            }
-        
-            if (combinedChunks.Count > 1)
-            {
-                _logger.LogInformation("Combining {Count} final chunks", combinedChunks.Count);
-            
-                var finalCombination = string.Join("\n\n", combinedChunks);
-            
-                var finalPrompt = GenerateFinalPrompt(targetLanguageName, finalCombination);
-            
-                var finalMessage = new ContentFile { Type = "text", Text = finalPrompt };
-                var finalRequest = new ClaudeRequestWithFile([finalMessage]);
-            
-                var finalResponse = await _claudeService.SendRequestWithFile(finalRequest, cancellationToken);
-            
-                var finalContent = finalResponse.Content?.SingleOrDefault();
-                if (finalContent != null)
-                {
-                    string finalResult = finalContent.Text.Trim();
                 
-                    if (finalResult.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                        finalResult.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int firstLineBreak = finalResult.IndexOf('\n');
-                        if (firstLineBreak > 0)
+                if (string.IsNullOrWhiteSpace(improvedTranslation))
+                {
+                    _logger.LogWarning("Claude returned empty improvement result");
+                    return string.Empty;
+                }
+                
+                _logger.LogInformation("Received improved translation, length: {Length} characters", 
+                    improvedTranslation.Length);
+
+                if (!(Math.Abs(improvedTranslation.Length - translatedText.Length) < translatedText.Length * 0.05))
+                    return improvedTranslation;
+                
+                _logger.LogInformation("Improved translation has similar length to original, performing quality check");
+                    
+                var verificationPrompt = GenerateVerificationPrompt(translatedText, targetLanguage, improvedTranslation);
+                    
+                var verificationResult = await _gptService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
+                    
+                if (verificationResult.Success && verificationResult.Feedback.StartsWith("A|"))
+                {
+                    _logger.LogInformation("Verification indicates original translation was better, keeping original");
+                    return string.Empty;
+                }
+
+                return improvedTranslation;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error improving translation with feedback");
+                return string.Empty;
+            }
+        }
+    
+        private async Task<ScreenShotResult> GetDocumentScreenshots(IFormFile file, CancellationToken cancellationToken)
+        {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException("Uploaded file is empty or null", nameof(file));
+
+            using var httpClient = new HttpClient();
+            await using var fileStream = file.OpenReadStream();
+            using var content = new MultipartFormDataContent();
+            using var streamContent = new StreamContent(fileStream);
+            content.Add(streamContent, "file", file.FileName);
+            
+            HttpResponseMessage response;
+            try
+            {
+                response = await httpClient.PostAsync("http://127.0.0.1:8000/screenshot", content, cancellationToken);
+                response.EnsureSuccessStatusCode();
+            }
+            catch (HttpRequestException ex)
+            {
+                throw new InvalidOperationException("Failed to contact screenshot service", ex);
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<ScreenShotResult>(cancellationToken: cancellationToken);
+            if (result == null)
+                throw new InvalidOperationException("Screenshot service returned null");
+
+            return result;
+        }
+    
+        private async Task<string> ExtractAndTranslateWithClaude(byte[] imageData, int pageNumber, string sectionName, string targetLanguageName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation("Extracting and translating text from page {PageNumber} {SectionName} section with Claude", pageNumber, sectionName);
+        
+                string base64Image = Convert.ToBase64String(imageData);
+        
+                var messages = new List<ContentFile>
+                {
+                    new ContentFile 
+                    { 
+                        Type = "text", 
+                        Text = ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName) 
+                    },
+                    new ContentFile 
+                    { 
+                        Type = "image", 
+                        Source = new Source()
                         {
-                            finalResult = finalResult.Substring(firstLineBreak + 1).Trim();
+                            Type = "base64",
+                            MediaType = "image/png",
+                            Data = base64Image
                         }
                     }
-                
-                    _logger.LogInformation("Successfully combined all chunks into final document, length: {Length} characters", finalResult.Length);
-                
-                    return finalResult;
-                }
-            
-                _logger.LogWarning("Failed to combine final chunks, returning concatenated chunks");
-                return finalCombination;
-            }
+                };
         
-            return combinedChunks.Count > 0 ? combinedChunks[0] : string.Empty;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error combining translated sections with Claude");
+                var claudeRequest = new ClaudeRequestWithFile(messages);
+                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
         
-            var simpleCombination = new StringBuilder();
-        
-            foreach (var pageSections in translatedPageSections)
-            {
-                foreach (var section in pageSections)
+                var content = claudeResponse.Content?.SingleOrDefault();
+                if (content == null)
                 {
-                    simpleCombination.AppendLine(section);
-                    simpleCombination.AppendLine();
+                    _logger.LogWarning("No content received from Claude for page {PageNumber} {SectionName} section", pageNumber, sectionName);
+                    return string.Empty;
                 }
-            }
         
-            return simpleCombination.ToString();
+                string translatedText = content.Text.Trim();
+        
+                if (string.IsNullOrWhiteSpace(translatedText))
+                {
+                    _logger.LogWarning("Claude returned empty result for page {PageNumber} {SectionName} section", pageNumber, sectionName);
+                    return string.Empty;
+                }
+        
+                if (translatedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
+                    translatedText.StartsWith("I've translated", StringComparison.OrdinalIgnoreCase) ||
+                    translatedText.StartsWith("The translated", StringComparison.OrdinalIgnoreCase))
+                {
+                    int firstLineBreak = translatedText.IndexOf('\n');
+                    if (firstLineBreak > 0)
+                    {
+                        translatedText = translatedText.Substring(firstLineBreak + 1).Trim();
+                    }
+                }
+        
+                _logger.LogInformation("Successfully extracted and translated {Length} characters from page {PageNumber} {SectionName} section", 
+                    translatedText.Length, pageNumber, sectionName);
+        
+                return translatedText;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error extracting and translating text with Claude from page {PageNumber} {SectionName} section", pageNumber, sectionName);
+                return string.Empty;
+            }
         }
-    }
+        private async Task<string> CombineTranslatedSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation("Combining translated sections from {PageCount} pages using Claude", translatedPageSections.Count);
+        
+                var allSections = new List<string>();
+                for (int i = 0; i < translatedPageSections.Count; i++)
+                {
+                    var pageSections = translatedPageSections[i];
+                    allSections.AddRange(pageSections.Select((section, idx) => 
+                        $"PAGE {i + 1} - SECTION {idx + 1} ({(idx == 0 ? "TOP" : (idx == 1 ? "MIDDLE" : "BOTTOM"))}):\n\n{section}"));
+                }
+        
+                var chunks = new List<List<string>>();
+                var currentChunk = new List<string>();
+                int currentLength = 0;
+                const int maxChunkLength = 80000;
+        
+                foreach (var section in allSections)
+                {
+                    if (currentLength + section.Length > maxChunkLength)
+                    {
+                        chunks.Add([..currentChunk]);
+                        currentChunk.Clear();
+                        currentLength = 0;
+                    }
+            
+                    currentChunk.Add(section);
+                    currentLength += section.Length;
+                }
+        
+                if (currentChunk.Count > 0)
+                {
+                    chunks.Add(currentChunk);
+                }
+        
+                _logger.LogInformation("Split sections into {ChunkCount} chunks for combination", chunks.Count);
+        
+                var combinedChunks = new List<string>();
+        
+                for (int i = 0; i < chunks.Count; i++)
+                {
+                    var chunk = chunks[i];
+                    var chunkContent = string.Join("\n\n===== SECTION SEPARATOR =====\n\n", chunk);
+            
+                    _logger.LogInformation("Processing chunk {ChunkIndex}/{ChunkCount} with {SectionCount} sections, size: {Size} characters", 
+                        i + 1, chunks.Count, chunk.Count, chunkContent.Length);
+            
+                    var prompt = GenerateDocumentCombinationPrompt(targetLanguageName, chunkContent);
+            
+                    var message = new ContentFile { Type = "text", Text = prompt };
+                    var claudeRequest = new ClaudeRequestWithFile([message]);
+            
+                    var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            
+                    var content = claudeResponse.Content?.SingleOrDefault();
+                    if (content == null)
+                    {
+                        _logger.LogWarning("No content received from Claude for combining chunk {ChunkIndex}", i + 1);
+                        continue;
+                    }
+            
+                    string combinedChunk = content.Text.Trim();
+                    if (string.IsNullOrWhiteSpace(combinedChunk))
+                    {
+                        _logger.LogWarning("Claude returned empty result for combining chunk {ChunkIndex}", i + 1);
+                        continue;
+                    }
+            
+                    if (combinedChunk.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
+                        combinedChunk.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
+                        combinedChunk.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase))
+                    {
+                        int firstLineBreak = combinedChunk.IndexOf('\n');
+                        if (firstLineBreak > 0)
+                        {
+                            combinedChunk = combinedChunk.Substring(firstLineBreak + 1).Trim();
+                        }
+                    }
+            
+                    _logger.LogInformation("Successfully combined chunk {ChunkIndex}, result length: {Length} characters", 
+                        i + 1, combinedChunk.Length);
+            
+                    combinedChunks.Add(combinedChunk);
+                }
+        
+                if (combinedChunks.Count > 1)
+                {
+                    _logger.LogInformation("Combining {Count} final chunks", combinedChunks.Count);
+            
+                    var finalCombination = string.Join("\n\n", combinedChunks);
+            
+                    var finalPrompt = GenerateFinalPrompt(targetLanguageName, finalCombination);
+            
+                    var finalMessage = new ContentFile { Type = "text", Text = finalPrompt };
+                    var finalRequest = new ClaudeRequestWithFile([finalMessage]);
+            
+                    var finalResponse = await _claudeService.SendRequestWithFile(finalRequest, cancellationToken);
+            
+                    var finalContent = finalResponse.Content?.SingleOrDefault();
+                    if (finalContent != null)
+                    {
+                        string finalResult = finalContent.Text.Trim();
+                
+                        if (finalResult.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
+                            finalResult.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase))
+                        {
+                            int firstLineBreak = finalResult.IndexOf('\n');
+                            if (firstLineBreak > 0)
+                            {
+                                finalResult = finalResult.Substring(firstLineBreak + 1).Trim();
+                            }
+                        }
+                
+                        _logger.LogInformation("Successfully combined all chunks into final document, length: {Length} characters", finalResult.Length);
+                
+                        return finalResult;
+                    }
+            
+                    _logger.LogWarning("Failed to combine final chunks, returning concatenated chunks");
+                    return finalCombination;
+                }
+        
+                return combinedChunks.Count > 0 ? combinedChunks[0] : string.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error combining translated sections with Claude");
+        
+                var simpleCombination = new StringBuilder();
+        
+                foreach (var pageSections in translatedPageSections)
+                {
+                    foreach (var section in pageSections)
+                    {
+                        simpleCombination.AppendLine(section);
+                        simpleCombination.AppendLine();
+                    }
+                }
+        
+                return simpleCombination.ToString();
+            }
+        }
 
 
     
-    private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
-    {
-        return $@"
+        private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
+        {
+            return $@"
                 You are a meticulous Quality Assurance Specialist for translations.
                 Your task is to compare two translations into {targetLanguage} and determine which one is of higher quality.
 
@@ -824,11 +833,11 @@ public class PdfProcessor(
                 Strictly adhere to the following response format: <A or B>|<explanation>
                 Example: A|Translation A is more fluent and uses more natural phrasing for the target language.
                 ";
-    }
+        }
     
-    private static string GenerateTranslationPrompt(LanguageModel language, int i, List<string> chunks, string chunk)
-    {
-        return $"""
+        private static string GenerateTranslationPrompt(LanguageModel language, int i, List<string> chunks, string chunk)
+        {
+            return $@"
                     You are an expert multilingual document translator and formatter, specializing in converting OCR-extracted text into polished {language.Name} documents.
                     You will receive a chunk of text extracted via OCR from a PDF document.
 
@@ -875,12 +884,12 @@ public class PdfProcessor(
                         Here is the OCR-extracted text (chunk {i + 1} of {chunks.Count}):
 
                         {chunk}
-                """;
-    }
+                ";
+        }
     
-    private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
-    {
-        return $"""
+        private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
+        {
+            return $@"
                     You are an expert {targetLanguage} translator and editor, tasked with refining a translation based on quality review feedback.
 
                     **Quality Review Feedback:**
@@ -904,60 +913,60 @@ public class PdfProcessor(
 
                     **Current Translation for Improvement:**
                     {translatedText}
-                """;
-    }
+                ";
+        }
     
-    private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
-    {
-        string verticalPortion = sectionName switch
+        private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
         {
-            "top" => "0-50%",
-            "middle" => "25-75%",
-            "bottom" => "50-100%",
-            _ => "full page"
-        };
+            string verticalPortion = sectionName switch
+            {
+                "top" => "0-50%",
+                "middle" => "25-75%",
+                "bottom" => "50-100%",
+                _ => "full page"
+            };
 
-        return $"""
-                You are an advanced OCR (Optical Character Recognition) and translation system.
-                Your task is to process an image snippet from a document.
+            return $@"
+                    You are an advanced OCR (Optical Character Recognition) and translation system.
+                    Your task is to process an image snippet from a document.
 
-                **Document Context:**
-                -   Page Number: {pageNumber}
-                -   Section of Page: {sectionName} (representing approximately the {verticalPortion} vertical portion of the page)
+                    **Document Context:**
+                    -   Page Number: {pageNumber}
+                    -   Section of Page: {sectionName} (representing approximately the {verticalPortion} vertical portion of the page)
 
-                **Required Actions:**
-                1.  **Extract Text**: Accurately extract ALL visible textual content from the provided image section.
-                2.  **Translate**: Translate the entire extracted text into **{targetLanguageName}**.
-                3.  **Format as Markdown**: Present the translated content in well-structured Markdown:
-                * Headings: Use `#` syntax (e.g., `# Main Heading`, `## Subheading`).
-                * Lists: Use `-` or `*` for bullet points, or numbered lists (e.g., `1. Item`).
-                * Emphasis: Use `**bold**` for strong emphasis and `*italic*` for regular emphasis.
-                * Tables: If tabular data is present, format it using Markdown table syntax.
-                * Separators: Use horizontal rules (`---`) to logically separate distinct content sections where appropriate.
-                * Code/Technical Blocks: Format code snippets or highly structured technical content using triple backticks (```).
-                4.  **Preserve Original Data**:
-                * Keep all numbers, dates, and specific codes (that are not technical standards to be preserved) exactly as they appear in the original, or transliterate them appropriately if they are part of a sentence structure that requires it in {targetLanguageName}.
-                5.  **CRITICAL - Non-Translation Rules**:
-                * **DO NOT TRANSLATE** the following items:
-                * Technical identifiers.
-                * Standards (e.g., ISO, EN, ДСТУ, ГОСТ).
-                * Specific codes (e.g., ДФРПОУ, НААУ).
-                * Reference numbers or part numbers.
-                * These items must be preserved in their original form.
-                6.  **Proper Nouns**: Transliterate proper nouns (names of people, organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist. If a well-known translation exists, use it.
-                7.  **Contextual Structure**: Use contextual clues from the extracted text to infer and apply the correct document structure (titles, sections, lists, paragraphs, etc.) in your Markdown output.
+                    **Required Actions:**
+                    1.  **Extract Text**: Accurately extract ALL visible textual content from the provided image section.
+                    2.  **Translate**: Translate the entire extracted text into **{targetLanguageName}**.
+                    3.  **Format as Markdown**: Present the translated content in well-structured Markdown:
+                    * Headings: Use `#` syntax (e.g., `# Main Heading`, `## Subheading`).
+                    * Lists: Use `-` or `*` for bullet points, or numbered lists (e.g., `1. Item`).
+                    * Emphasis: Use `**bold**` for strong emphasis and `*italic*` for regular emphasis.
+                    * Tables: If tabular data is present, format it using Markdown table syntax.
+                    * Separators: Use horizontal rules (`---`) to logically separate distinct content sections where appropriate.
+                    * Code/Technical Blocks: Format code snippets or highly structured technical content using triple backticks (```).
+                    4.  **Preserve Original Data**:
+                    * Keep all numbers, dates, and specific codes (that are not technical standards to be preserved) exactly as they appear in the original, or transliterate them appropriately if they are part of a sentence structure that requires it in {targetLanguageName}.
+                    5.  **CRITICAL - Non-Translation Rules**:
+                    * **DO NOT TRANSLATE** the following items:
+                    * Technical identifiers.
+                    * Standards (e.g., ISO, EN, ДСТУ, ГОСТ).
+                    * Specific codes (e.g., ДФРПОУ, НААУ).
+                    * Reference numbers or part numbers.
+                    * These items must be preserved in their original form.
+                    6.  **Proper Nouns**: Transliterate proper nouns (names of people, organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist. If a well-known translation exists, use it.
+                    7.  **Contextual Structure**: Use contextual clues from the extracted text to infer and apply the correct document structure (titles, sections, lists, paragraphs, etc.) in your Markdown output.
 
-                **Output Requirements:**
-                -   Provide ONLY the translated text in {targetLanguageName}.
-                -   The output MUST be formatted exclusively in Markdown.
-                -   DO NOT include any explanations, remarks, or any portion of the original (untranslated) text.
-                -   DO NOT add any introductory or concluding phrases.
-                """;
-    }
+                    **Output Requirements:**
+                    -   Provide ONLY the translated text in {targetLanguageName}.
+                    -   The output MUST be formatted exclusively in Markdown.
+                    -   DO NOT include any explanations, remarks, or any portion of the original (untranslated) text.
+                    -   DO NOT add any introductory or concluding phrases.
+                ";
+        }
     
-    private static string GenerateFinalPrompt(string targetLanguageName, string finalCombination)
-    {
-        return $"""
+        private static string GenerateFinalPrompt(string targetLanguageName, string finalCombination)
+        {
+            return $@"
                     You are an expert document assembler and Markdown formatting specialist.
                     You have been provided with multiple translated text chunks that now need to be meticulously combined into a single, coherent, and well-structured document in {targetLanguageName}.
 
@@ -974,36 +983,37 @@ public class PdfProcessor(
                     Here are the translated chunks to combine and refine:
 
                     {finalCombination}
-                """;
-    }
+                ";
+        }
     
-    private static string GenerateDocumentCombinationPrompt(string targetLanguageName, string chunkContent)
-    {
-        return $"""
-                    You are an intelligent document reconstruction expert, proficient in {targetLanguageName} and Markdown.
-                    I have extracted and translated various potentially overlapping sections from a document. Each section is marked with its original page and location (e.g., top, middle, bottom).
+        private static string GenerateDocumentCombinationPrompt(string targetLanguageName, string chunkContent)
+        {
+            return
+                $@"You are an intelligent document reconstruction expert, proficient in {targetLanguageName} and Markdown.
+                I have extracted and translated various potentially overlapping sections from a document. Each section is marked with its original page and location (e.g., top, middle, bottom).
 
-                    Your mission is to synthesize these sections into a single, perfectly ordered, and de-duplicated document.
+                Your mission is to synthesize these sections into a single, perfectly ordered, and de-duplicated document.
 
-                    **Key Objectives:**
+                **Key Objectives:**
 
-                    1.  **Combine and Order**: Merge all provided sections into a single, cohesive document in {targetLanguageName}. Use the page and section markers (e.g., "PAGE 1 TOP", "PAGE 1 MIDDLE", "PAGE 2 TOP") as the absolute guide for correct sequencing.
-                    2.  **Eliminate Redundancy**: Carefully identify and remove any duplicate or overlapping content that occurs where sections meet. Ensure each piece of information appears only once in its correct place.
-                    3.  **Preserve Document Structure**: Maintain the inherent structure of the document (headings, paragraphs, lists, tables, etc.) as suggested by the content and any existing Markdown.
-                    4.  **Ensure Natural Flow**: The final document should read smoothly and logically from one part to the next.
-                    5.  **Maintain Markdown Formatting**: All Markdown formatting (headings, lists, tables, bold, italics, etc.) present in the chunks must be preserved and consistently applied.
-                    6.  **Content Fidelity**: Crucially, DO NOT add any content or information that was not present in the original sections provided.
-                    7.  **Clean Output**: DO NOT include the page and section markers (e.g., "--- PAGE 1 TOP ---") in your final output. These are for your guidance only.
+                1.  **Combine and Order**: Merge all provided sections into a single, cohesive document in {targetLanguageName}. Use the page and section markers (e.g., ""PAGE 1 TOP"", ""PAGE 1 MIDDLE"", ""PAGE 2 TOP"") as the absolute guide for correct sequencing.
+                2.  **Eliminate Redundancy**: Carefully identify and remove any duplicate or overlapping content that occurs where sections meet. Ensure each piece of information appears only once in its correct place.
+                3.  **Preserve Document Structure**: Maintain the inherent structure of the document (headings, paragraphs, lists, tables, etc.) as suggested by the content and any existing Markdown.
+                4.  **Ensure Natural Flow**: The final document should read smoothly and logically from one part to the next.
+                5.  **Maintain Markdown Formatting**: All Markdown formatting (headings, lists, tables, bold, italics, etc.) present in the chunks must be preserved and consistently applied.
+                6.  **Content Fidelity**: Crucially, DO NOT add any content or information that was not present in the original sections provided.
+                7.  **Clean Output**: DO NOT include the page and section markers (e.g., ""--- PAGE 1 TOP ---"") in your final output. These are for your guidance only.
 
-                    **Output Requirements:**
-                    -   Return ONLY the final, seamlessly combined document.
-                    -   The entire output must be in {targetLanguageName} and formatted using Markdown.
-                    -   Absolutely NO explanations, notes, or comments about your process.
+                **Output Requirements:**
+                -   Return ONLY the final, seamlessly combined document.
+                -   The entire output must be in {targetLanguageName} and formatted using Markdown.
+                -   Absolutely NO explanations, notes, or comments about your process.
 
-                    Here are the document sections to combine:
+                Here are the document sections to combine:
 
-                    {chunkContent}
-                """;
+                {chunkContent}
+            ";
+        }
+
     }
-
 }

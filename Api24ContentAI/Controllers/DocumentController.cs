@@ -18,21 +18,30 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Route("api/[controller]")]
     [Authorize]
-    public class DocumentController(
-        IDocumentTranslationService documentTranslationService,
-        IPdfService pdfService,
-        ILogger<DocumentController> logger,
-        IServiceScopeFactory serviceScopeFactory,
-        ITranslationJobService translationJobService,
-        IDocumentSuggestionService documentSuggestionService)
-        : ControllerBase
+    public class DocumentController : ControllerBase
     {
-        private readonly IDocumentTranslationService _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
-        private readonly IPdfService _pdfService = pdfService ?? throw new ArgumentNullException(nameof(pdfService));
-        private readonly ILogger<DocumentController> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        private readonly IServiceScopeFactory _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
-        private readonly ITranslationJobService _translationJobService = translationJobService ?? throw new ArgumentNullException(nameof(translationJobService));
-        private readonly IDocumentSuggestionService _documentSuggestionService = documentSuggestionService ?? throw new ArgumentNullException(nameof(documentSuggestionService));
+        private readonly IDocumentTranslationService _documentTranslationService;
+        private readonly IPdfService _pdfService;
+        private readonly ILogger<DocumentController> _logger;
+        private readonly IServiceScopeFactory _serviceScopeFactory;
+        private readonly ITranslationJobService _translationJobService;
+        private readonly IDocumentSuggestionService _documentSuggestionService;
+
+        public DocumentController(
+            IDocumentTranslationService documentTranslationService,
+            IPdfService pdfService,
+            ILogger<DocumentController> logger,
+            IServiceScopeFactory serviceScopeFactory,
+            ITranslationJobService translationJobService,
+            IDocumentSuggestionService documentSuggestionService)
+        {
+            _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
+            _pdfService = pdfService ?? throw new ArgumentNullException(nameof(pdfService));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
+            _translationJobService = translationJobService ?? throw new ArgumentNullException(nameof(translationJobService));
+            _documentSuggestionService = documentSuggestionService ?? throw new ArgumentNullException(nameof(documentSuggestionService));
+        }
         
         private const long MaxFileSizeBytes = 100 * 1024 * 1024; // 100MB limit
         
@@ -668,8 +677,8 @@ namespace Api24ContentAI.Controllers
 
         private static int GetEstimatedProcessingMinutes(string fileExtension)
         {
-            // Generic estimate - actual time varies based on content complexity, not file type
-            return 3; // 3 minutes for all files - realistic average estimate
+            return 3; 
+            // 3 minutes for all files - realistic average estimate
         }
 
     }

@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Threading;
-using System;
 using System.Threading.Tasks;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations

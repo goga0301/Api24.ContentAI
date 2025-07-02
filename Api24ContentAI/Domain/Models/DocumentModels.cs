@@ -107,6 +107,43 @@ namespace Api24ContentAI.Domain.Models
         public string SuggestionId { get; set; }
         public TranslationSuggestion Suggestion { get; set; }
         public int TargetLanguageId { get; set; }
+        public string? EditedOriginalText { get; set; }
+        public string? EditedSuggestedText { get; set; }
+        
+        public static ApplySuggestionRequest FromOriginalSuggestion(
+            string translatedContent, 
+            TranslationSuggestion suggestion, 
+            int targetLanguageId)
+        {
+            return new ApplySuggestionRequest
+            {
+                TranslatedContent = translatedContent,
+                SuggestionId = suggestion.Id,
+                Suggestion = suggestion,
+                TargetLanguageId = targetLanguageId
+            };
+        }
+        
+        public static ApplySuggestionRequest WithEditedText(
+            string translatedContent,
+            TranslationSuggestion originalSuggestion,
+            int targetLanguageId,
+            string editedOriginalText,
+            string editedSuggestedText)
+        {
+            return new ApplySuggestionRequest
+            {
+                TranslatedContent = translatedContent,
+                SuggestionId = originalSuggestion.Id,
+                Suggestion = originalSuggestion,
+                TargetLanguageId = targetLanguageId,
+                EditedOriginalText = editedOriginalText,
+                EditedSuggestedText = editedSuggestedText
+            };
+        }
+        
+        public bool HasEdits => !string.IsNullOrEmpty(EditedOriginalText) || 
+                               !string.IsNullOrEmpty(EditedSuggestedText);
     }
     
     public class ApplySuggestionResponse

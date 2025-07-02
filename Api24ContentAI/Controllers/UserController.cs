@@ -12,9 +12,13 @@ namespace Api24ContentAI.Controllers
     [ApiController]
     [Authorize]
     [Route("api/[controller]")]
-    public class UserController(IUserService userService) : ControllerBase
+    public class UserController : ControllerBase
     {
-        private readonly IUserService _userService = userService;
+        private readonly IUserService _userService;
+
+        public UserController(IUserService userService){
+            this._userService = userService;
+        }
 
         [HttpGet]
         public async Task<List<UserModel>> GetAll(CancellationToken cancellationToken)
