@@ -58,7 +58,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             IFormFile file, 
             int targetLanguageId, 
             string userId, 
-            Domain.Models.DocumentFormat outputFormat, 
+            Domain.Models.DocumentFormat outputFormat,
+            AIModel model,
             CancellationToken cancellationToken)
         {
             try
@@ -74,7 +75,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
 
                 var processor = _fileProcessorFactory.GetProcessor(file.FileName);
-                return await processor.TranslateWithClaude(file, targetLanguage.Id, userId, outputFormat, cancellationToken);
+                return await processor.TranslateWithClaude(file, targetLanguage.Id, userId, outputFormat, model, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -99,7 +100,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             try
             {
-                return await TranslateDocumentWithClaude(file, targetLanguageId, userId, outputFormat, cancellationToken);
+                return await TranslateDocumentWithClaude(file, targetLanguageId, userId, outputFormat, AIModel.Claude4Sonnet, cancellationToken);
             }
             catch (Exception ex)
             {

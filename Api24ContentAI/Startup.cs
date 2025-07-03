@@ -87,18 +87,32 @@ namespace Api24ContentAI
                         client.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
 
                         client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
-                        client.Timeout = TimeSpan.FromMinutes(15); // Extended timeout for large translations
+                        client.Timeout = TimeSpan.FromMinutes(5); 
                     })
             .ConfigurePrimaryHttpMessageHandler(() =>
                     {
                         return new SocketsHttpHandler()
                         {
-                            PooledConnectionLifetime = TimeSpan.FromMinutes(15),
+                            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
                             RequestHeaderEncodingSelector = (_, _) => System.Text.Encoding.UTF8
                         };
                     })
             .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
+            _ = services.AddHttpClient<IGeminiService, GeminiService>((client) =>
+                    {
+                        client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
+                        client.Timeout = TimeSpan.FromMinutes(5);
+                    })
+            .ConfigurePrimaryHttpMessageHandler(() =>
+                    {
+                        return new SocketsHttpHandler()
+                        {
+                            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+                            RequestHeaderEncodingSelector = (_, _) => System.Text.Encoding.UTF8
+                        };
+                    })
+            .SetHandlerLifetime(Timeout.InfiniteTimeSpan);
 
             _ = services.AddHttpClient<IApi24Service, Api24Service>((client) =>
             {

@@ -4,6 +4,7 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     tesseract-ocr-all \
     poppler-utils \
+    libreoffice \
     libglib2.0-0 \
     libsm6 \
     libxrender1 \

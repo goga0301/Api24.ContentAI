@@ -14,7 +14,7 @@ namespace Api24ContentAI.Domain.Service
         Task<DocumentTranslationResult> TranslateWithTesseract(IFormFile file, int targetLanguageId, string userId,
             Models.DocumentFormat outputFormat, CancellationToken cancellationToken);
         Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId,
-            Models.DocumentFormat outputFormat, CancellationToken cancellationToken);
+            Models.DocumentFormat outputFormat, AIModel model, CancellationToken cancellationToken);
     }
 }
 

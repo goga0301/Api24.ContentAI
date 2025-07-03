@@ -3,3 +3,5 @@ uvicorn
 pdf2image
 Pillow
 python-multipart
+python-docx
+mammoth

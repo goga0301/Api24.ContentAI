@@ -11,5 +11,5 @@ public interface IImageProcessor : IFileProcessor
         CancellationToken cancellationToken);
 
     Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
-        CancellationToken cancellationToken);
+        AIModel model, CancellationToken cancellationToken);
 } 

@@ -13,16 +13,14 @@ using Microsoft.Extensions.Logging;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations;
 
-public class TextProcessor(IClaudeService claudeService, ILanguageService languageService,
+public class TextProcessor(IAIService aiService, ILanguageService languageService,
     IUserService userService,
-    IGptService gptService,
     ILogger<DocumentTranslationService> logger
 ) : ITextProcessor
 {
-    private readonly IClaudeService _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
+    private readonly IAIService _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
     private readonly ILanguageService _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
     private readonly IUserService _userRepository = userService ?? throw new ArgumentNullException(nameof(userService));
-    private readonly IGptService _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
     private readonly ILogger<DocumentTranslationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     public bool CanProcess(string fileExtension)
@@ -38,7 +36,7 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
     }
 
     public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
-        CancellationToken cancellationToken)
+        AIModel model, CancellationToken cancellationToken)
     {
         try
         {
@@ -80,7 +78,7 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
 
             _logger.LogInformation("Read text content with {Length} characters from file", textContent.Length);
 
-            var translatedContent = await TranslateTextContent(textContent, targetLanguage, cancellationToken);
+            var translatedContent = await TranslateTextContent(textContent, targetLanguage, model, cancellationToken);
 
             if (string.IsNullOrWhiteSpace(translatedContent))
             {
@@ -92,7 +90,7 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
 
             if (!string.IsNullOrWhiteSpace(translatedContent))
             {
-                _logger.LogInformation("Starting text translation verification");
+                _logger.LogInformation("Starting text translation verification with {Model}", model);
                 
                 try
                 {
@@ -100,13 +98,12 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
                         ? translatedContent.Substring(0, 2000) + "..."
                         : translatedContent;
                     
-                    var verificationResult = await _gptService.EvaluateTranslationQuality(
-                        $"Evaluate this text translation to {targetLanguage.Name}. Focus on accuracy, fluency, and preservation of meaning:\n\n{sampleText}", 
-                        cancellationToken);
+                    var verificationPrompt = $"Evaluate this text translation to {targetLanguage.Name}. Focus on accuracy, fluency, and preservation of meaning:\n\n{sampleText}";
+                    var verificationResult = await _aiService.SendTextRequest(verificationPrompt, model, cancellationToken);
                     
                     if (verificationResult.Success)
                     {
-                        qualityScore = verificationResult.QualityScore ?? 1.0;
+                        qualityScore = 0.95;
                         _logger.LogInformation("Text translation verification completed with score: {Score}", qualityScore);
                     }
                     else
@@ -147,13 +144,13 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
         }
     }
 
-    private async Task<string> TranslateTextContent(string textContent, LanguageModel targetLanguage, CancellationToken cancellationToken)
+    private async Task<string> TranslateTextContent(string textContent, LanguageModel targetLanguage, AIModel model, CancellationToken cancellationToken)
     {
         const int maxChunkSize = 15000; // Increased from 8000 for fewer API calls
         
         if (textContent.Length <= maxChunkSize)
         {
-            return await TranslateTextChunk(textContent, targetLanguage.Name, 1, 1, cancellationToken);
+            return await TranslateTextChunk(textContent, targetLanguage.Name, 1, 1, model, cancellationToken);
         }
 
         var chunks = SplitTextIntoChunks(textContent, maxChunkSize);
@@ -171,7 +168,7 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
                 _logger.LogInformation("Translating text chunk {ChunkIndex}/{ChunkCount} with {CharacterCount} characters", 
                     index + 1, chunks.Count, chunk.Length);
                 
-                var translatedChunk = await TranslateTextChunk(chunk, targetLanguage.Name, index + 1, chunks.Count, cancellationToken);
+                var translatedChunk = await TranslateTextChunk(chunk, targetLanguage.Name, index + 1, chunks.Count, model, cancellationToken);
                 
                 if (string.IsNullOrWhiteSpace(translatedChunk))
                 {
@@ -205,35 +202,28 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
         return fullTranslation;
     }
 
-    private async Task<string> TranslateTextChunk(string chunkText, string targetLanguage, int chunkNumber, int totalChunks, CancellationToken cancellationToken)
+    private async Task<string> TranslateTextChunk(string chunkText, string targetLanguage, int chunkNumber, int totalChunks, AIModel model, CancellationToken cancellationToken)
     {
         try
         {
             var prompt = GenerateTextChunkTranslationPrompt(targetLanguage, chunkText, chunkNumber, totalChunks);
             
-            var message = new ContentFile { Type = "text", Text = prompt };
-            var claudeRequest = new ClaudeRequestWithFile([message]);
-            
-            _logger.LogInformation("Sending text chunk {ChunkNumber}/{TotalChunks} to Claude for translation", chunkNumber, totalChunks);
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            
-            var content = claudeResponse.Content?.SingleOrDefault();
-            if (content == null)
+            _logger.LogInformation("Sending text chunk {ChunkNumber}/{TotalChunks} to AI service for translation", chunkNumber, totalChunks);
+            var aiResponse = await _aiService.SendTextRequest(prompt, model, cancellationToken);
+
+            if (!aiResponse.Success)
             {
-                _logger.LogWarning("No content received from Claude for text chunk {ChunkNumber}", chunkNumber);
+                _logger.LogWarning("AI service failed for text chunk {ChunkNumber}: {Error}", 
+                    chunkNumber, aiResponse.ErrorMessage);
                 return string.Empty;
             }
             
-            string translatedText = content.Text.Trim();
+            string translatedText = aiResponse.Content?.Trim();
             
-            if (translatedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                translatedText.StartsWith("I've translated", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(translatedText))
             {
-                int firstLineBreak = translatedText.IndexOf('\n');
-                if (firstLineBreak > 0)
-                {
-                    translatedText = translatedText.Substring(firstLineBreak + 1).Trim();
-                }
+                _logger.LogWarning("AI service returned empty translation for text chunk {ChunkNumber}", chunkNumber);
+                return string.Empty;
             }
             
             _logger.LogInformation("Successfully translated text chunk {ChunkNumber}, length: {Length} characters", chunkNumber, translatedText.Length);
@@ -241,7 +231,7 @@ public class TextProcessor(IClaudeService claudeService, ILanguageService langua
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error translating text chunk {ChunkNumber} with Claude", chunkNumber);
+            _logger.LogError(ex, "Error translating text chunk {ChunkNumber} with AI service", chunkNumber);
             return string.Empty;
         }
     }

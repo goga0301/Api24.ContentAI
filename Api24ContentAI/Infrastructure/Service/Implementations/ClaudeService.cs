@@ -93,32 +93,25 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 
                 TimeSpan timeout = jsonContent.Length switch
                 {
-                    > 5000000 => TimeSpan.FromMinutes(15), // 5MB+ = 15 minutes
-                    > 2000000 => TimeSpan.FromMinutes(10), // 2MB+ = 10 minutes
-                    > 1000000 => TimeSpan.FromMinutes(5),  // 1MB+ = 5 minutes
-                    _ => TimeSpan.FromMinutes(2)           // Default = 2 minutes
+                    > 5000000 => TimeSpan.FromSeconds(450), // 5MB+ = 7.5 minutes
+                    > 2000000 => TimeSpan.FromSeconds(300), // 2MB+ = 5 minutes
+                    > 1000000 => TimeSpan.FromSeconds(150),  // 1MB+ = 2.5 minutes
+                    _ => TimeSpan.FromSeconds(60)           // Default = 1 minute
                 };
-
-                if (jsonContent.Length > 1000000) // 1MB
+                
+                using (var timeoutCts = new CancellationTokenSource(timeout))
+                using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
                 {
-                    _logger.LogInformation("Request is large ({Size} bytes), using extended timeout of {Timeout} minutes", 
-                        jsonContent.Length, timeout.TotalMinutes);
-                    
-                    using var requestClient = new HttpClient();
-                    requestClient.Timeout = timeout;
-                    
-                    foreach (var header in _httpClient.DefaultRequestHeaders)
+                    if (jsonContent.Length > 1000000) // 1MB
                     {
-                        requestClient.DefaultRequestHeaders.Add(header.Key, header.Value);
+                        _logger.LogInformation("Request is large ({Size} bytes), using extended timeout of {Timeout} seconds", 
+                            jsonContent.Length, timeout.TotalSeconds);
                     }
-                    
-                    HttpResponseMessage response = await requestClient.PostAsync(
-                        new Uri(_httpClient.BaseAddress, Messages), 
-                        httpContent, 
-                        cancellationToken);
+
+                    var response = await _httpClient.PostAsync(Messages, httpContent, linkedCts.Token);
 
                     string responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-                    
+                
                     _logger.LogDebug("Claude API response: {Response}", responseStr);
 
                     if (!response.IsSuccessStatusCode)
@@ -127,24 +120,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             response.StatusCode, responseStr);
                         throw new Exception($"Claude API error: {responseStr}");
                     }
-                    
-                    return JsonSerializer.Deserialize<ClaudeResponse>(responseStr, jsonOptions);
-                }
-                else
-                {
-                    HttpResponseMessage response = await _httpClient.PostAsync(Messages, httpContent, cancellationToken);
-
-                    string responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-                    
-                    _logger.LogDebug("Claude API response: {Response}", responseStr);
-
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        _logger.LogError("Claude API error: {StatusCode} - {Response}", 
-                            response.StatusCode, responseStr);
-                        throw new Exception($"Claude API error: {responseStr}");
-                    }
-                    
+                
                     return JsonSerializer.Deserialize<ClaudeResponse>(responseStr, jsonOptions);
                 }
             }
@@ -215,7 +191,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             }
             
-            _httpClient.Timeout = TimeSpan.FromMinutes(2);
+            _httpClient.Timeout = TimeSpan.FromMinutes(1);
             
             _headersInitialized = true;
         }
