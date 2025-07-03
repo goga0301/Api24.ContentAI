@@ -53,12 +53,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _logger.LogDebug("Sending request to Claude API with {Count} content items", 
                     request.Messages.SelectMany(m => m.Content).Count());
                 
+                bool hasImages = false;
+                int totalImageDataSize = 0;
+                
                 foreach (MessageWithFile message in request.Messages)
                 {
                     foreach (ContentFile contentItem in message.Content)
                     {
                         if (contentItem.Type == "image" && contentItem.Source != null)
                         {
+                            hasImages = true;
+                            totalImageDataSize += contentItem.Source.Data?.Length ?? 0;
+                            
                             if (string.IsNullOrEmpty(contentItem.Source.Data))
                             {
                                 _logger.LogError("Image data is empty");
@@ -87,25 +93,21 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 string jsonContent = JsonSerializer.Serialize(request, jsonOptions);
                 
-                _logger.LogDebug("Claude API request size: {Size} bytes", jsonContent.Length);
+                _logger.LogDebug("Claude API request size: {Size} bytes, has images: {HasImages}, total image data: {ImageDataSize}", 
+                    jsonContent.Length, hasImages, totalImageDataSize);
 
                 StringContent httpContent = new(jsonContent, Encoding.UTF8, "application/json");
                 
-                TimeSpan timeout = jsonContent.Length switch
-                {
-                    > 5000000 => TimeSpan.FromSeconds(450), // 5MB+ = 7.5 minutes
-                    > 2000000 => TimeSpan.FromSeconds(300), // 2MB+ = 5 minutes
-                    > 1000000 => TimeSpan.FromSeconds(150),  // 1MB+ = 2.5 minutes
-                    _ => TimeSpan.FromSeconds(60)           // Default = 1 minute
-                };
+                // Enhanced timeout logic considering both request size and image processing complexity
+                TimeSpan timeout = DetermineTimeout(jsonContent.Length, hasImages, totalImageDataSize);
                 
                 using (var timeoutCts = new CancellationTokenSource(timeout))
                 using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
                 {
-                    if (jsonContent.Length > 1000000) // 1MB
+                    if (hasImages || jsonContent.Length > 500000) // 500KB
                     {
-                        _logger.LogInformation("Request is large ({Size} bytes), using extended timeout of {Timeout} seconds", 
-                            jsonContent.Length, timeout.TotalSeconds);
+                        _logger.LogInformation("Request contains images or is large (Size: {Size} bytes, Images: {HasImages}, Image data: {ImageDataSize}), using extended timeout of {Timeout} seconds", 
+                            jsonContent.Length, hasImages, totalImageDataSize, timeout.TotalSeconds);
                     }
 
                     var response = await _httpClient.PostAsync(Messages, httpContent, linkedCts.Token);
@@ -124,11 +126,45 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return JsonSerializer.Deserialize<ClaudeResponse>(responseStr, jsonOptions);
                 }
             }
+            catch (OperationCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
+            {
+                _logger.LogError(ex, "Claude API request was cancelled or timed out");
+                throw new Exception("Claude API request timed out. The image processing is taking longer than expected. Please try again or use a smaller image.", ex);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in Claude integration service");
                 throw new Exception("Error in Claude integration service: " + ex.Message, ex);
             }
+        }
+
+        private static TimeSpan DetermineTimeout(int requestSize, bool hasImages, int totalImageDataSize)
+        {
+            TimeSpan baseTimeout = requestSize switch
+            {
+                > 5000000 => TimeSpan.FromMinutes(8),   // 5MB+ = 8 minutes
+                > 2000000 => TimeSpan.FromMinutes(6),   // 2MB+ = 6 minutes  
+                > 1000000 => TimeSpan.FromMinutes(4),   // 1MB+ = 4 minutes
+                > 500000 => TimeSpan.FromMinutes(3),    // 500KB+ = 3 minutes
+                _ => TimeSpan.FromMinutes(2)            // Default = 2 minutes
+            };
+
+            if (hasImages)
+            {
+                var imageProcessingTime = totalImageDataSize switch
+                {
+                    > 1000000 => TimeSpan.FromMinutes(3),   // 1MB+ image data = +3 min
+                    > 500000 => TimeSpan.FromMinutes(2),    // 500KB+ image data = +2 min  
+                    > 200000 => TimeSpan.FromMinutes(1.5),  // 200KB+ image data = +1.5 min
+                    > 100000 => TimeSpan.FromMinutes(1),    // 100KB+ image data = +1 min
+                    _ => TimeSpan.FromSeconds(45)           // Any image = +45 sec
+                };
+                
+                baseTimeout = baseTimeout.Add(imageProcessingTime);
+            }
+
+            var minimumTimeout = TimeSpan.FromMinutes(2);
+            return baseTimeout < minimumTimeout ? minimumTimeout : baseTimeout;
         }
 
         public async Task<ClaudeResponse> SendRequestWithCachedPrompt(ClaudeRequestWithFile request, CancellationToken cancellationToken)
@@ -191,7 +227,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             }
             
-            _httpClient.Timeout = TimeSpan.FromMinutes(1);
+            _httpClient.Timeout = TimeSpan.FromMinutes(12);
             
             _headersInitialized = true;
         }
