@@ -56,5 +56,12 @@ if (-not (Test-Path "$env:ProgramFiles\poppler\bin\pdftoppm.exe")) {
     Write-Host "[✓] Poppler already installed."
 }
 
+Write-Host "[*] Installing LibreOffice..."
+if (-not (Get-Command libreoffice -ErrorAction SilentlyContinue)) {
+    choco install -y libreoffice
+} else {
+    Write-Host "[✓] LibreOffice already installed."
+}
+
 Write-Host "[✓] Setup complete. Run with: .\ocr-envvenv\Scripts\Activate.ps1 && uvicorn main:app --reload"
 

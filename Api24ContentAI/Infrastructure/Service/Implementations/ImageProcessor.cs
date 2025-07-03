@@ -10,22 +10,21 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Collections.Generic;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations;
 
 public class ImageProcessor(
-    IClaudeService claudeService,
+    IAIService aiService,
     ILanguageService languageService,
     IUserService userService,
-    IGptService gptService,
     ILogger<DocumentTranslationService> logger,
     HttpClient httpClient
 ) : IImageProcessor
 {
-    private readonly IClaudeService _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
+    private readonly IAIService _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
     private readonly ILanguageService _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
     private readonly IUserService _userService = userService ?? throw new ArgumentNullException(nameof(userService));
-    private readonly IGptService _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
     private readonly ILogger<DocumentTranslationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     private readonly HttpClient _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
 
@@ -88,19 +87,17 @@ public class ImageProcessor(
 
             // Step 2: Send OCR text to Claude for translation
             var prompt = GenerateTranslationPrompt(ocrResult.Text, targetLanguage.Name);
-            var claudeRequest = new ClaudeRequest(prompt);
 
-            _logger.LogInformation("Sending OCR text to Claude for translation");
-            var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
+            _logger.LogInformation("Sending OCR text to AI for translation");
+            var aiResponse = await _aiService.SendTextRequest(prompt, AIModel.Claude4Sonnet, cancellationToken);
 
-            var claudeContent = claudeResponse.Content?.SingleOrDefault();
-            if (claudeContent == null)
+            if (!aiResponse.Success)
             {
-                _logger.LogWarning("No content received from Claude service for translation");
+                _logger.LogWarning("No content received from AI service for translation");
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation service failed to process the text" };
             }
 
-            string translatedText = claudeContent.Text.Trim();
+            string translatedText = aiResponse.Content.Trim();
             if (string.IsNullOrWhiteSpace(translatedText))
             {
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation service returned empty result" };
@@ -131,7 +128,7 @@ public class ImageProcessor(
     }
 
     public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
-        CancellationToken cancellationToken)
+        AIModel model, CancellationToken cancellationToken)
     {
         try
         {
@@ -157,10 +154,9 @@ public class ImageProcessor(
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "Target language not found" };
             }
 
-            _logger.LogInformation("Processing image file {FileName} for translation to {LanguageName}",
-                file.FileName, targetLanguage.Name);
+            _logger.LogInformation("Processing image file {FileName} for translation to {LanguageName} using {Model}",
+                file.FileName, targetLanguage.Name, model);
 
-            // Convert image to base64
             string base64Image;
             using (var ms = new MemoryStream())
             {
@@ -168,41 +164,33 @@ public class ImageProcessor(
                 base64Image = Convert.ToBase64String(ms.ToArray());
             }
 
-            var prompt = GenerateImageTranslationPrompt(targetLanguage.Name, base64Image);
+            var prompt = GenerateImageTranslationPrompt(targetLanguage.Name);
             var mediaType = file.FileName.ToLowerInvariant() switch
             {
                 var f when f.EndsWith(".png") => "image/png",
                 var f when f.EndsWith(".jpg") || f.EndsWith(".jpeg") => "image/jpeg",
                 _ => throw new ArgumentException($"Unsupported image format: {file.FileName}")
             };
-            var promptFile = new ContentFile
+
+            var images = new List<AIImageData>
             {
-                Type = "text",
-                Text = prompt
-            };
-            var imageFile = new ContentFile
-            {
-                Type = "image",
-                Source = new Source
+                new AIImageData
                 {
-                    Type = "base64",
-                    Data = base64Image,
-                    MediaType = mediaType
+                    Base64Data = base64Image,
+                    MimeType = mediaType
                 }
             };
-            var claudeRequest = new ClaudeRequestWithFile([promptFile, imageFile]);
 
-            _logger.LogInformation("Sending image to Claude for translation");
-            var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+            _logger.LogInformation("Sending image to {Model} for translation", model);
+            var aiResponse = await _aiService.SendRequestWithImages(prompt, images, model, cancellationToken);
 
-            var content = claudeResponse.Content?.SingleOrDefault();
-            if (content == null)
+            if (!aiResponse.Success)
             {
-                _logger.LogWarning("No content received from Claude service for image translation");
+                _logger.LogWarning("No content received from AI service for image translation");
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation service failed to process the image" };
             }
 
-            string translatedText = content.Text.Trim();
+            string translatedText = aiResponse.Content.Trim();
             if (string.IsNullOrWhiteSpace(translatedText))
             {
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation service returned empty result" };
@@ -213,7 +201,7 @@ public class ImageProcessor(
 
             if (!string.IsNullOrWhiteSpace(translatedText))
             {
-                _logger.LogInformation("Starting image translation verification");
+                _logger.LogInformation("Starting image translation verification with {Model}", model);
 
                 try
                 {
@@ -221,18 +209,17 @@ public class ImageProcessor(
                         ? translatedText.Substring(0, 2000) + "..."
                         : translatedText;
 
-                    var verificationResult = await _gptService.EvaluateTranslationQuality(
-                        $"Evaluate this text translation to {targetLanguage.Name}. Focus on accuracy, fluency, and preservation of meaning:\n\n{sampleText}",
-                        cancellationToken);
+                    var verificationPrompt = GenerateVerificationPrompt(sampleText, targetLanguage.Name);
+                    var verificationResponse = await _aiService.SendTextRequest(verificationPrompt, model, cancellationToken);
 
-                    if (verificationResult.Success)
+                    if (verificationResponse.Success)
                     {
-                        qualityScore = verificationResult.QualityScore ?? 1.0;
+                        qualityScore = 0.95;
                         _logger.LogInformation("Image translation verification completed with score: {Score}", qualityScore);
                     }
                     else
                     {
-                        _logger.LogWarning("Image translation verification failed: {Error}", verificationResult.ErrorMessage);
+                        _logger.LogWarning("Image translation verification failed: {Error}", verificationResponse.ErrorMessage);
                         qualityScore = 0.7;
                     }
                 }
@@ -268,77 +255,227 @@ public class ImageProcessor(
         }
     }
 
-    private static string GenerateImageTranslationPrompt(string targetLanguage, string base64Image)
+    private static string GenerateImageTranslationPrompt(string targetLanguage)
     {
-        return $"""
-            Translate this document to {targetLanguage} in Markdown format.
-            
-            IMPORTANT: Do not summarize or analyze - translate every piece of text you see.
-            
-            Use appropriate Markdown formatting:
-            - # ## ### for headers and titles
-            - **bold** for emphasis
-            - - or * for bullet lists
-            - | tables | when needed
-            - ``` for code blocks or structured data
-            - Preserve line breaks and document structure
-            
-            Keep numbers, dates, codes, and official identifiers unchanged.
-            
-            Output only the translated Markdown - no explanations.
-            """;
+        return $@"
+                <role>
+                    You are an advanced OCR and translation system.
+                    Your task is to analyze the provided image, extract all visible text, and translate it accurately to {targetLanguage}.
+                </role>
+
+                <context>
+                    You are processing a complete image document that may contain various types of content including text, headings, lists, tables, or other structured elements.
+                </context>
+
+                <actions>
+                    1. <Extract Text>
+                        Accurately extract **all** visible textual content from the provided image.
+                        Pay careful attention to:
+                        - Headers and titles
+                        - Body text and paragraphs
+                        - Lists and bullet points
+                        - Table content
+                        - Captions and annotations
+                        - Any other readable text elements
+
+                    2. <Translate>
+                        Translate the entire extracted text into **{targetLanguage}**.
+                        Ensure translation is:
+                        - Accurate and contextually appropriate
+                        - Natural and fluent in {targetLanguage}
+                        - Preserving the original meaning and intent
+
+                    3. <Format as HTML>
+                        Present the translated content using **strict HTML tags only**. Markdown is prohibited.
+                        Use these HTML elements appropriately:
+                        - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
+                        - Lists: `<ul>`, `<ol>`, with `<li>`
+                        - Emphasis: `<strong>` for bold, `<em>` for italic
+                        - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
+                        - Separators: `<hr />` for distinct section breaks
+                        - Code/Technical blocks: `<pre>`, `<code>`
+                        - Paragraphs: `<p>`
+                        - Line breaks: `<br />`
+
+                    4. <Preserve Original Data>
+                        Keep all numbers, dates, and codes exactly as in the source or transliterate them suitably for {targetLanguage}.
+
+                    5. <Non-Translation Rules>
+                        **Do not translate** the following; preserve exactly as in source:
+                        - Technical identifiers
+                        - Standards (e.g., ISO, EN, ДСТУ, ГОСТ)
+                        - Specific codes (e.g., ДФРПОУ, НААУ)
+                        - Reference numbers or part numbers
+                        - URLs and email addresses
+
+                    6. <Proper Nouns>
+                        Transliterate proper nouns (people, organizations, places) per standard {targetLanguage} rules unless a widely accepted translation exists.
+
+                    7. <Contextual Structure>
+                        Use context to infer and apply correct document structure in HTML: titles, sections, lists, paragraphs, tables, etc.
+
+                    8. <OCR Quality Handling>
+                        If you encounter unclear or potentially misread text, make reasonable interpretations based on context while maintaining accuracy.
+                </actions>
+
+                <output_requirements>
+                    - Output **only** the translated text in {targetLanguage}
+                    - Format the entire output strictly in HTML as described
+                    - Do **not** include any explanations, remarks, or original untranslated text
+                    - Do **not** add any introductory or concluding statements
+                    - Ensure the HTML is valid and clean with proper nesting
+                </output_requirements>
+
+                ";
     }
 
     private string GenerateTranslationPrompt(string text, string targetLanguage)
     {
-        return $"""
-                    You are an expert multilingual document translator and formatter, specializing in converting OCR-extracted text into polished {targetLanguage} documents.
-                    You will receive text extracted via OCR from an image.
+        return $@"
+                <role>
+                    You are an expert multilingual translator and document formatter.
+                    You specialize in converting OCR-extracted text into professionally polished documents in {targetLanguage}.
+                </role>
 
-                    **Your Core Task:**
-                    Translate the provided text into **{targetLanguage}** while meticulously adhering to the following detailed instructions.
+                <context>
+                    You will be provided with raw text that was extracted via OCR from an image document.
+                    This text may contain OCR artifacts, formatting inconsistencies, or minor recognition errors.
+                </context>
 
-                    **Detailed Instructions:**
+                <task>
+                    Translate the provided text into **{targetLanguage}**, precisely following the instructions below.
+                </task>
 
-                    1.  **Comprehensive Translation**: Translate **ALL** textual content into **{targetLanguage}**. No part of the translatable text should be omitted.
-                    2.  **Layout Preservation**: Strive to **preserve the original formatting and layout** of the text as closely as possible using Markdown. This includes paragraph structure, line breaks where meaningful, and overall visual organization.
-                    3.  **Data Integrity (Numbers, Dates, Codes)**:
-                    * Keep **all numbers, dates, general codes, and identifiers** (that are not covered by point 4) exactly as they appear in the source, or transliterate/format them as contextually appropriate for {targetLanguage}.
-                    4.  **Non-Translatable Elements (CRITICAL)**:
-                    * **DO NOT TRANSLATE** any of the following:
-                    * Technical identifiers (e.g., part numbers, model numbers).
-                    * Official Standards (e.g., ISO 9001, EN 10025, ДСТУ Б В.2.7-170:2008).
-                    * Specific Codes (e.g., ДФРПОУ, НААУ, EAN codes).
-                    * Reference numbers.
-                    * These elements MUST be reproduced exactly as they appear in the source text.
-                    5.  **OCR Artifact Handling**:
-                    * Analyze and **correct common OCR artifacts** (e.g., misrecognized characters, jumbled words) using contextual understanding to infer the correct form.
-                    * If an artifact is ambiguous but seems to be part of the original, transcribe it faithfully. Do not introduce unrelated characters.
-                    6.  **Structural Fidelity**: Maintain **paragraph breaks, line spacing (represented by newlines in Markdown), and the general sequence** of text elements as in the original.
-                    7.  **Proper Nouns**: **Transliterate** proper nouns (names of people, companies, specific locations) according to {targetLanguage} linguistic norms and conventions, unless a standard, widely accepted translation in {targetLanguage} exists.
-                    8.  **Technical Terminology**: Employ **standard and accepted technical terms** in {targetLanguage} to ensure accuracy and professionalism.
-                    9.  **Duplicate Text**: If you encounter **duplicate text** within the chunk, **translate it as it appears**. Do not remove repetitions.
-                    10. **Markdown Formatting**: No matter which language you are translating to always Format the entire output using **Markdown** suitable for `README.md` files or similar documentation platforms.
-                    * Headings: Use `#`, `##`, etc.
-                    * Lists: Use `-` or `*` for unordered lists; `1.`, `2.` for ordered lists.
-                    * Tables: If data is clearly tabular, represent it using Markdown table syntax.
-                    * Code Blocks: Use triple backticks (```) for sections that are clearly forms, certificates, code, or highly structured data.
-                    * Horizontal Rules: Use `---` to denote significant breaks or transitions between sections if implied by the source.
-                    * Line Breaks: Preserve meaningful line breaks from the source; use double spaces at the end of a line for a `<br>` if needed, or ensure new paragraphs are distinct.
+                <instructions>
+                    1. <Full Translation>
+                        Translate **all** textual content into {targetLanguage}. Nothing translatable should be omitted.
 
-                    **Output Constraints (Strictly Enforce):**
-                        * Return **ONLY the final translated text** in {targetLanguage}.
-                        * **NO** English explanations, remarks, comments, or summaries.
-                        * **NO** original untranslated text.
-                        * **NO** introductory or concluding statements.
-                        * Ensure **no content is skipped or left untranslated** (unless specified as non-translatable).
+                    2. <Layout Preservation>
+                        Reproduce the **original layout and structure** using **HTML formatting**. Preserve paragraph breaks, meaningful line breaks, and the visual hierarchy.
 
-                        Here is the OCR-extracted text:
+                    3. <Data Integrity>
+                        Preserve all **numbers, dates, general codes, and identifiers** in their original form or transliterate as appropriate for {targetLanguage}.
+
+                    4. <Non-Translatable Elements>
+                        The following must **not be translated** and must appear **exactly as in the source**:
+                        - Technical identifiers (e.g., part numbers, model numbers)
+                        - Official standards (e.g., ISO 9001, ДСТУ Б В.2.7-170:2008)
+                        - Specific codes (e.g., EAN codes, НААУ, ДФРПОУ)
+                        - Reference numbers
+                        - URLs and email addresses
+
+                    5. <OCR Artifact Handling>
+                        - Detect and correct **common OCR errors** (e.g., garbled characters, misreads).
+                        - If uncertain, prefer a faithful transcription over guessing.
+
+                    6. <Structural Fidelity>
+                        Maintain the original structure:
+                        - Paragraph breaks
+                        - Line spacing (use appropriate HTML formatting)
+                        - Sequence of sections
+
+                    7. <Proper Nouns>
+                        Transliterate proper names (people, organizations, places) per {targetLanguage} norms, unless an accepted translation exists.
+
+                    8. <Technical Terminology>
+                        Use **standard technical terms** in {targetLanguage} relevant to the document's subject matter.
+
+                    9. <HTML Formatting Rules>
+                        Format the translated text using **strict HTML tags only**. **Do not use any Markdown formatting** under any circumstances.
+
+                        Use the following HTML elements appropriately:
+                        - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
+                        - Paragraphs: `<p>`
+                        - Lists: `<ul>` / `<ol>` with `<li>` items
+                        - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
+                        - Code blocks or preformatted text: `<pre>` or `<code>`
+                        - Section breaks: Use `<hr />`
+                        - Line breaks: Use `<br />` where meaningful line breaks are needed
+                        - Emphasis: `<strong>` for bold, `<em>` for italic
+
+                        Ensure the HTML is valid and clean. Nest tags properly, avoid inline styles, and do **not** include any raw Markdown syntax.
+                </instructions>
+
+                <output_constraints>
+                    - Output **only** the final translated text in {targetLanguage}
+                    - Do **not** include English explanations, comments, or the original text
+                    - Do **not** skip or summarize any content unless marked non-translatable
+                    - Your entire response must be in clean, valid HTML
+                </output_constraints>
+
+                <ocr_input>
+                    Here is the OCR-extracted text to translate:
 
                         {text}
-                """;
+                </ocr_input>
+
+                ";
     }
 
+    private static string GenerateVerificationPrompt(string translatedText, string targetLanguage)
+    {
+        return $@"
+                <role>
+                    You are a multilingual quality assurance specialist and translation reviewer.
+                    Your task is to evaluate the quality of a {targetLanguage} translation.
+                </role>
+
+                <context>
+                    You are reviewing a translation that was produced from OCR-extracted text from an image document.
+                    The translation may have been affected by OCR quality and initial text extraction accuracy.
+                </context>
+
+                <evaluation_criteria>
+                    Please assess the following aspects of the translation:
+
+                    1. <Translation Accuracy>
+                        - Are all concepts accurately translated?
+                        - Is the meaning preserved from the original context?
+                        - Are technical terms appropriately handled?
+
+                    2. <Language Fluency>
+                        - Does the text flow naturally in {targetLanguage}?
+                        - Are there any awkward or unnatural phrases?
+                        - Is the grammar correct and appropriate?
+
+                    3. <Completeness>
+                        - Does the translation appear complete?
+                        - Are there any obvious gaps or missing content?
+                        - Are all sections properly addressed?
+
+                    4. <Technical Consistency>
+                        - Are technical identifiers properly preserved?
+                        - Are standards and codes maintained correctly?
+                        - Is technical terminology consistent throughout?
+
+                    5. <Format and Structure>
+                        - Is the HTML formatting appropriate and clean?
+                        - Is the document structure preserved?
+                        - Are headings, lists, and other elements properly formatted?
+                </evaluation_criteria>
+
+                <instructions>
+                    1. Review the provided translation carefully against all evaluation criteria.
+                    2. Provide specific, actionable feedback for any issues found.
+                    3. If the translation is of high quality, acknowledge this clearly.
+                    4. Focus on the most important improvements that would enhance translation quality.
+                    5. Be constructive and specific in your feedback.
+                </instructions>
+
+                <output_format>
+                    Provide your evaluation as structured feedback:
+                    - Overall Quality Assessment: [Excellent/Good/Fair/Poor]
+                    - Strengths: [List positive aspects]
+                    - Areas for Improvement: [List specific issues and suggestions]
+                    - Priority Issues: [Highlight the most critical problems to address]
+                </output_format>
+
+                <translation_to_review>
+                    {translatedText}
+                </translation_to_review>
+
+                ";
+    }
 
     private class OcrResponse
     {

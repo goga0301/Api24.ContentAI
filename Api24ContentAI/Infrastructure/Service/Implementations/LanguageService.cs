@@ -41,7 +41,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             Domain.Entities.Language language = await _languageRepository.GetById(id, cancellationToken);
             if (language == null)
             {
-                throw new Exception("მითითებული ენა ვერ მოიძებნა");
+                var availableLanguages = await _languageRepository.GetAll().ToListAsync(cancellationToken);
+                var availableIds = string.Join(", ", availableLanguages.Select(l => $"{l.Id} ({l.Name})"));
+                var errorMessage = $"Language with ID {id} not found. Available languages: [{availableIds}]";
+                throw new Exception(errorMessage);
             }
             return language.ToModel();
         }

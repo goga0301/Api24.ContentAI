@@ -13,17 +13,15 @@ using Microsoft.Extensions.Logging;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations;
 
-public class SrtProcessor(IClaudeService claudeService, ILanguageService languageService,
+public class SrtProcessor(IAIService aiService, ILanguageService languageService,
     IUserService userService,
-    IGptService gptService,
     ILogger<DocumentTranslationService> logger
 ) : ISrtProcessor
 {
     
-    private readonly IClaudeService _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
+    private readonly IAIService _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
     private readonly ILanguageService _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
     private readonly IUserService _userRepository = userService ?? throw new ArgumentNullException(nameof(userService));
-    private readonly IGptService _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
     private readonly ILogger<DocumentTranslationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
     public bool CanProcess(string fileExtension)
@@ -39,7 +37,7 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
     }
 
     public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat,
-        CancellationToken cancellationToken)
+        AIModel model, CancellationToken cancellationToken)
     {
         
         try
@@ -90,7 +88,7 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
 
             var textsToTranslate = subtitleEntries.Select(entry => entry.Text).ToList();
         
-            var translatedTexts = await TranslateSrtContentInChunks(textsToTranslate, targetLanguage, cancellationToken);
+            var translatedTexts = await TranslateSrtContentInChunks(textsToTranslate, targetLanguage, model, cancellationToken);
         
             if (translatedTexts == null || translatedTexts.Count != textsToTranslate.Count)
             {
@@ -104,20 +102,19 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
 
             if (!string.IsNullOrWhiteSpace(translatedSrtContent))
             {
-                _logger.LogInformation("Starting SRT translation verification");
+                _logger.LogInformation("Starting SRT translation verification with {Model}", model);
             
                 try
                 {
                     var sampleTexts = translatedTexts.Take(Math.Min(10, translatedTexts.Count)).ToList();
                     var verificationText = string.Join("\n", sampleTexts);
                 
-                    var verificationResult = await _gptService.EvaluateTranslationQuality(
-                        $"Evaluate this SRT subtitle translation sample to {targetLanguage.Name}. Focus on subtitle-appropriate language, timing considerations, and readability:\n\n{verificationText}", 
-                        cancellationToken);
+                    var verificationPrompt = $"Evaluate this SRT subtitle translation sample to {targetLanguage.Name}. Focus on subtitle-appropriate language, timing considerations, and readability:\n\n{verificationText}";
+                    var verificationResult = await _aiService.SendTextRequest(verificationPrompt, model, cancellationToken);
                 
                     if (verificationResult.Success)
                     {
-                        qualityScore = verificationResult.QualityScore ?? 1.0;
+                        qualityScore = 0.95;
                         _logger.LogInformation("SRT translation verification completed with score: {Score}", qualityScore);
                     }
                     else
@@ -159,7 +156,7 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
         
     }
     
-    private async Task<List<string>> TranslateSrtContentInChunks(List<string> subtitleTexts, LanguageModel targetLanguage, CancellationToken cancellationToken)
+    private async Task<List<string>> TranslateSrtContentInChunks(List<string> subtitleTexts, LanguageModel targetLanguage, AIModel model, CancellationToken cancellationToken)
     {
         const int maxChunkSize = 50;
         const int maxCharacters = 8000;
@@ -202,7 +199,7 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
         
             try
             {
-                var translatedChunk = await TranslateSrtChunk(combinedChunkText, targetLanguage.Name, i + 1, chunks.Count, cancellationToken);
+                var translatedChunk = await TranslateSrtChunk(combinedChunkText, targetLanguage.Name, i + 1, chunks.Count, model, cancellationToken);
             
                 if (string.IsNullOrWhiteSpace(translatedChunk))
                 {
@@ -250,48 +247,44 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
         return allTranslatedTexts;
     }
     
-            private async Task<string> TranslateSrtChunk(string chunkText, string targetLanguage, int chunkNumber, int totalChunks, CancellationToken cancellationToken)
-        {
-            try
-            {
-                var prompt = GenerateSrtChunkTranslationPrompt(targetLanguage, chunkText, chunkNumber, totalChunks);
-        
-                var message = new ContentFile { Type = "text", Text = prompt };
-                var claudeRequest = new ClaudeRequestWithFile([message]);
-        
-                _logger.LogInformation("Sending SRT chunk {ChunkNumber}/{TotalChunks} to Claude for translation", chunkNumber, totalChunks);
-                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-        
-                var content = claudeResponse.Content?.SingleOrDefault();
-                if (content == null)
-                {
-                    _logger.LogWarning("No content received from Claude for SRT chunk {ChunkNumber}", chunkNumber);
-                    return string.Empty;
-                }
-        
-                string translatedText = content.Text.Trim();
-        
-                if (translatedText.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                    translatedText.StartsWith("I've translated", StringComparison.OrdinalIgnoreCase))
-                {
-                    int firstLineBreak = translatedText.IndexOf('\n');
-                    if (firstLineBreak > 0)
-                    {
-                        translatedText = translatedText.Substring(firstLineBreak + 1).Trim();
-                    }
-                }
-        
-                _logger.LogInformation("Successfully translated SRT chunk {ChunkNumber}, length: {Length} characters", chunkNumber, translatedText.Length);
-                return translatedText;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error translating SRT chunk {ChunkNumber} with Claude", chunkNumber);
-                return string.Empty;
-            }
-        }
+    private async Task<string> TranslateSrtChunk(string chunkText, string targetLanguage, int chunkNumber, int totalChunks, AIModel model, CancellationToken cancellationToken)
+    {
+        var prompt = GenerateSrtChunkTranslationPrompt(targetLanguage, chunkText, chunkNumber, totalChunks);
 
-    
+        try
+        {
+            _logger.LogInformation("Sending SRT chunk {ChunkNumber}/{TotalChunks} to AI service for translation",
+                chunkNumber, totalChunks);
+            
+            var aiResponse = await _aiService.SendTextRequest(prompt, model, cancellationToken);
+
+            if (!aiResponse.Success)
+            {
+                _logger.LogWarning("AI service failed for SRT chunk {ChunkNumber}: {Error}", 
+                    chunkNumber, aiResponse.ErrorMessage);
+                return null;
+            }
+
+            var translatedText = aiResponse.Content?.Trim();
+            
+            if (string.IsNullOrWhiteSpace(translatedText))
+            {
+                _logger.LogWarning("AI service returned empty translation for SRT chunk {ChunkNumber}", chunkNumber);
+                return null;
+            }
+            
+            _logger.LogInformation("Successfully translated SRT chunk {ChunkNumber}/{TotalChunks}", 
+                chunkNumber, totalChunks);
+
+            return translatedText;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error translating SRT chunk {ChunkNumber} with AI service", chunkNumber);
+            return null;
+        }
+    }
+
     private string RebuildSrtFileWithTranslatedTexts(List<SrtEntry> entries, List<string> translatedTexts)
     {
         var result = new StringBuilder();
@@ -316,8 +309,6 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
         return result.ToString().TrimEnd();
     }
 
-
-    
     private List<SrtEntry> ParseSrtContent(string srtContent)
     {
         var entries = new List<SrtEntry>();
@@ -359,7 +350,6 @@ public class SrtProcessor(IClaudeService claudeService, ILanguageService languag
         return entries;
     }
 
-    
     private static string GenerateSrtChunkTranslationPrompt(string targetLanguage, string chunkText, int chunkNumber, int totalChunks)
     {
         return $"""

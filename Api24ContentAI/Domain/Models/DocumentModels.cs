@@ -13,6 +13,13 @@ namespace Api24ContentAI.Domain.Models
         Txt = 4
     }
     
+    public enum AIModel
+    {
+        Claude4Sonnet = 0,
+        Claude37Sonnet = 1,
+        Gemini25Pro = 2
+    }
+    
     public class DocumentConversionResult
     {
         public bool Success { get; set; }
@@ -45,6 +52,7 @@ namespace Api24ContentAI.Domain.Models
         public IFormFile File { get; set; }
         public int TargetLanguageId { get; set; }
         public DocumentFormat OutputFormat { get; set; } = DocumentFormat.Pdf;
+        public AIModel Model { get; set; } = AIModel.Claude4Sonnet;
     }
 
     public class DocumentConvertRequest
@@ -55,12 +63,14 @@ namespace Api24ContentAI.Domain.Models
     public class ScreenShotResult
     {
         public List<PageScreenshot> Pages { get; set; }
+        public string Method { get; set; } = "screenshot"; // "screenshot" or "text_extraction"
     }
 
     public class PageScreenshot
     {
         public int Page { get; set; }
         public List<string> ScreenShots { get; set; }
+        public string Text { get; set; } = string.Empty; // For text extraction fallback
     }
     
     public class SrtEntry
@@ -77,7 +87,6 @@ namespace Api24ContentAI.Domain.Models
         public string? ErrorMessage { get; set; }
     }
 
-    // New models for suggestions feature
     public class TranslationSuggestion
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();

@@ -14,7 +14,7 @@ using Microsoft.Extensions.Logging;
 namespace Api24ContentAI.Infrastructure.Service.Implementations;
 
 public class WordProcessor(
-    IClaudeService claudeService, 
+    IAIService aiService,
     ILanguageService languageService, 
     IUserService userService, 
     IGptService gptService,
@@ -22,7 +22,7 @@ public class WordProcessor(
 ) : IWordProcessor
 {
     
-    private readonly IClaudeService _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
+    private readonly IAIService _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
     private readonly ILanguageService _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
     private readonly IUserService _userService = userService ?? throw new ArgumentNullException(nameof(userService));
     private readonly IGptService _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
@@ -44,7 +44,7 @@ public class WordProcessor(
     }
 
     
-    public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, CancellationToken cancellationToken)
+    public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, AIModel model, CancellationToken cancellationToken)
     {
         try
         {
@@ -82,6 +82,17 @@ public class WordProcessor(
             if (screenshotResult.Pages == null || !screenshotResult.Pages.Any())
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "No pages found in document screenshots" };
 
+            _logger.LogInformation("Received {PageCount} pages from screenshot service, method: {Method}", 
+                screenshotResult.Pages.Count, screenshotResult.Method);
+            
+            foreach (var page in screenshotResult.Pages)
+            {
+                _logger.LogInformation("Page {Page}: Screenshots={ScreenshotCount}, Text length={TextLength}", 
+                    page.Page, 
+                    page.ScreenShots?.Count ?? 0,
+                    page.Text?.Length ?? 0);
+            }
+
             var translatedPages = new List<List<string>>();
 
             foreach (var page in screenshotResult.Pages)
@@ -108,7 +119,11 @@ public class WordProcessor(
                     try
                     {
                         var imageData = Convert.FromBase64String(base64Data);
-                        var translated = await ExtractAndTranslateWordDocumentWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, cancellationToken);
+                        var translated = await ExtractAndTranslateWordDocumentWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, model, cancellationToken, page.Text);
+                        
+                        _logger.LogInformation("Translation result for page {Page} section {Section}: {Length} chars", 
+                            page.Page, i, translated?.Length ?? 0);
+                        
                         pageTranslations.Add(translated ?? string.Empty);
                     }
                     catch (Exception ex)
@@ -124,7 +139,7 @@ public class WordProcessor(
             if (translatedPages.Count == 0 || translatedPages.All(p => p.All(string.IsNullOrWhiteSpace)))
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "No content could be extracted from the document" };
 
-            var finalMarkdown = await CombineTranslatedWordSectionsWithClaude(translatedPages, targetLanguage.Name, cancellationToken);
+            var finalMarkdown = await CombineTranslatedWordSectionsWithClaude(translatedPages, targetLanguage.Name, model, cancellationToken);
             
             if (string.IsNullOrWhiteSpace(finalMarkdown))
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "Failed to combine translated sections" };
@@ -244,7 +259,7 @@ public class WordProcessor(
         try
         {
             _logger.LogInformation("Sending document to screenshot service: {FileName}", file.FileName);
-            response = await httpClient.PostAsync("http://127.0.0.1:8000/screenshot", content, cancellationToken);
+            response = await httpClient.PostAsync("http://127.0.0.1:8000/process-word", content, cancellationToken);
             response.EnsureSuccessStatusCode();
         }
         catch (HttpRequestException ex)
@@ -256,36 +271,49 @@ public class WordProcessor(
         var result = await response.Content.ReadFromJsonAsync<ScreenShotResult>(cancellationToken: cancellationToken);
         if (result == null)
         {
-            _logger.LogError("Word document screenshot service returned null result");
-            throw new InvalidOperationException("Word document screenshot service returned null");
+            _logger.LogError("Word document processing service returned null result");
+            throw new InvalidOperationException("Word document processing service returned null");
         }
 
-        _logger.LogInformation("Successfully received screenshots for {PageCount} pages", result.Pages?.Count ?? 0);
+        if (result.Pages == null || result.Pages.Count == 0)
+        {
+            _logger.LogError("Word document processing returned no pages");
+            throw new InvalidOperationException("No pages found in document processing result");
+        }
+
+        _logger.LogInformation("Successfully processed document using {Method} with {PageCount} pages", 
+            result.Method ?? "screenshot", result.Pages.Count);
         return result;
     }
 
-    private async Task<string> ExtractAndTranslateWordDocumentWithClaude(byte[] imageData, int pageNumber, string sectionName, string targetLanguageName, CancellationToken cancellationToken)
+    private async Task<string> ExtractAndTranslateWordDocumentWithClaude(byte[] imageData, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, string extractedText = null)
     {
         try
         {
-            _logger.LogInformation("Extracting and translating text from Word document page {PageNumber} {SectionName} section with Claude", pageNumber, sectionName);
+            _logger.LogInformation("Extracting and translating text from Word document page {PageNumber} {SectionName} section", pageNumber, sectionName);
     
-            if (imageData == null || imageData.Length == 0)
+            var messages = new List<ContentFile>();
+            
+            if (!string.IsNullOrEmpty(extractedText))
             {
-                _logger.LogWarning("Empty image data for page {PageNumber} {SectionName}", pageNumber, sectionName);
-                return string.Empty;
+                _logger.LogInformation("Using pre-extracted text for translation (length: {Length})", extractedText.Length);
+                messages.Add(new ContentFile 
+                { 
+                    Type = "text", 
+                    Text = $"Translate the following Word document text to {targetLanguageName}. Preserve all formatting and structure:\n\n{extractedText}"
+                });
             }
-
-            string base64Image = Convert.ToBase64String(imageData);
-    
-            var messages = new List<ContentFile>
+            else if (imageData != null && imageData.Length > 0)
             {
-                new ContentFile 
+                _logger.LogInformation("Using screenshot data for OCR and translation");
+                string base64Image = Convert.ToBase64String(imageData);
+        
+                messages.Add(new ContentFile 
                 { 
                     Type = "text", 
                     Text = ExtractWordDocumentTextAndTranslate(pageNumber, sectionName, targetLanguageName) 
-                },
-                new ContentFile 
+                });
+                messages.Add(new ContentFile 
                 { 
                     Type = "image", 
                     Source = new Source()
@@ -294,33 +322,30 @@ public class WordProcessor(
                         MediaType = "image/png",
                         Data = base64Image
                     }
-                }
-            };
-
-            // Create cached system prompt for Word document translation
-            var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
-                $"You are an expert OCR and translation system for Microsoft Word documents. " +
-                $"Target language: {targetLanguageName}. " +
-                $"Follow instructions precisely and output only the translated content."
-            );
-    
-            var claudeRequest = new ClaudeRequestWithFile(messages, cachedSystemPrompt);
-            var claudeResponse = await _claudeService.SendRequestWithCachedPrompt(claudeRequest, cancellationToken);
-    
-            if (claudeResponse?.Content == null || !claudeResponse.Content.Any())
+                });
+            }
+            else
             {
-                _logger.LogWarning("No content received from Claude for Word document page {PageNumber} {SectionName} section", pageNumber, sectionName);
+                _logger.LogWarning("No image data or extracted text available for page {PageNumber} {SectionName}", pageNumber, sectionName);
                 return string.Empty;
             }
 
-            var content = claudeResponse.Content.FirstOrDefault();
-            if (content?.Text == null)
+            _logger.LogInformation("Sending Word document image to {Model} for translation", model);
+            var aiResponse = await _aiService.SendRequestWithFile(messages, model, cancellationToken);
+    
+            if (!aiResponse.Success)
             {
-                _logger.LogWarning("Claude returned null text for Word document page {PageNumber} {SectionName} section", pageNumber, sectionName);
+                _logger.LogWarning("No content received from AI service for Word document page {PageNumber} {SectionName} section", pageNumber, sectionName);
+                return string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(aiResponse.Content))
+            {
+                _logger.LogWarning("AI service returned null or empty text for Word document page {PageNumber} {SectionName} section", pageNumber, sectionName);
                 return string.Empty;
             }
     
-            string translatedText = content.Text.Trim();
+            string translatedText = aiResponse.Content.Trim();
     
             if (string.IsNullOrWhiteSpace(translatedText))
             {
@@ -328,7 +353,6 @@ public class WordProcessor(
                 return string.Empty;
             }
     
-            // Clean up common AI response prefixes
             translatedText = CleanAiResponsePrefix(translatedText);
     
             _logger.LogInformation("Successfully extracted and translated {Length} characters from Word document page {PageNumber} {SectionName} section", 
@@ -412,7 +436,6 @@ public class WordProcessor(
                 }
             }
 
-            // Convert VerificationResult to TranslationVerificationResult
             var translationVerificationResult = new TranslationVerificationResult
             {
                 Success = verificationResult.Success,
@@ -441,26 +464,23 @@ public class WordProcessor(
                 
             var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
 
-            // Create cached system prompt for translation improvement
             var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
                 $"You are a translation improvement specialist for {targetLanguage}. " +
                 $"Your task is to enhance translations based on feedback while maintaining accuracy."
             );
                 
             var message = new ContentFile { Type = "text", Text = prompt };
-            var claudeRequest = new ClaudeRequestWithFile([message], cachedSystemPrompt);
                 
-            _logger.LogInformation("Sending improvement request to Claude");
-            var claudeResponse = await _claudeService.SendRequestWithCachedPrompt(claudeRequest, cancellationToken);
+            _logger.LogInformation("Sending improvement request to AI service");
+            var aiResponse = await _aiService.SendRequestWithFile([message], AIModel.Claude4Sonnet, cancellationToken);
                 
-            var content = claudeResponse.Content?.SingleOrDefault();
-            if (content == null)
+            if (!aiResponse.Success)
             {
-                _logger.LogWarning("No content received from Claude service for translation improvement");
+                _logger.LogWarning("No content received from AI service for translation improvement");
                 return string.Empty;
             }
                 
-            string improvedTranslation = content.Text.Trim();
+            string improvedTranslation = aiResponse.Content.Trim();
                 
             if (improvedTranslation.Contains("Here's the improved translation") || 
                 improvedTranslation.Contains("Improved translation:"))
@@ -504,7 +524,7 @@ public class WordProcessor(
     }
 
 
-    private async Task<string> CombineTranslatedWordSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, CancellationToken cancellationToken)
+    private async Task<string> CombineTranslatedWordSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, AIModel model, CancellationToken cancellationToken)
     {
         try
         {
@@ -564,7 +584,7 @@ public class WordProcessor(
     
             for (int i = 0; i < chunks.Count; i++)
             {
-                var combinedChunk = await ProcessChunkCombination(chunks[i], targetLanguageName, i + 1, chunks.Count, cancellationToken);
+                var combinedChunk = await ProcessChunkCombination(chunks[i], targetLanguageName, i + 1, chunks.Count, model, cancellationToken);
                 if (!string.IsNullOrWhiteSpace(combinedChunk))
                 {
                     combinedChunks.Add(combinedChunk);
@@ -586,7 +606,7 @@ public class WordProcessor(
         }
     }
 
-    private async Task<string> ProcessChunkCombination(List<string> chunk, string targetLanguageName, int chunkIndex, int totalChunks, CancellationToken cancellationToken)
+    private async Task<string> ProcessChunkCombination(List<string> chunk, string targetLanguageName, int chunkIndex, int totalChunks, AIModel model, CancellationToken cancellationToken)
     {
         try
         {
@@ -597,25 +617,17 @@ public class WordProcessor(
     
             var prompt = GenerateWordDocumentCombinationPrompt(targetLanguageName, chunkContent);
 
-            // Create cached system prompt for document combination
-            var cachedSystemPrompt = ClaudeService.CreateCachedSystemPrompt(
-                $"You are a document assembly specialist for {targetLanguageName} translations. " +
-                $"Your task is to combine document sections while eliminating duplicates and maintaining proper order."
-            );
-
             var message = new ContentFile { Type = "text", Text = prompt };
-            var claudeRequest = new ClaudeRequestWithFile([message], cachedSystemPrompt);
     
-            var claudeResponse = await _claudeService.SendRequestWithCachedPrompt(claudeRequest, cancellationToken);
+            var aiResponse = await _aiService.SendRequestWithFile([message], model, cancellationToken);
     
-            var content = claudeResponse?.Content?.FirstOrDefault();
-            if (content?.Text == null)
+            if (!aiResponse.Success)
             {
-                _logger.LogWarning("No content received from Claude for combining Word document chunk {ChunkIndex}", chunkIndex);
+                _logger.LogWarning("No content received from AI service for combining Word document chunk {ChunkIndex}", chunkIndex);
                 return string.Join("\n\n", chunk);
             }
     
-            string combinedChunk = CleanAiResponsePrefix(content.Text.Trim());
+            string combinedChunk = CleanAiResponsePrefix(aiResponse.Content.Trim());
             
             if (string.IsNullOrWhiteSpace(combinedChunk))
             {
@@ -649,14 +661,12 @@ public class WordProcessor(
             );
     
             var finalMessage = new ContentFile { Type = "text", Text = finalPrompt };
-            var finalRequest = new ClaudeRequestWithFile([finalMessage], cachedSystemPrompt);
     
-            var finalResponse = await _claudeService.SendRequestWithCachedPrompt(finalRequest, cancellationToken);
+            var finalResponse = await _aiService.SendRequestWithFile([finalMessage], AIModel.Claude4Sonnet, cancellationToken);
     
-            var finalContent = finalResponse?.Content?.FirstOrDefault();
-            if (finalContent?.Text != null)
+            if (finalResponse.Success)
             {
-                string finalResult = CleanAiResponsePrefix(finalContent.Text.Trim());
+                string finalResult = CleanAiResponsePrefix(finalResponse.Content.Trim());
         
                 if (!string.IsNullOrWhiteSpace(finalResult))
                 {
@@ -709,7 +719,6 @@ public class WordProcessor(
         if (string.IsNullOrWhiteSpace(text))
             return text;
 
-        // First, clean any GPT-specific responses
         text = CleanGptResponse(text);
 
         var prefixes = new[]
@@ -1126,24 +1135,30 @@ public class WordProcessor(
     private static string GenerateVerificationPrompt(string originalText, string targetLanguage, string improvedText)
     {
         return $"""
+                <role>
                 You are a translation system. Your task is to compare translations.
+                </role>
 
-                **Rules:**
-                1. Compare accuracy
-                2. Check flow
-                3. Verify technical terms
-                4. Assess formatting
+                <rules>
+                    1. Compare accuracy
+                    2. Check flow
+                    3. Verify technical terms
+                    4. Assess formatting
+                </rules>
 
-                **Output:**
-                - Start with "A|" (original better) or "B|" (improved better)
-                - Follow with brief explanation
-                - NO other text
+                <output_format>
+                    - Start with "A|" (original better) or "B|" (improved better)
+                    - Follow with brief explanation
+                    - NO other text
+                </output_format>
 
-                **Original:**
-                {originalText}
+                <original_text>
+                    {originalText}
+                </original_text>
 
-                **Improved:**
-                {improvedText}
+                <improved_text>
+                    {improvedText}
+                </improved_text>
                 """;
     } 
 }

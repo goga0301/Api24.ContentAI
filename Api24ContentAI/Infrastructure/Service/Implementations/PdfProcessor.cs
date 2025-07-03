@@ -16,20 +16,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
     public class PdfProcessor : IPdfProcessor
     {
-        private readonly IClaudeService _claudeService;
+        private readonly IAIService _aiService;
         private readonly ILanguageService _languageService;
         private readonly IUserService _userService;
         private readonly IGptService _gptService;
         private readonly ILogger<DocumentTranslationService> _logger;
 
         public PdfProcessor(
-            IClaudeService claudeService,
+            IAIService aiService,
             ILanguageService languageService,
             IUserService userService,
             IGptService gptService,
             ILogger<DocumentTranslationService> logger)
         {
-            _claudeService = claudeService ?? throw new ArgumentNullException(nameof(claudeService));
+            _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
             _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
             _userService = userService ?? throw new ArgumentNullException(nameof(userService));
             _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
@@ -66,7 +66,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 var ocrTxtContent = await SendFileToOcrService(file, cancellationToken);
                 
-                var translationResult = await TranslateOcrContent(ocrTxtContent, targetLanguageId, userId, cancellationToken);
+                var translationResult = await TranslateOcrContent(ocrTxtContent, targetLanguageId, userId, AIModel.Claude4Sonnet, cancellationToken);
                 
                 if (!translationResult.Success)
                 {
@@ -101,7 +101,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
     
-        public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, CancellationToken cancellationToken)
+        public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, AIModel model, CancellationToken cancellationToken)
         {
             if (file?.Length == 0)
                 throw new ArgumentException("Uploaded file is empty or null", nameof(file));
@@ -114,13 +114,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             var screenshotResult = await GetDocumentScreenshots(file, cancellationToken);
             var translatedPages = new List<List<string>>();
 
+            _logger.LogInformation("Processing {PageCount} pages from screenshot service", screenshotResult.Pages.Count);
+
             foreach (var page in screenshotResult.Pages)
             {
+                _logger.LogInformation("Processing page {PageNumber} with {SectionCount} sections", page.Page, page.ScreenShots.Count);
                 var pageTranslations = new List<string>();
                 for (int i = 0; i < page.ScreenShots.Count; i++)
                 {
                     var base64Data = page.ScreenShots[i];
-                    var sectionName = $"section-{i + 1}";
+                    var sectionName = i switch
+                    {
+                        0 => "top",
+                        1 => "middle", 
+                        2 => "bottom",
+                        _ => $"section-{i + 1}"
+                    };
 
                     if (string.IsNullOrWhiteSpace(base64Data))
                     {
@@ -129,16 +138,37 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         continue;
                     }
 
-                    var imageData = Convert.FromBase64String(base64Data);
+                    try
+                    {
+                        var imageData = Convert.FromBase64String(base64Data);
 
-                    var translated = await ExtractAndTranslateWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, cancellationToken);
-                    pageTranslations.Add(translated);
+                        var translated = await ExtractAndTranslateWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, model, cancellationToken);
+                        pageTranslations.Add(translated);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to process page {Page} section {Section} ({SectionName})", page.Page, i, sectionName);
+                        pageTranslations.Add(string.Empty);
+                    }
                 }
 
                 translatedPages.Add(pageTranslations);
             }
 
-            var finalMarkdown = await CombineTranslatedSectionsWithClaude(translatedPages, targetLanguage.Name, cancellationToken);
+            var totalTranslatedSections = translatedPages.Sum(p => p.Count(s => !string.IsNullOrWhiteSpace(s)));
+            _logger.LogInformation("Successfully translated {TranslatedSections} sections out of {TotalSections} total sections", 
+                totalTranslatedSections, translatedPages.Sum(p => p.Count));
+
+            if (totalTranslatedSections == 0)
+            {
+                return new DocumentTranslationResult 
+                { 
+                    Success = false, 
+                    ErrorMessage = "No content could be extracted and translated from any section of the document" 
+                };
+            }
+
+            var finalMarkdown = await CombineTranslatedSectionsWithClaude(translatedPages, targetLanguage.Name, model, cancellationToken);
             
             string improvedTranslation = finalMarkdown;
             double qualityScore = 0.0;
@@ -164,8 +194,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         translationChunksForVerification = [new KeyValuePair<int, string>(1, finalMarkdown)];
                     }
 
-                    var (verificationResult, verifiedTranslation) = await ProcessTranslationVerification(
-                        cancellationToken, translationChunksForVerification, targetLanguage, finalMarkdown);
+                    var verificationResult = new VerificationResult();
+                    var verifiedTranslation = "";
+                    var response = await ProcessTranslationVerification(
+                        cancellationToken, translationChunksForVerification, targetLanguage, finalMarkdown, model);
+
+                    verificationResult = response.verificationResult;
+                    verifiedTranslation = response.translatedText;
             
                     if (verificationResult.Success)
                     {
@@ -260,7 +295,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
     
-        private async Task<DocumentTranslationResult> TranslateOcrContent(string ocrTxtContent, int targetLanguageId, string userId, CancellationToken cancellationToken)
+        private async Task<DocumentTranslationResult> TranslateOcrContent(string ocrTxtContent, int targetLanguageId, string userId, AIModel model, CancellationToken cancellationToken)
         {
             try
             {
@@ -320,26 +355,25 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     try
                     {
                         var message = new ContentFile { Type = "text", Text = prompt };
-                        var claudeRequest = new ClaudeRequestWithFile([message]);
+                        var contentFiles = new List<ContentFile> { message };
                         
-                        _logger.LogInformation("Sending chunk {Index}/{Total} to Claude for translation", 
-                            i + 1, chunks.Count);
+                        _logger.LogInformation("Sending chunk {Index}/{Total} to {Model} for translation", 
+                            i + 1, chunks.Count, model);
                         
-                        var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                        var aiResponse = await _aiService.SendRequestWithFile(contentFiles, model, cancellationToken);
                         
-                        var content = claudeResponse.Content?.SingleOrDefault();
-                        if (content == null)
+                        if (!aiResponse.Success)
                         {
-                            _logger.LogWarning("No content received from Claude service for chunk {Index}/{Total}", 
-                                i + 1, chunks.Count);
+                            _logger.LogWarning("AI service failed for chunk {Index}/{Total}: {Error}", 
+                                i + 1, chunks.Count, aiResponse.ErrorMessage);
                             continue;
                         }
                         
-                        string translatedChunk = content.Text.Trim();
+                        string translatedChunk = aiResponse.Content?.Trim() ?? string.Empty;
                         if (string.IsNullOrWhiteSpace(translatedChunk))
                         {
-                            _logger.LogWarning("Claude returned empty translation result for chunk {Index}/{Total}", 
-                                i + 1, chunks.Count);
+                            _logger.LogWarning("{Model} returned empty translation result for chunk {Index}/{Total}", 
+                                model, i + 1, chunks.Count);
                             continue;
                         }
                         
@@ -370,7 +404,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     string.Join(", ", translatedChunks.Select(c => c.Length)));
                 
                 _logger.LogInformation("Starting translation verification for all {Count} chunks...", translationChunksForVerification.Count);
-                var verificationResultAndText = await ProcessTranslationVerification(cancellationToken, translationChunksForVerification, language, translatedText);
+                var verificationResultAndText = await ProcessTranslationVerification(cancellationToken, translationChunksForVerification, language, translatedText, model);
                 var verificationResult = verificationResultAndText.Item1;
                 translatedText = verificationResultAndText.Item2;
 
@@ -442,7 +476,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
     
         private async Task<(VerificationResult verificationResult, string translatedText)> ProcessTranslationVerification(CancellationToken cancellationToken,
-            List<KeyValuePair<int, string>> translationChunksForVerification, LanguageModel language, string translatedText)
+            List<KeyValuePair<int, string>> translationChunksForVerification, LanguageModel language, string translatedText, AIModel model)
         {
             VerificationResult verificationResult;
             try
@@ -472,7 +506,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     _logger.LogInformation("GPT suggested improvements: {Feedback}", verificationResult.Feedback);
                         
                     string improvedTranslation = await ImproveTranslationWithFeedback(
-                        translatedText, language.Name, verificationResult.Feedback, cancellationToken);
+                        translatedText, language.Name, verificationResult.Feedback, model, cancellationToken);
                         
                     if (!string.IsNullOrEmpty(improvedTranslation))
                     {
@@ -502,7 +536,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return (verificationResult, translatedText);
         }
     
-        private async Task<string> ImproveTranslationWithFeedback(string translatedText, string targetLanguage, string feedback, CancellationToken cancellationToken)
+        private async Task<string> ImproveTranslationWithFeedback(string translatedText, string targetLanguage, string feedback, AIModel model, CancellationToken cancellationToken)
         {
             try
             {
@@ -510,20 +544,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 
                 var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
                 
-                var message = new ContentFile { Type = "text", Text = prompt };
-                var claudeRequest = new ClaudeRequestWithFile([message]);
+                var contentFiles = new List<ContentFile> { new ContentFile { Type = "text", Text = prompt } };
                 
-                _logger.LogInformation("Sending improvement request to Claude");
-                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                _logger.LogInformation("Sending improvement request to {Model}", model);
+                var aiResponse = await _aiService.SendRequestWithFile(contentFiles, model, cancellationToken);
                 
-                var content = claudeResponse.Content?.SingleOrDefault();
-                if (content == null)
+                if (!aiResponse.Success)
                 {
-                    _logger.LogWarning("No content received from Claude service for translation improvement");
+                    _logger.LogWarning("AI service failed for translation improvement: {Error}", aiResponse.ErrorMessage);
                     return string.Empty;
                 }
                 
-                string improvedTranslation = content.Text.Trim();
+                string improvedTranslation = aiResponse.Content?.Trim() ?? string.Empty;
                 
                 if (improvedTranslation.Contains("Here's the improved translation") || 
                     improvedTranslation.Contains("Improved translation:"))
@@ -597,7 +629,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return result;
         }
     
-        private async Task<string> ExtractAndTranslateWithClaude(byte[] imageData, int pageNumber, string sectionName, string targetLanguageName, CancellationToken cancellationToken)
+        private async Task<string> ExtractAndTranslateWithClaude(byte[] imageData, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken)
         {
             try
             {
@@ -624,17 +656,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     }
                 };
         
-                var claudeRequest = new ClaudeRequestWithFile(messages);
-                var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
+                var claudeResponse = await _aiService.SendRequestWithFile(messages, model, cancellationToken);
         
-                var content = claudeResponse.Content?.SingleOrDefault();
+                var content = claudeResponse.Content;
                 if (content == null)
                 {
                     _logger.LogWarning("No content received from Claude for page {PageNumber} {SectionName} section", pageNumber, sectionName);
                     return string.Empty;
                 }
         
-                string translatedText = content.Text.Trim();
+                string translatedText = content.Trim();
         
                 if (string.IsNullOrWhiteSpace(translatedText))
                 {
@@ -664,138 +695,46 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 return string.Empty;
             }
         }
-        private async Task<string> CombineTranslatedSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, CancellationToken cancellationToken)
+        private async Task<string> CombineTranslatedSectionsWithClaude(List<List<string>> translatedPageSections, string targetLanguageName, AIModel model, CancellationToken cancellationToken)
         {
             try
             {
-                _logger.LogInformation("Combining translated sections from {PageCount} pages using Claude", translatedPageSections.Count);
-        
-                var allSections = new List<string>();
+                _logger.LogInformation("Combining translated sections from {PageCount} pages using a page-by-page approach", translatedPageSections.Count);
+
+                var translatedPages = new List<string>();
+
                 for (int i = 0; i < translatedPageSections.Count; i++)
                 {
                     var pageSections = translatedPageSections[i];
-                    allSections.AddRange(pageSections.Select((section, idx) => 
-                        $"PAGE {i + 1} - SECTION {idx + 1} ({(idx == 0 ? "TOP" : (idx == 1 ? "MIDDLE" : "BOTTOM"))}):\n\n{section}"));
-                }
-        
-                var chunks = new List<List<string>>();
-                var currentChunk = new List<string>();
-                int currentLength = 0;
-                const int maxChunkLength = 80000;
-        
-                foreach (var section in allSections)
-                {
-                    if (currentLength + section.Length > maxChunkLength)
+                    if (pageSections == null || pageSections.All(string.IsNullOrWhiteSpace))
                     {
-                        chunks.Add([..currentChunk]);
-                        currentChunk.Clear();
-                        currentLength = 0;
-                    }
-            
-                    currentChunk.Add(section);
-                    currentLength += section.Length;
-                }
-        
-                if (currentChunk.Count > 0)
-                {
-                    chunks.Add(currentChunk);
-                }
-        
-                _logger.LogInformation("Split sections into {ChunkCount} chunks for combination", chunks.Count);
-        
-                var combinedChunks = new List<string>();
-        
-                for (int i = 0; i < chunks.Count; i++)
-                {
-                    var chunk = chunks[i];
-                    var chunkContent = string.Join("\n\n===== SECTION SEPARATOR =====\n\n", chunk);
-            
-                    _logger.LogInformation("Processing chunk {ChunkIndex}/{ChunkCount} with {SectionCount} sections, size: {Size} characters", 
-                        i + 1, chunks.Count, chunk.Count, chunkContent.Length);
-            
-                    var prompt = GenerateDocumentCombinationPrompt(targetLanguageName, chunkContent);
-            
-                    var message = new ContentFile { Type = "text", Text = prompt };
-                    var claudeRequest = new ClaudeRequestWithFile([message]);
-            
-                    var claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-            
-                    var content = claudeResponse.Content?.SingleOrDefault();
-                    if (content == null)
-                    {
-                        _logger.LogWarning("No content received from Claude for combining chunk {ChunkIndex}", i + 1);
+                        _logger.LogWarning("Skipping page {PageNumber} due to empty sections.", i + 1);
                         continue;
                     }
-            
-                    string combinedChunk = content.Text.Trim();
-                    if (string.IsNullOrWhiteSpace(combinedChunk))
-                    {
-                        _logger.LogWarning("Claude returned empty result for combining chunk {ChunkIndex}", i + 1);
-                        continue;
-                    }
-            
-                    if (combinedChunk.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                        combinedChunk.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
-                        combinedChunk.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int firstLineBreak = combinedChunk.IndexOf('\n');
-                        if (firstLineBreak > 0)
-                        {
-                            combinedChunk = combinedChunk.Substring(firstLineBreak + 1).Trim();
-                        }
-                    }
-            
-                    _logger.LogInformation("Successfully combined chunk {ChunkIndex}, result length: {Length} characters", 
-                        i + 1, combinedChunk.Length);
-            
-                    combinedChunks.Add(combinedChunk);
+
+                    _logger.LogInformation("Combining {SectionCount} sections for page {PageNumber}", pageSections.Count, i + 1);
+                    
+                    var combinedPage = await CombineSectionsForSinglePage(pageSections, targetLanguageName, model, i + 1, cancellationToken);
+                    translatedPages.Add(combinedPage);
                 }
-        
-                if (combinedChunks.Count > 1)
+
+                if (translatedPages.Count == 0)
                 {
-                    _logger.LogInformation("Combining {Count} final chunks", combinedChunks.Count);
-            
-                    var finalCombination = string.Join("\n\n", combinedChunks);
-            
-                    var finalPrompt = GenerateFinalPrompt(targetLanguageName, finalCombination);
-            
-                    var finalMessage = new ContentFile { Type = "text", Text = finalPrompt };
-                    var finalRequest = new ClaudeRequestWithFile([finalMessage]);
-            
-                    var finalResponse = await _claudeService.SendRequestWithFile(finalRequest, cancellationToken);
-            
-                    var finalContent = finalResponse.Content?.SingleOrDefault();
-                    if (finalContent != null)
-                    {
-                        string finalResult = finalContent.Text.Trim();
-                
-                        if (finalResult.StartsWith("Here", StringComparison.OrdinalIgnoreCase) || 
-                            finalResult.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase))
-                        {
-                            int firstLineBreak = finalResult.IndexOf('\n');
-                            if (firstLineBreak > 0)
-                            {
-                                finalResult = finalResult.Substring(firstLineBreak + 1).Trim();
-                            }
-                        }
-                
-                        _logger.LogInformation("Successfully combined all chunks into final document, length: {Length} characters", finalResult.Length);
-                
-                        return finalResult;
-                    }
-            
-                    _logger.LogWarning("Failed to combine final chunks, returning concatenated chunks");
-                    return finalCombination;
+                    _logger.LogWarning("All pages resulted in empty content after combination.");
+                    return string.Empty;
                 }
-        
-                return combinedChunks.Count > 0 ? combinedChunks[0] : string.Empty;
+
+                var finalDocument = string.Join("\n\n<hr />\n\n", translatedPages);
+                _logger.LogInformation("Successfully combined {PageCount} pages into a final document of length {Length}",
+                    translatedPages.Count, finalDocument.Length);
+
+                return finalDocument;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error combining translated sections with Claude");
         
                 var simpleCombination = new StringBuilder();
-        
                 foreach (var pageSections in translatedPageSections)
                 {
                     foreach (var section in pageSections)
@@ -809,110 +748,202 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
+        private async Task<string> CombineSectionsForSinglePage(List<string> pageSections, string targetLanguageName, AIModel model, int pageNumber, CancellationToken cancellationToken)
+        {
+            var sectionsContent = new StringBuilder();
+            for (int i = 0; i < pageSections.Count; i++)
+            {
+                sectionsContent.AppendLine($"SECTION {i + 1}:\n{pageSections[i]}\n");
+            }
 
-    
+            var prompt = GenerateSinglePageCombinationPrompt(targetLanguageName, sectionsContent.ToString());
+
+            var message = new ContentFile { Type = "text", Text = prompt };
+            var response = await _aiService.SendRequestWithFile([message], model, cancellationToken);
+
+            if (!response.Success || string.IsNullOrWhiteSpace(response.Content))
+            {
+                _logger.LogWarning("Failed to combine sections for page {PageNumber}. AI service returned an error or empty content. Error: {ErrorMessage}", pageNumber, response.ErrorMessage);
+                // Fallback to concatenating the sections for this page
+                return string.Join("\n\n", pageSections);
+            }
+
+            var combinedPage = response.Content.Trim();
+            
+            if (combinedPage.StartsWith("Here", StringComparison.OrdinalIgnoreCase) ||
+                combinedPage.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
+                combinedPage.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase))
+            {
+                int firstLineBreak = combinedPage.IndexOf('\n');
+                if (firstLineBreak > 0)
+                {
+                    combinedPage = combinedPage.Substring(firstLineBreak + 1).Trim();
+                }
+            }
+            
+            _logger.LogInformation("Successfully combined sections for page {PageNumber}, result length: {Length}", pageNumber, combinedPage.Length);
+            return combinedPage;
+        }
+
         private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
         {
             return $@"
-                You are a meticulous Quality Assurance Specialist for translations.
-                Your task is to compare two translations into {targetLanguage} and determine which one is of higher quality.
+                <role>
+                You are a rigorous and detail-oriented Translation Quality Assurance Specialist.
+                Your mission is to critically evaluate two translations into {targetLanguage} and identify the superior version.
+                </role>
+
+                <task>
+                You are provided with two translations. Analyze them as if the original source text is known to you implicitly.
 
                 TRANSLATION A:
                 {translatedText}
 
-            TRANSLATION B:
-            {improvedTranslation}
+                TRANSLATION B:
+                {improvedTranslation}
+                </task>
 
-            Evaluate rigorously based on the following criteria:
-                1.  **Fluency and Naturalness**: How well does the translation flow in {targetLanguage}? Does it sound natural to a native speaker?
-                2.  **Terminology Consistency**: Is terminology used consistently throughout each translation?
-                3.  **Completeness**: Are there any untranslated or missing parts from the source (assuming you could infer the source's scope from the translations)?
-                4.  **Overall Accuracy and Quality**: Considering all factors, which translation more accurately and effectively conveys the likely meaning of the source text in {targetLanguage}?
+                <criteria>
+                    Judge the translations using the following standards:
 
-                Respond with either 'A' or 'B' to indicate which translation is unequivocally better. Follow this with a concise explanation for your choice, highlighting the key differentiators.
-                Strictly adhere to the following response format: <A or B>|<explanation>
-                Example: A|Translation A is more fluent and uses more natural phrasing for the target language.
+                    1. <Fluency and Naturalness>: Does the translation read smoothly and idiomatically in {targetLanguage}? Would a native speaker find it natural?
+                    2. <Terminology Consistency>: Is domain-specific or repeated vocabulary used consistently and appropriately?
+                    3. <Completeness>: Are all elements of the presumed source text fully conveyed, with no omissions or unjustified additions?
+                    4. <Accuracy and Fidelity>: Which version better preserves the meaning, nuance, and intent of the original text?
+
+                    <response_instructions>
+                    Provide your final decision in the format: <A or B>|<one-sentence rationale>
+                    Only respond with the better translation and a short justification.
+
+                    Example: B|Translation B maintains consistent terminology and reads more naturally in {targetLanguage}.
+                    </response_instructions>
+                </criteria>
+
                 ";
         }
     
         private static string GenerateTranslationPrompt(LanguageModel language, int i, List<string> chunks, string chunk)
         {
             return $@"
-                    You are an expert multilingual document translator and formatter, specializing in converting OCR-extracted text into polished {language.Name} documents.
-                    You will receive a chunk of text extracted via OCR from a PDF document.
+                <role>
+                    You are an expert multilingual document translator and formatter.
+                    You specialize in converting OCR-extracted text into professionally polished Markdown documents in {language.Name}.
+                </role>
 
-                    This is chunk {i + 1} of {chunks.Count}.
+                <context>
+                    You will be provided with a raw text chunk extracted via OCR from a PDF document.
 
-                    **Your Core Task:**
-                    Translate the provided text chunk into **{language.Name}** while meticulously adhering to the following detailed instructions.
+                    Chunk ID: {i + 1} of {chunks.Count}
+                </context>
 
-                    **Detailed Instructions:**
+                <task>
+                    Translate the provided text into **{language.Name}**, precisely following the instructions below.
+                </task>
 
-                    1.  **Comprehensive Translation**: Translate **ALL** textual content into **{language.Name}**. No part of the translatable text should be omitted.
-                    2.  **Layout Preservation**: Strive to **preserve the original formatting and layout** of the text as closely as possible using Markdown. This includes paragraph structure, line breaks where meaningful, and overall visual organization.
-                    3.  **Data Integrity (Numbers, Dates, Codes)**:
-                    * Keep **all numbers, dates, general codes, and identifiers** (that are not covered by point 4) exactly as they appear in the source, or transliterate/format them as contextually appropriate for {language.Name}.
-                    4.  **Non-Translatable Elements (CRITICAL)**:
-                    * **DO NOT TRANSLATE** any of the following:
-                    * Technical identifiers (e.g., part numbers, model numbers).
-                    * Official Standards (e.g., ISO 9001, EN 10025, ДСТУ Б В.2.7-170:2008).
-                    * Specific Codes (e.g., ДФРПОУ, НААУ, EAN codes).
-                    * Reference numbers.
-                    * These elements MUST be reproduced exactly as they appear in the source text.
-                    5.  **OCR Artifact Handling**:
-                    * Analyze and **correct common OCR artifacts** (e.g., misrecognized characters, jumbled words) using contextual understanding to infer the correct form.
-                    * If an artifact is ambiguous but seems to be part of the original, transcribe it faithfully. Do not introduce unrelated characters.
-                    6.  **Structural Fidelity**: Maintain **paragraph breaks, line spacing (represented by newlines in Markdown), and the general sequence** of text elements as in the original.
-                    7.  **Proper Nouns**: **Transliterate** proper nouns (names of people, companies, specific locations) according to {language.Name} linguistic norms and conventions, unless a standard, widely accepted translation in {language.Name} exists.
-                    8.  **Technical Terminology**: Employ **standard and accepted technical terms** in {language.Name} to ensure accuracy and professionalism.
-                    9.  **Duplicate Text**: If you encounter **duplicate text** within the chunk, **translate it as it appears**. Do not remove repetitions.
-                    10. **Markdown Formatting**: No matter which language you are translating to always Format the entire output using **Markdown** suitable for `README.md` files or similar documentation platforms.
-                    * Headings: Use `#`, `##`, etc.
-                    * Lists: Use `-` or `*` for unordered lists; `1.`, `2.` for ordered lists.
-                    * Tables: If data is clearly tabular, represent it using Markdown table syntax.
-                    * Code Blocks: Use triple backticks (```) for sections that are clearly forms, certificates, code, or highly structured data.
-                    * Horizontal Rules: Use `---` to denote significant breaks or transitions between sections if implied by the source.
-                    * Line Breaks: Preserve meaningful line breaks from the source; use double spaces at the end of a line for a `<br>` if needed, or ensure new paragraphs are distinct.
+                <instructions>
+                    1. <Full Translation>
+                        Translate **all** textual content into {language.Name}. Nothing translatable should be omitted.
 
-                    **Output Constraints (Strictly Enforce):**
-                        * Return **ONLY the final translated text** in {language.Name}.
-                        * **NO** English explanations, remarks, comments, or summaries.
-                        * **NO** original untranslated text.
-                        * **NO** introductory or concluding statements.
-                        * Ensure **no content is skipped or left untranslated** (unless specified as non-translatable).
+                    2. <Layout Preservation>
+                        Reproduce the **original layout and structure** using **Markdown**. Preserve paragraph breaks, meaningful line breaks, and the visual hierarchy.
 
-                        Here is the OCR-extracted text (chunk {i + 1} of {chunks.Count}):
+                    3. <Data Integrity>
+                        Preserve all **numbers, dates, general codes, and identifiers** in their original form or transliterate as appropriate for {language.Name}.
 
-                        {chunk}
+                    4. <Non-Translatable Elements>
+                        The following must **not be translated** and must appear **exactly as in the source**:
+                        - Technical identifiers (e.g., part numbers, model numbers)
+                        - Official standards (e.g., ISO 9001, ДСТУ Б В.2.7-170:2008)
+                        - Specific codes (e.g., EAN codes, НААУ, ДФРПОУ)
+                        - Reference numbers
+
+                    5. <OCR Artifact Handling>
+                        - Detect and correct **common OCR errors** (e.g., garbled characters, misreads).
+                        - If uncertain, prefer a faithful transcription over guessing.
+
+                    6. <Structural Fidelity>
+                        Maintain the original structure:
+                        - Paragraph breaks
+                        - Line spacing (use `\n` or Markdown formatting)
+                        - Sequence of sections
+
+                    7. <Proper Nouns>
+                        Transliterate proper names (people, organizations, places) per {language.Name} norms, unless an accepted translation exists.
+
+                    8. <Technical Terminology>
+                        Use **standard technical terms** in {language.Name} relevant to the document's subject matter.
+
+                    9. <Duplicate Text>
+                        Preserve and translate **all repetitions**. Do not deduplicate.
+
+                    10. <HTML Formatting Rules>
+                        Format the translated text using **strict HTML tags only**. **Do not use any Markdown formatting** under any circumstances.
+
+                        Use the following HTML elements appropriately:
+                        - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
+                        - Paragraphs: `<p>`
+                        - Lists: `<ul>` / `<ol>` with `<li>` items
+                        - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
+                        - Code blocks or preformatted text: `<pre>` or `<code>`
+                        - Section breaks: Use `<hr />`
+                        - Line breaks: Use `<br />` where meaningful line breaks are needed
+
+                        Ensure the HTML is valid and clean. Nest tags properly, avoid inline styles, and do **not** include any raw Markdown syntax.
+
+                </instructions>
+
+                <output_constraints>
+                    - Output **only** the final translated text in {language.Name}
+                    - Do **not** include English explanations, comments, or the original text
+                    - Do **not** skip or summarize any content unless marked non-translatable
+                    - Your entire response must be in clean HTML
+                </output_constraints>
+
+                <ocr_input>
+                    Here is the OCR-extracted text (chunk {i + 1} of {chunks.Count}):
+
+                    {chunk}
+                </ocr_input>
+
                 ";
         }
     
         private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
         {
             return $@"
-                    You are an expert {targetLanguage} translator and editor, tasked with refining a translation based on quality review feedback.
+                    <role>
+                        You are an expert {targetLanguage} translator and editor.
+                        Your task is to refine the given translation by addressing quality review feedback thoroughly.
+                    </role>
 
-                    **Quality Review Feedback:**
-                    {feedback}
+                    <feedback>
+                        Quality Review Feedback:
+                        {feedback}
+                    </feedback>
 
-                **Your Objective:**
-                    Improve the provided translation by meticulously addressing the issues highlighted in the feedback.
-                    Focus on the following key areas to elevate the translation's quality:
+                    <objective>
+                        Improve the provided translation by focusing on:
 
-                    1.  **Untranslated Content**: Identify and translate any words or phrases that were mistakenly left untranslated.
-                    2.  **Terminology Cohesion**: Ensure uniform and consistent use of terminology throughout the entire document.
-                    3.  **Natural Phrasing**: Rectify any awkward or unnatural phrasing to ensure the text flows smoothly and idiomatically in {targetLanguage}.
-                    4.  **Formatting Integrity**: Preserve and correct any inconsistencies in formatting and structure.
-                    5.  **Technical Accuracy**: Verify and correct translations of technical terms using standard {targetLanguage} equivalents.
-                    6.  **Preservation of Identifiers**: CRITICAL: Technical identifiers, standards (e.g., ISO, EN), codes, and reference numbers MUST be preserved in their original form and MUST NOT be translated.
+                        1. <Untranslated Content> Identify and translate any untranslated words or phrases.
+                        2. <Terminology Cohesion> Ensure consistent and uniform terminology throughout.
+                        3. <Natural Phrasing> Fix awkward or unnatural expressions to flow smoothly and idiomatically in {targetLanguage}.
+                        4. <Formatting Integrity> Preserve and correct any formatting or structural inconsistencies.
+                        5. <Technical Accuracy> Verify and correct technical term translations using standard {targetLanguage} equivalents.
+                        6. <Preservation of Identifiers> CRITICAL: Preserve all technical identifiers, standards (e.g., ISO, EN), codes, and reference numbers exactly as they appear; do NOT translate these.
+                    </objective>
 
-                    **Instructions:**
-                    -   Return ONLY the complete, improved translation.
-                    -   DO NOT include any introductory text, explanations, apologies, or summaries of changes.
-                    -   Your output must be solely the final, polished {targetLanguage} text.
+                    <instructions>
+                        - Output ONLY the fully improved translation.
+                        - DO NOT include intros, explanations, apologies, or change summaries.
+                        - Format all output using strict HTML tags ONLY. No Markdown or other markup allowed.
+                        - Use HTML elements to represent structure (e.g., `<p>`, `<h1>`, `<ul>`, `<li>`, `<table>`, `<pre>`, `<br>`, `<hr>`).
+                        - Ensure clean, valid HTML with proper nesting and no inline styles.
+                    </instructions>
 
-                    **Current Translation for Improvement:**
+                    <current_translation>
                     {translatedText}
+                    </current_translation>
+
                 ";
         }
     
@@ -927,93 +958,198 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
 
             return $@"
-                    You are an advanced OCR (Optical Character Recognition) and translation system.
+                <role>
+                    You are an advanced OCR and translation system.
                     Your task is to process an image snippet from a document.
+                </role>
 
-                    **Document Context:**
-                    -   Page Number: {pageNumber}
-                    -   Section of Page: {sectionName} (representing approximately the {verticalPortion} vertical portion of the page)
+                <context>
+                    Document Context:
+                        - Page Number: {pageNumber}
+                        - Section of Page: {sectionName} (approx. {verticalPortion} vertical portion)
+                </context>
 
-                    **Required Actions:**
-                    1.  **Extract Text**: Accurately extract ALL visible textual content from the provided image section.
-                    2.  **Translate**: Translate the entire extracted text into **{targetLanguageName}**.
-                    3.  **Format as Markdown**: Present the translated content in well-structured Markdown:
-                    * Headings: Use `#` syntax (e.g., `# Main Heading`, `## Subheading`).
-                    * Lists: Use `-` or `*` for bullet points, or numbered lists (e.g., `1. Item`).
-                    * Emphasis: Use `**bold**` for strong emphasis and `*italic*` for regular emphasis.
-                    * Tables: If tabular data is present, format it using Markdown table syntax.
-                    * Separators: Use horizontal rules (`---`) to logically separate distinct content sections where appropriate.
-                    * Code/Technical Blocks: Format code snippets or highly structured technical content using triple backticks (```).
-                    4.  **Preserve Original Data**:
-                    * Keep all numbers, dates, and specific codes (that are not technical standards to be preserved) exactly as they appear in the original, or transliterate them appropriately if they are part of a sentence structure that requires it in {targetLanguageName}.
-                    5.  **CRITICAL - Non-Translation Rules**:
-                    * **DO NOT TRANSLATE** the following items:
-                    * Technical identifiers.
-                    * Standards (e.g., ISO, EN, ДСТУ, ГОСТ).
-                    * Specific codes (e.g., ДФРПОУ, НААУ).
-                    * Reference numbers or part numbers.
-                    * These items must be preserved in their original form.
-                    6.  **Proper Nouns**: Transliterate proper nouns (names of people, organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist. If a well-known translation exists, use it.
-                    7.  **Contextual Structure**: Use contextual clues from the extracted text to infer and apply the correct document structure (titles, sections, lists, paragraphs, etc.) in your Markdown output.
+                <actions>
+                    1. <Extract Text>
+                        Accurately extract **all** visible textual content from the provided image snippet.
 
-                    **Output Requirements:**
-                    -   Provide ONLY the translated text in {targetLanguageName}.
-                    -   The output MUST be formatted exclusively in Markdown.
-                    -   DO NOT include any explanations, remarks, or any portion of the original (untranslated) text.
-                    -   DO NOT add any introductory or concluding phrases.
+                    2. <Translate>
+                        Translate the entire extracted text into **{targetLanguageName}**.
+
+                    3. <Format as HTML>
+                        Present the translated content using **strict HTML tags only**. Markdown is prohibited.
+                        Use these HTML elements appropriately:
+                        - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
+                        - Lists: `<ul>`, `<ol>`, with `<li>`
+                        - Emphasis: `<strong>` for bold, `<em>` for italic
+                        - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
+                        - Separators: `<hr />` for distinct section breaks
+                        - Code/Technical blocks: `<pre>`, `<code>`
+                        - Paragraphs: `<p>`
+                        - Line breaks: `<br />`
+
+                    4. <Preserve Original Data>
+                        Keep all numbers, dates, and codes (except technical standards) exactly as in the source or transliterate them suitably for {targetLanguageName}.
+
+                    5. <Non-Translation Rules>
+                        **Do not translate** the following; preserve exactly as in source:
+                        - Technical identifiers
+                        - Standards (e.g., ISO, EN, ДСТУ, ГОСТ)
+                        - Specific codes (e.g., ДФРПОУ, НААУ)
+                        - Reference numbers or part numbers
+
+                    6. <Proper Nouns>
+                        Transliterate proper nouns per standard {targetLanguageName} rules unless a widely accepted translation exists.
+
+                    7. <Contextual Structure>
+                        Use context to infer and apply correct document structure in HTML: titles, sections, lists, paragraphs, etc.
+                </actions>
+
+                <output_requirements>
+                    - Output **only** the translated text in {targetLanguageName}
+                    - Format the entire output strictly in HTML as described
+                    - Do **not** include any explanations, remarks, or original untranslated text
+                    - Do **not** add any introductory or concluding statements
+                </output_requirements>
+
                 ";
         }
     
         private static string GenerateFinalPrompt(string targetLanguageName, string finalCombination)
         {
             return $@"
-                    You are an expert document assembler and Markdown formatting specialist.
-                    You have been provided with multiple translated text chunks that now need to be meticulously combined into a single, coherent, and well-structured document in {targetLanguageName}.
+                <role>
+                    You are an expert document assembler and HTML formatting specialist.
+                    You have multiple translated text chunks that must be meticulously combined into a single, coherent, and well-structured document in {targetLanguageName}.
+                </role>
 
-                    **Your Task:**
-                    1.  **Combine Chunks**: Integrate the provided text chunks into one seamless document.
-                    2.  **Eliminate Overlap**: Identify and intelligently remove any redundant or overlapping content that may exist between the concatenated chunks. Ensure that information is presented once, correctly.
-                    3.  **Ensure Cohesion and Flow**: The final document must flow naturally and logically. Maintain or establish proper transitions between sections.
-                    4.  **Preserve and Enhance Markdown**:
-                    * All existing Markdown formatting (headings, lists, tables, code blocks, emphasis) MUST be preserved.
-                    * **Based on the overall context and structure of the combined text, apply or refine Markdown formatting (e.g., add missing headings with `#` syntax, structure lists, use `---` for clear section breaks) to significantly improve readability and professional presentation.**
-                    5.  **Maintain Content Integrity**: DO NOT add any new textual content, comments, or remarks that were not present in the original chunks. Your role is to combine and format, not to create new information.
-                    6.  **Final Output**: Return ONLY the final, combined, and polished document in {targetLanguageName}, formatted entirely in Markdown. No other text or explanation should precede or follow the document.
+                <task>
+                    1. <Combine Chunks>
+                        Integrate all provided text chunks into one seamless document.
 
-                    Here are the translated chunks to combine and refine:
+                    2. <Seamless Integration>
+                        The chunks are sequential parts of a single document. Combine them seamlessly, ensuring a natural flow between them. It is critical that no content is lost at the boundaries of the chunks.
+
+                    3. <Ensure Cohesion and Flow>
+                        The final document should flow naturally and logically with smooth transitions between sections.
+
+                    4. <Preserve and Enhance HTML>
+                        - Preserve all existing HTML formatting (headings, lists, tables, code blocks, emphasis, etc.).
+                        - Based on the overall context and structure, apply or refine HTML tags and structure to improve readability and professional presentation (e.g., add missing headings <h1>, <h2>, properly nest lists, insert <hr /> for clear section breaks).
+
+                    5. <Maintain Content Integrity>
+                        Do NOT add any new textual content, comments, or remarks not present in the original chunks.
+
+                    6. <Final Output>
+                        Return ONLY the final combined and polished document in {targetLanguageName}, formatted entirely using valid and clean HTML.
+                        No explanations or additional text before or after the document.
+                </task>
+
+                <input>
+                    Translated chunks to combine and refine:
 
                     {finalCombination}
+                </input>
+
                 ";
         }
     
         private static string GenerateDocumentCombinationPrompt(string targetLanguageName, string chunkContent)
         {
             return
-                $@"You are an intelligent document reconstruction expert, proficient in {targetLanguageName} and Markdown.
-                I have extracted and translated various potentially overlapping sections from a document. Each section is marked with its original page and location (e.g., top, middle, bottom).
+                $@"
+                <role>
+                    You are an intelligent document reconstruction expert, proficient in {targetLanguageName} and HTML formatting.
+                </role>
 
-                Your mission is to synthesize these sections into a single, perfectly ordered, and de-duplicated document.
+                <context>
+                    You have multiple extracted and translated sections from a document. The sections were generated from overlapping screenshots of the document pages.
+                    Each section is labeled with its original page and location (e.g., ""PAGE 1 TOP"", ""PAGE 1 MIDDLE"", ""PAGE 2 TOP"").
+                </context>
 
-                **Key Objectives:**
+                <mission>
+                    Your mission is to synthesize these sections into one perfectly ordered, de-duplicated, and coherent document.
+                </mission>
 
-                1.  **Combine and Order**: Merge all provided sections into a single, cohesive document in {targetLanguageName}. Use the page and section markers (e.g., ""PAGE 1 TOP"", ""PAGE 1 MIDDLE"", ""PAGE 2 TOP"") as the absolute guide for correct sequencing.
-                2.  **Eliminate Redundancy**: Carefully identify and remove any duplicate or overlapping content that occurs where sections meet. Ensure each piece of information appears only once in its correct place.
-                3.  **Preserve Document Structure**: Maintain the inherent structure of the document (headings, paragraphs, lists, tables, etc.) as suggested by the content and any existing Markdown.
-                4.  **Ensure Natural Flow**: The final document should read smoothly and logically from one part to the next.
-                5.  **Maintain Markdown Formatting**: All Markdown formatting (headings, lists, tables, bold, italics, etc.) present in the chunks must be preserved and consistently applied.
-                6.  **Content Fidelity**: Crucially, DO NOT add any content or information that was not present in the original sections provided.
-                7.  **Clean Output**: DO NOT include the page and section markers (e.g., ""--- PAGE 1 TOP ---"") in your final output. These are for your guidance only.
+                <objectives>
+                    1. <Combine and Order>
+                    Merge all sections into a single cohesive document in {targetLanguageName}, using the page and section markers strictly to determine correct order.
 
-                **Output Requirements:**
-                -   Return ONLY the final, seamlessly combined document.
-                -   The entire output must be in {targetLanguageName} and formatted using Markdown.
-                -   Absolutely NO explanations, notes, or comments about your process.
+                    2. <Seamless Stitching from Overlap>
+                    Use the overlapping content between sections (e.g., between TOP and MIDDLE) to stitch them together seamlessly. It is critical that **no content from the beginning of the first section or the end of the last section of a page is lost**. Your goal is to reconstruct the full, original text from these overlapping pieces.
 
-                Here are the document sections to combine:
+                    3. <Preserve Structure>
+                    Maintain the document's inherent structure (headings, paragraphs, lists, tables, etc.) as implied by content and existing HTML tags.
 
-                {chunkContent}
+                    4. <Ensure Natural Flow>
+                    The final document should read smoothly and logically from start to finish.
+
+                    5. <Maintain HTML Formatting>
+                    Preserve and consistently apply all HTML formatting present in the chunks (headings <h1>–<h6>, lists <ul>, <ol>, tables <table>, emphasis <strong>, <em>, etc.).
+
+                    6. <Content Fidelity>
+                    Do NOT add any new content or information beyond what exists in the provided sections.
+
+                    7. <Clean Output>
+                        The page and section markers (e.g., `PAGE 1 - SECTION 1 (TOP)`) are for your guidance only and must be removed from the final output.
+                </objectives>
+
+                <output_requirements>
+                    - Return ONLY the final, seamlessly combined document.
+                    - The output must be in {targetLanguageName}, formatted strictly in clean, valid HTML.
+                    - Absolutely NO explanations, notes, or comments.
+                </output_requirements>
+
+                <document_sections>
+                    Here are the document sections to combine:
+
+                    {chunkContent}
+                </document_sections>
+
             ";
         }
 
+        private static string GenerateSinglePageCombinationPrompt(string targetLanguageName, string sectionsContent)
+        {
+            return $@"
+                <role>
+                    You are an intelligent document reconstruction expert, proficient in {targetLanguageName} and HTML formatting.
+                </role>
+
+                <context>
+                    You have been given several translated text sections that were extracted from different overlapping parts of a SINGLE document page. The sections are provided in their order of appearance on the page.
+                </context>
+
+                <mission>
+                    Your mission is to synthesize these sections into one perfectly ordered and coherent page of text.
+                </mission>
+
+                <objectives>
+                    1. <Combine and Order>
+                       Merge all provided sections into a single cohesive text block.
+
+                    2. <Seamless Stitching from Overlap>
+                       The sections have overlapping content. Use this overlap to perfectly stitch them together into a single, continuous text. It is critical that **no content from the beginning of the first section or the end of the last section is lost**. Your goal is to reconstruct the full, original text of the page from these overlapping pieces.
+
+                    3. <Preserve Structure and Formatting>
+                       Maintain the original structure (headings, paragraphs, lists, tables) and all HTML formatting present in the sections.
+
+                    4. <Content Fidelity>
+                       Do NOT add any new content or information. The output should only be the combined text.
+                </objectives>
+
+                <output_requirements>
+                    - Return ONLY the final, seamlessly combined text.
+                    - The output must be in {targetLanguageName}, formatted strictly in clean, valid HTML.
+                    - Absolutely NO explanations, notes, or comments.
+                </output_requirements>
+
+                <document_sections>
+                    Here are the document sections to combine for this single page:
+
+                    {sectionsContent}
+                </document_sections>
+            ";
+        }
     }
 }

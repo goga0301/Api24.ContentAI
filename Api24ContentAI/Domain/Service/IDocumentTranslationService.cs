@@ -20,6 +20,7 @@ namespace Api24ContentAI.Domain.Service
             int targetLanguageId, 
             string userId, 
             Models.DocumentFormat outputFormat,
+            AIModel model,
             CancellationToken cancellationToken
         );
 

@@ -205,10 +205,8 @@ namespace Api24ContentAI.Controllers
                         var translationService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationService>();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
                         
-                        // Create FormFile from temp file
                         var formFile = await CreateFormFileFromTempFile(tempFilePath, request.File.FileName, request.File.ContentType);
                         
-                        // Update progress to show processing started
                         await jobService.UpdateProgress(jobId, 10);
                         
                         var result = await translationService.TranslateDocumentWithClaude(
@@ -216,11 +214,11 @@ namespace Api24ContentAI.Controllers
                             request.TargetLanguageId,
                             userId,
                             request.OutputFormat,
+                            request.Model,
                             cancellationToken);
 
                         if (result.Success)
                         {
-                            // Generate suggestions after successful translation
                             List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
                             try
                             {

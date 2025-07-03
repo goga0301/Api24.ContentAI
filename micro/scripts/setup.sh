@@ -33,5 +33,13 @@ else
     echo "[✓] Poppler already installed."
 fi
 
+if ! command -v libreoffice &> /dev/null; then
+    echo "[!] Installing LibreOffice..."
+    sudo apt update
+    sudo apt install -y libreoffice
+else
+    echo "[✓] LibreOffice already installed."
+fi
+
 echo "[✓] Setup complete. Run with: source ocr-env/bin/activate && uvicorn main:app --reload"
 

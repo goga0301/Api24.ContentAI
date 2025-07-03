@@ -121,11 +121,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 _logger.LogInformation("Using effective suggestion - Title: {Title}, Type: {Type}, OriginalText: {OriginalText}, SuggestedText: {SuggestedText}", 
                     effectiveSuggestion.Title, effectiveSuggestion.Type, effectiveSuggestion.OriginalText, effectiveSuggestion.SuggestedText);
+                
+                _logger.LogInformation("Request details - HasEdits: {HasEdits}, EditedOriginalText: '{EditedOriginalText}', EditedSuggestedText: '{EditedSuggestedText}'", 
+                    request.HasEdits, request.EditedOriginalText ?? "null", request.EditedSuggestedText ?? "null");
 
                 var prompt = GenerateApplySuggestionPrompt(
                     request.TranslatedContent, 
                     effectiveSuggestion, 
                     language.Name);
+
+                _logger.LogDebug("Sending prompt to Claude with SuggestedText: '{SuggestedText}'", effectiveSuggestion.SuggestedText);
 
                 var claudeRequest = new ClaudeRequest(prompt);
                 var claudeResponse = await _claudeService.SendRequest(claudeRequest, cancellationToken);
@@ -183,161 +188,201 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static string GenerateTranslationReviewPrompt(string originalContent, string translatedContent, string targetLanguage)
         {
-            return $@"You are an expert professional translation quality reviewer and linguist with deep expertise in {targetLanguage} language and cross-cultural communication. Your task is to meticulously analyze the provided translation and identify exactly 4 specific, actionable improvement suggestions.
+            return $@"
+            <role>
+                You are an expert professional translation quality reviewer and linguist with deep expertise in {targetLanguage} language and cross-cultural communication. Your task is to meticulously analyze the provided translation and identify exactly 4 specific, actionable improvement suggestions.
+            </role>
 
-                ## CONTENT TO ANALYZE:
-
-                **Original Source Text:**
+            <content_to_analyze>
+                <original_source>
                 {originalContent}
+                </original_source>
 
-                **Translation to {targetLanguage}:**
-                {translatedContent}
+                    <translation_to_review>
+                    {translatedContent}
+                </translation_to_review>
+            </content_to_analyze>
 
-                ## YOUR ANALYSIS TASK:
-
+            <analysis_task>
                 Conduct a comprehensive quality assessment focusing on these critical areas:
 
-                ### 1. LINGUISTIC ACCURACY
-                - Grammar correctness and proper sentence structure
-                - Verb tenses, subject-verb agreement, and syntactic patterns
-                - Proper use of articles, prepositions, and conjunctions
-                - Spelling, capitalization, and orthographic conventions
+                <focus_areas>
+                    <linguistic_accuracy>
+                        - Grammar correctness and proper sentence structure
+                        - Verb tenses, subject-verb agreement, and syntactic patterns
+                        - Proper use of articles, prepositions, and conjunctions
+                        - Spelling, capitalization, and orthographic conventions
+                    </linguistic_accuracy>
 
-                ### 2. SEMANTIC FIDELITY  
-                - Accurate meaning transfer without loss or distortion
-                - Proper handling of idiomatic expressions and cultural references
-                - Contextually appropriate word choices and register
-                - Preservation of source text tone and intent
+                    <semantic_fidelity>
+                        - Accurate meaning transfer without loss or distortion
+                        - Proper handling of idiomatic expressions and cultural references
+                        - Contextually appropriate word choices and register
+                        - Preservation of source text tone and intent
+                    </semantic_fidelity>
 
-                ### 3. STYLISTIC QUALITY
-                - Natural flow and readability in the target language
-                - Appropriate formality level and register consistency
-                - Sentence variety and rhythm that sounds native
-                - Cultural appropriateness and localization
+                    <stylistic_quality>
+                        - Natural flow and readability in the target language
+                        - Appropriate formality level and register consistency
+                        - Sentence variety and rhythm that sounds native
+                        - Cultural appropriateness and localization
+                    </stylistic_quality>
 
-                ### 4. TECHNICAL PRECISION
-                - Terminology consistency and domain-specific accuracy
-                - Proper formatting, punctuation, and special characters
-                - Handling of numbers, dates, names, and technical terms
-                - Document structure and markdown formatting preservation
+                    <technical_precision>
+                        - Terminology consistency and domain-specific accuracy
+                        - Proper formatting, punctuation, and special characters
+                        - Handling of numbers, dates, names, and technical terms
+                        - Document structure and markdown formatting preservation
+                    </technical_precision>
+                </focus_areas>
+            </analysis_task>
 
-                ## OUTPUT REQUIREMENTS:
+                <output_requirements>
+                    Provide your analysis as a valid JSON array containing exactly 4 suggestion objects. Each suggestion must include:
 
-                Provide your analysis as a valid JSON array containing exactly 4 suggestion objects. Each suggestion must include:
+                    ```json
+                    [
+                    {{
+                         ""title"": ""Concise, specific title (max 50 characters)"",
+                         ""description"": ""Detailed explanation of the issue and why the improvement is needed (100-200 characters)"",
+                         ""type"": ""One of: GrammarError, SyntaxError, StyleImprovement, Terminology, Punctuation, Formatting, Clarity, Consistency"",
+                         ""originalText"": ""Exact text segment from the translation that needs improvement"",
+                         ""suggestedText"": ""Your improved version that replaces the original text"",
+                         ""priority"": 1-3 (1=Critical/High impact, 2=Moderate impact, 3=Minor/Polish)
+                     }}
+                    ]
+                        ```
+                    </output_requirements>
 
-                ```json
-                [
-                {{
-                    ""title"": ""Concise, specific title (max 50 characters)"",
-                    ""description"": ""Detailed explanation of the issue and why the improvement is needed (100-200 characters)"",
-                    ""type"": ""One of: GrammarError, SyntaxError, StyleImprovement, Terminology, Punctuation, Formatting, Clarity, Consistency"",
-                    ""originalText"": ""Exact text segment from the translation that needs improvement"",
-                    ""suggestedText"": ""Your improved version that replaces the original text"",
-                    ""priority"": 1-3 (1=Critical/High impact, 2=Moderate impact, 3=Minor/Polish)
-                }}
-                ]
-                ```
+                <guidelines>
+                    <do>
+                    - Focus on the most impactful improvements that enhance translation quality
+                    - Provide specific, actionable suggestions with exact text segments
+                    - Consider cultural nuances and target audience expectations
+                    - Prioritize improvements that affect meaning accuracy and naturalness
+                    - Ensure suggested improvements are grammatically correct and contextually appropriate
+                    </do>
 
-                ## ANALYSIS GUIDELINES:
+                    <avoid>
+                    - Vague or general suggestions without specific text examples
+                    - Changes that alter the original meaning or intent
+                    - Overly minor cosmetic changes unless they affect readability
+                    - Suggestions that make the text less natural in the target language
+                    </avoid>
+                </guidelines>
 
-                ✅ **DO:**
-                - Focus on the most impactful improvements that enhance translation quality
-                - Provide specific, actionable suggestions with exact text segments
-                - Consider cultural nuances and target audience expectations
-                - Prioritize improvements that affect meaning accuracy and naturalness
-                - Ensure suggested improvements are grammatically correct and contextually appropriate
+                    <instructions>
+                    Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers.
 
-                ❌ **AVOID:**
-                - Vague or general suggestions without specific text examples
-                - Changes that alter the original meaning or intent
-                - Overly minor cosmetic changes unless they affect readability
-                - Suggestions that make the text less natural in the target language
-
-                Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers.
-
-                Return only the JSON array with exactly 4 suggestions - no additional text or explanations outside the JSON structure.";
+                    Return only the JSON array with exactly 4 suggestions - no additional text or explanations outside the JSON structure.
+                    </instructions>";
         }
 
         private static string GenerateApplySuggestionPrompt(string translatedContent, TranslationSuggestion suggestion, string targetLanguage)
         {
-            return $@"You are an expert professional translator and linguistic editor with specialized expertise in {targetLanguage}. Your task is to carefully apply a specific improvement suggestion to enhance the quality of a translated text while maintaining its integrity, meaning, and natural flow.
+            return $@"
+                <role>
+                    You are an expert professional translator and linguistic editor with specialized expertise in {targetLanguage}. Your task is to carefully apply a specific improvement suggestion to enhance the quality of a translated text while maintaining its integrity, meaning, and natural flow.
+                </role>
 
-                    ## CURRENT TRANSLATED TEXT ({targetLanguage}):
+                <current_content>
+                    <translated_text language=""{targetLanguage}"">
+                        {translatedContent}
+                    </translated_text>
+                </current_content>
 
-                    {translatedContent}
+                <improvement_suggestion>
+                    <suggestion_type>{suggestion.Type}</suggestion_type>
+                    <title>{suggestion.Title}</title>
+                    <description>{suggestion.Description}</description>
+                    <priority>{suggestion.Priority}</priority>
 
-                    ## IMPROVEMENT SUGGESTION TO APPLY:
+                    <target_text_to_improve>
+                        {suggestion.OriginalText}
+                    </target_text_to_improve>
 
-                    **Suggestion Type:** {suggestion.Type}
-                    **Issue Title:** {suggestion.Title}
-                    **Detailed Description:** {suggestion.Description}
-                    **Priority Level:** {suggestion.Priority} (1=Critical, 2=Moderate, 3=Minor)
+                    <suggested_replacement>
+                        {suggestion.SuggestedText}
+                    </suggested_replacement>
+                </improvement_suggestion>
 
-                    **Target Text to Improve:**
-                    ""{suggestion.OriginalText}""
+                <critical_instruction>
+                    You must use the ""Suggested Replacement"" text EXACTLY as provided, without any modifications, corrections, or improvements. Do not attempt to fix grammar, spelling, or stylistic issues in the replacement text - use it character-for-character as specified.
+                </critical_instruction>
 
-                    **Suggested Replacement:**
-                    ""{suggestion.SuggestedText}""
+                <editing_task>
+                    <primary_objectives>
+                        1. Locate and Replace: Find the exact or semantically equivalent text segment that matches the ""Target Text to Improve""
+                        2. Apply Enhancement: Replace it with the ""Suggested Replacement"" EXACTLY as provided
+                        3. Maintain Coherence: Ensure the entire text flows naturally and cohesively after the modification
+                        4. Preserve Integrity: Keep all formatting, structure, and non-target content exactly as provided
+                    </primary_objectives>
 
-                    ## YOUR EDITING TASK:
+                    <detailed_instructions>
+                        <exact_match_found>
+                            - Replace the exact text segment with the ""Suggested Replacement"" text EXACTLY as provided
+                            - Do NOT modify, correct, or ""improve"" the suggested replacement text
+                            - Use the replacement text character-for-character as specified
+                            - Adjust surrounding grammar/syntax if needed for smooth integration
+                            - Ensure verb tenses, articles, and agreement patterns remain consistent
+                        </exact_match_found>
 
-                    ### PRIMARY OBJECTIVES:
-                    1. **Locate and Replace:** Find the exact or semantically equivalent text segment that matches the ""Target Text to Improve""
-                    2. **Apply Enhancement:** Replace it with the ""Suggested Replacement"" or adapt the improvement concept appropriately
-                    3. **Maintain Coherence:** Ensure the entire text flows naturally and cohesively after the modification
-                    4. **Preserve Integrity:** Keep all formatting, structure, and non-target content exactly as provided
+                        <exact_match_not_found>
+                            - Identify the most semantically similar text segment
+                            - Apply the improvement concept to that section
+                            - Maintain the same type of enhancement (grammar, style, terminology, etc.)
+                        </exact_match_not_found>
 
-                    ### DETAILED INSTRUCTIONS:
+                        <formatting_preservation>
+                            - Markdown: Preserve all markdown formatting (headers, lists, links, emphasis)
+                            - Punctuation: Maintain consistent punctuation patterns
+                            - Spacing: Keep original paragraph breaks and line spacing
+                            - Special Characters: Preserve any special characters, symbols, or formatting codes
+                        </formatting_preservation>
 
-                    #### If Exact Text Match Found:
-                    - Replace the exact text segment with the suggested improvement
-                    - Adjust surrounding grammar/syntax if needed for smooth integration
-                    - Ensure verb tenses, articles, and agreement patterns remain consistent
+                        <quality_assurance>
+                            - Ensure the improvement actually enhances the text quality
+                            - Verify that the change doesn't introduce new errors
+                            - Confirm the modification aligns with {targetLanguage} linguistic conventions
+                            - Check that the overall meaning and tone remain unchanged
+                        </quality_assurance>
+                    </detailed_instructions>
+                </editing_task>
 
-                    #### If Exact Text Not Found:
-                    - Identify the most semantically similar text segment
-                    - Apply the improvement concept to that section
-                    - Maintain the same type of enhancement (grammar, style, terminology, etc.)
+                <output_requirements>
+                    Return ONLY the complete improved translated text with the suggestion applied.
 
-                    #### Formatting Preservation:
-                    - **Markdown:** Preserve all markdown formatting (headers, lists, links, emphasis)
-                    - **Punctuation:** Maintain consistent punctuation patterns
-                    - **Spacing:** Keep original paragraph breaks and line spacing
-                    - **Special Characters:** Preserve any special characters, symbols, or formatting codes
-
-                    #### Quality Assurance:
-                    - Ensure the improvement actually enhances the text quality
-                    - Verify that the change doesn't introduce new errors
-                    - Confirm the modification aligns with {targetLanguage} linguistic conventions
-                    - Check that the overall meaning and tone remain unchanged
-
-                    ## OUTPUT REQUIREMENTS:
-
-                    Return ONLY the complete improved translated text with the suggestion applied. Do not include:
-                    - Explanations of what you changed
-                    - Commentary on the improvement
-                    - Bracketed notes or annotations
-                    - Multiple versions or alternatives
+                    <do_not_include>
+                        - Explanations of what you changed
+                        - Commentary on the improvement
+                        - Bracketed notes or annotations
+                        - Multiple versions or alternatives
+                    </do_not_include>
 
                     The output should be the full, finalized text that seamlessly incorporates the suggested improvement while maintaining the original structure and quality of the translation.
+                </output_requirements>
 
-                    ## QUALITY STANDARDS:
+                <quality_standards>
+                    <success_criteria>
+                        - Natural, fluent {targetLanguage} that sounds native
+                        - Grammatically correct and stylistically appropriate
+                        - Meaningful improvement over the original version
+                        - Consistent formatting and structure
+                        - Preserved semantic accuracy
+                    </success_criteria>
 
-                    ✅ **Success Criteria:**
-                    - Natural, fluent {targetLanguage} that sounds native
-                    - Grammatically correct and stylistically appropriate
-                    - Meaningful improvement over the original version
-                    - Consistent formatting and structure
-                    - Preserved semantic accuracy
+                    <avoid>
+                        - Introducing new grammatical errors
+                        - Changing the original meaning or intent
+                        - Removing or altering unrelated content
+                        - Breaking markdown or other formatting
+                        - Making the text sound less natural
+                    </avoid>
+                </quality_standards>
 
-                    ❌ **Avoid:**
-                    - Introducing new grammatical errors
-                    - Changing the original meaning or intent
-                    - Removing or altering unrelated content
-                    - Breaking markdown or other formatting
-                    - Making the text sound less natural
-
-                    Apply the suggestion thoughtfully and return the enhanced translated text.";
+                <final_instruction>
+                    Apply the suggestion thoughtfully and return the enhanced translated text.
+                </final_instruction>";
         }
 
         private static List<TranslationSuggestion> GenerateFallbackSuggestions()
