@@ -97,13 +97,8 @@ public class WordProcessor(
 
             foreach (var page in screenshotResult.Pages)
             {
-                if (page?.ScreenShots == null)
-                {
-                    _logger.LogWarning("Page {Page} has null screenshots, skipping", page?.Page ?? -1);
-                    continue;
-                }
-
                 var pageTranslations = new List<string>();
+                
                 for (int i = 0; i < page.ScreenShots.Count; i++)
                 {
                     var base64Data = page.ScreenShots[i];
@@ -116,28 +111,34 @@ public class WordProcessor(
                         continue;
                     }
 
-                    try
-                    {
-                        var imageData = Convert.FromBase64String(base64Data);
-                        var translated = await ExtractAndTranslateWordDocumentWithClaude(imageData, page.Page, sectionName, targetLanguage.Name, model, cancellationToken, page.Text);
-                        
-                        _logger.LogInformation("Translation result for page {Page} section {Section}: {Length} chars", 
-                            page.Page, i, translated?.Length ?? 0);
-                        
-                        pageTranslations.Add(translated ?? string.Empty);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to process page {Page} section {Section}", page.Page, i);
-                        pageTranslations.Add(string.Empty);
-                    }
+                    // Use retry mechanism for failed sections
+                    var translatedSection = await TranslateWordSectionWithRetry(base64Data, page.Page, sectionName, targetLanguage.Name, model, cancellationToken, page.Text);
+                    pageTranslations.Add(translatedSection ?? string.Empty);
+                    
+                    _logger.LogInformation("Word document page {Page} section {Section} translation result: {Length} chars", 
+                        page.Page, i, translatedSection?.Length ?? 0);
                 }
 
                 translatedPages.Add(pageTranslations);
             }
 
-            if (translatedPages.Count == 0 || translatedPages.All(p => p.All(string.IsNullOrWhiteSpace)))
+            var totalSections = translatedPages.Sum(p => p.Count);
+            var translatedSections = translatedPages.Sum(p => p.Count(s => !string.IsNullOrWhiteSpace(s)));
+            var pagesWithContent = translatedPages.Count(p => p.Any(s => !string.IsNullOrWhiteSpace(s)));
+            
+            _logger.LogInformation("Word document translation summary: {TranslatedSections}/{TotalSections} sections translated across {PagesWithContent}/{TotalPages} pages", 
+                translatedSections, totalSections, pagesWithContent, translatedPages.Count);
+
+            // Only fail if absolutely no content was extracted from any page
+            if (translatedSections == 0)
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "No content could be extracted from the document" };
+
+            // Warn if significant data loss occurred
+            var dataLossPercentage = (double)(totalSections - translatedSections) / totalSections * 100;
+            if (dataLossPercentage > 25)
+            {
+                _logger.LogWarning("Significant data loss detected in Word document: {DataLossPercentage:F1}% of sections failed translation", dataLossPercentage);
+            }
 
             var finalMarkdown = await CombineTranslatedWordSectionsWithClaude(translatedPages, targetLanguage.Name, model, cancellationToken);
             
@@ -1161,4 +1162,90 @@ public class WordProcessor(
                 </improved_text>
                 """;
     } 
+
+    private async Task<string> TranslateWordSectionWithRetry(string base64Data, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, string extractedText = null, int maxRetries = 3)
+    {
+        Exception lastException = null;
+        
+        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                var imageData = Convert.FromBase64String(base64Data);
+                var translated = await ExtractAndTranslateWordDocumentWithClaude(imageData, pageNumber, sectionName, targetLanguageName, model, cancellationToken, extractedText);
+                
+                if (!string.IsNullOrWhiteSpace(translated))
+                {
+                    if (attempt > 1)
+                    {
+                        _logger.LogInformation("Successfully translated Word document page {PageNumber} section {SectionName} on attempt {Attempt}", 
+                            pageNumber, sectionName, attempt);
+                    }
+                    return translated;
+                }
+                else
+                {
+                    _logger.LogWarning("Empty translation result for Word document page {PageNumber} section {SectionName} on attempt {Attempt}", 
+                        pageNumber, sectionName, attempt);
+                }
+            }
+            catch (Exception ex) when (IsTimeoutException(ex))
+            {
+                lastException = ex;
+                _logger.LogWarning("Timeout on Word document translation attempt {Attempt}/{MaxRetries} for page {PageNumber} section {SectionName}: {ErrorMessage}", 
+                    attempt, maxRetries, pageNumber, sectionName, ex.Message);
+                
+                if (attempt < maxRetries)
+                {
+                    var delay = TimeSpan.FromMilliseconds(Math.Pow(2, attempt + 1) * 2000); // 4s, 8s, 16s
+                    _logger.LogInformation("Waiting {DelaySeconds} seconds before retry due to timeout", delay.TotalSeconds);
+                    await Task.Delay(delay, cancellationToken);
+                }
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                _logger.LogWarning(ex, "Word document translation attempt {Attempt}/{MaxRetries} failed for page {PageNumber} section {SectionName}", 
+                    attempt, maxRetries, pageNumber, sectionName);
+                
+                if (IsPermanentFailure(ex))
+                {
+                    _logger.LogError("Permanent failure detected for Word document page {PageNumber} section {SectionName}, stopping retries: {ErrorMessage}", 
+                        pageNumber, sectionName, ex.Message);
+                    break;
+                }
+                
+                if (attempt < maxRetries)
+                {
+                    var delay = TimeSpan.FromMilliseconds(Math.Pow(2, attempt) * 1000); // 2s, 4s, 8s
+                    await Task.Delay(delay, cancellationToken);
+                }
+            }
+        }
+        
+        _logger.LogError(lastException, "All {MaxRetries} Word document translation attempts failed for page {PageNumber} section {SectionName}", 
+            maxRetries, pageNumber, sectionName);
+        
+        return string.Empty;
+    }
+
+    private static bool IsTimeoutException(Exception ex)
+    {
+        return ex is OperationCanceledException ||
+               ex is TaskCanceledException ||
+               (ex.Message.Contains("timeout", StringComparison.OrdinalIgnoreCase)) ||
+               (ex.Message.Contains("timed out", StringComparison.OrdinalIgnoreCase)) ||
+               (ex.InnerException != null && IsTimeoutException(ex.InnerException));
+    }
+
+    private static bool IsPermanentFailure(Exception ex)
+    {
+        return ex.Message.Contains("Invalid API key", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("400", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("Bad Request", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("Image data is empty", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("Image media type is not specified", StringComparison.OrdinalIgnoreCase);
+    }
 }
