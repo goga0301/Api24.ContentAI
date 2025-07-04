@@ -99,7 +99,9 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             if (job != null)
             {
                 job.Status = "Failed";
-                job.ErrorMessage = errorMessage;
+                job.ErrorMessage = errorMessage?.Length > 500 
+                    ? errorMessage.Substring(0, 497) + "..." 
+                    : errorMessage;
                 job.UpdatedAt = DateTime.UtcNow;
                 
                 await _dbContext.SaveChangesAsync(cancellationToken);

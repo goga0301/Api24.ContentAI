@@ -124,7 +124,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         throw new Exception("Failed to deserialize Gemini response");
                     }
 
-                    // Enhanced response validation
                     var content = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
                     if (string.IsNullOrWhiteSpace(content))
                     {

@@ -29,6 +29,10 @@ namespace Api24ContentAI.Domain.Entities
         Lawyer = 6,
         EnhanceTranslate = 7,
         TranslateVerification = 8,
-        Error = 9
+        Error = 9,
+        DocumentTranslationTesseract = 10,
+        DocumentTranslationClaude = 11,
+        DocumentTranslationSRT = 12,
+        DocumentTranslationChat = 13
     }
 }
