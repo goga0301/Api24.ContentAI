@@ -26,6 +26,7 @@ namespace Api24ContentAI.Controllers
         private readonly IServiceScopeFactory _serviceScopeFactory;
         private readonly ITranslationJobService _translationJobService;
         private readonly IDocumentSuggestionService _documentSuggestionService;
+        private readonly IDocumentTranslationChatService _chatService;
 
         public DocumentController(
             IDocumentTranslationService documentTranslationService,
@@ -33,7 +34,8 @@ namespace Api24ContentAI.Controllers
             ILogger<DocumentController> logger,
             IServiceScopeFactory serviceScopeFactory,
             ITranslationJobService translationJobService,
-            IDocumentSuggestionService documentSuggestionService)
+            IDocumentSuggestionService documentSuggestionService,
+            IDocumentTranslationChatService chatService)
         {
             _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
             _pdfService = pdfService ?? throw new ArgumentNullException(nameof(pdfService));
@@ -41,6 +43,7 @@ namespace Api24ContentAI.Controllers
             _serviceScopeFactory = serviceScopeFactory ?? throw new ArgumentNullException(nameof(serviceScopeFactory));
             _translationJobService = translationJobService ?? throw new ArgumentNullException(nameof(translationJobService));
             _documentSuggestionService = documentSuggestionService ?? throw new ArgumentNullException(nameof(documentSuggestionService));
+            _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
         }
         
         private const long MaxFileSizeBytes = 100 * 1024 * 1024; // 100MB limit
@@ -74,7 +77,19 @@ namespace Api24ContentAI.Controllers
                 var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
                 var jobId = _translationJobService.CreateJob(fileExtension, request.File.Length / 1024, estimatedMinutes);
                 
-                // Save file to temporary location instead of memory
+                var chatModel = new CreateDocumentTranslationChatModel
+                {
+                    UserId = userId,
+                    OriginalFileName = request.File.FileName,
+                    OriginalContentType = request.File.ContentType,
+                    OriginalFileSizeBytes = request.File.Length,
+                    FileType = fileExtension.TrimStart('.'),
+                    TargetLanguageId = request.TargetLanguageId,
+                    InitialMessage = "Starting Tesseract OCR translation..."
+                };
+                
+                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
                 
                 _ = Task.Run(async () =>
@@ -84,11 +99,10 @@ namespace Api24ContentAI.Controllers
                         using var scope = _serviceScopeFactory.CreateScope();
                         var translationService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationService>();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         
-                        // Create FormFile from temp file
                         var formFile = await CreateFormFileFromTempFile(tempFilePath, request.File.FileName, request.File.ContentType);
                         
-                        // Update progress to show processing started
                         await jobService.UpdateProgress(jobId, 10);
                         
                         var result = await translationService.TranslateDocumentWithTesseract(
@@ -100,7 +114,6 @@ namespace Api24ContentAI.Controllers
 
                         if (result.Success)
                         {
-                            // Generate suggestions after successful translation
                             List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
                             try
                             {
@@ -117,10 +130,8 @@ namespace Api24ContentAI.Controllers
                             catch (Exception suggestionEx)
                             {
                                 _logger.LogWarning(suggestionEx, "Failed to generate suggestions for tesseract translation job {JobId}", jobId);
-                                // Continue without suggestions rather than failing the job
                             }
 
-                            // Complete the job with the translation result and suggestions
                             await jobService.CompleteJob(
                                 jobId, 
                                 result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
@@ -128,11 +139,14 @@ namespace Api24ContentAI.Controllers
                                 result.ContentType ?? "text/plain",
                                 suggestions);
                                 
+                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
+                                
                             _logger.LogInformation("Tesseract translation job {JobId} completed successfully", jobId);
                         }
                         else
                         {
                             await jobService.FailJob(jobId, result.ErrorMessage ?? "Translation failed");
+                            await chatService.AddErrorMessage(chatResponse.ChatId, userId, result.ErrorMessage ?? "Translation failed", jobId, cancellationToken);
                             _logger.LogWarning("Tesseract translation job {JobId} failed: {ErrorMessage}", jobId, result.ErrorMessage);
                         }
                     }
@@ -140,12 +154,13 @@ namespace Api24ContentAI.Controllers
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         await jobService.FailJob(jobId, ex.Message);
+                        await chatService.AddErrorMessage(chatResponse.ChatId, userId, $"Translation failed with error: {ex.Message}", jobId, cancellationToken);
                         _logger.LogError(ex, "Tesseract translation job {JobId} failed: {ErrorMessage}", jobId, ex.Message);
                     }
                     finally
                     {
-                        // Clean up temp file
                         CleanupTempFile(tempFilePath);
                     }
                 }, cancellationToken);
@@ -153,6 +168,7 @@ namespace Api24ContentAI.Controllers
                 return Accepted(new
                 {
                     JobId = jobId,
+                    ChatId = chatResponse.ChatId,
                     Message = "Tesseract translation started in background. Use the job ID to check status.",
                     EstimatedTimeMinutes = estimatedMinutes,
                     FileType = fileExtension,
@@ -194,7 +210,19 @@ namespace Api24ContentAI.Controllers
                 var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
                 var jobId = _translationJobService.CreateJob(fileExtension, request.File.Length / 1024, estimatedMinutes);
                 
-                // Save file to temporary location instead of memory
+                var chatModel = new CreateDocumentTranslationChatModel
+                {
+                    UserId = userId,
+                    OriginalFileName = request.File.FileName,
+                    OriginalContentType = request.File.ContentType,
+                    OriginalFileSizeBytes = request.File.Length,
+                    FileType = fileExtension.TrimStart('.'),
+                    TargetLanguageId = request.TargetLanguageId,
+                    InitialMessage = "Starting Claude AI translation..."
+                };
+                
+                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
                 
                 _ = Task.Run(async () =>
@@ -204,6 +232,7 @@ namespace Api24ContentAI.Controllers
                         using var scope = _serviceScopeFactory.CreateScope();
                         var translationService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationService>();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         
                         var formFile = await CreateFormFileFromTempFile(tempFilePath, request.File.FileName, request.File.ContentType);
                         
@@ -235,10 +264,8 @@ namespace Api24ContentAI.Controllers
                             catch (Exception suggestionEx)
                             {
                                 _logger.LogWarning(suggestionEx, "Failed to generate suggestions for translation job {JobId}", jobId);
-                                // Continue without suggestions rather than failing the job
                             }
 
-                            // Complete the job with the translation result and suggestions
                             await jobService.CompleteJob(
                                 jobId, 
                                 result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
@@ -246,11 +273,14 @@ namespace Api24ContentAI.Controllers
                                 result.ContentType ?? "text/plain",
                                 suggestions);
                                 
+                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
+                                
                             _logger.LogInformation("Translation job {JobId} completed successfully", jobId);
                         }
                         else
                         {
                             await jobService.FailJob(jobId, result.ErrorMessage ?? "Translation failed");
+                            await chatService.AddErrorMessage(chatResponse.ChatId, userId, result.ErrorMessage ?? "Translation failed", jobId, cancellationToken);
                             _logger.LogWarning("Translation job {JobId} failed: {ErrorMessage}", jobId, result.ErrorMessage);
                         }
                     }
@@ -258,7 +288,9 @@ namespace Api24ContentAI.Controllers
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         await jobService.FailJob(jobId, ex.Message);
+                        await chatService.AddErrorMessage(chatResponse.ChatId, userId, $"Translation failed with error: {ex.Message}", jobId, cancellationToken);
                         _logger.LogError(ex, "Translation job {JobId} failed: {ErrorMessage}", jobId, ex.Message);
                     }
                     finally
@@ -271,6 +303,7 @@ namespace Api24ContentAI.Controllers
                 return Accepted(new
                 {
                     JobId = jobId,
+                    ChatId = chatResponse.ChatId,
                     Message = "Translation started in background. Use the job ID to check status.",
                     EstimatedTimeMinutes = estimatedMinutes,
                     FileType = fileExtension,
@@ -427,7 +460,19 @@ namespace Api24ContentAI.Controllers
                 var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
                 var jobId = _translationJobService.CreateJob(fileExtension, request.File.Length / 1024, estimatedMinutes);
                 
-                // Save file to temporary location instead of memory
+                var chatModel = new CreateDocumentTranslationChatModel
+                {
+                    UserId = userId,
+                    OriginalFileName = request.File.FileName,
+                    OriginalContentType = request.File.ContentType,
+                    OriginalFileSizeBytes = request.File.Length,
+                    FileType = fileExtension.TrimStart('.'),
+                    TargetLanguageId = request.TargetLanguageId,
+                    InitialMessage = "Starting SRT translation..."
+                };
+                
+                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
                 
                 _ = Task.Run(async () =>
@@ -437,11 +482,10 @@ namespace Api24ContentAI.Controllers
                         using var scope = _serviceScopeFactory.CreateScope();
                         var translationService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationService>();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         
-                        // Create FormFile from temp file
                         var formFile = await CreateFormFileFromTempFile(tempFilePath, request.File.FileName, request.File.ContentType);
                         
-                        // Update progress to show processing started
                         await jobService.UpdateProgress(jobId, 10);
                         
                         var result = await translationService.TranslateSRTFiles(
@@ -453,7 +497,6 @@ namespace Api24ContentAI.Controllers
 
                         if (result.Success)
                         {
-                            // Generate suggestions after successful translation
                             List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
                             try
                             {
@@ -470,10 +513,8 @@ namespace Api24ContentAI.Controllers
                             catch (Exception suggestionEx)
                             {
                                 _logger.LogWarning(suggestionEx, "Failed to generate suggestions for SRT translation job {JobId}", jobId);
-                                // Continue without suggestions rather than failing the job
                             }
 
-                            // Complete the job with the translation result and suggestions
                             await jobService.CompleteJob(
                                 jobId, 
                                 result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
@@ -481,11 +522,14 @@ namespace Api24ContentAI.Controllers
                                 result.ContentType ?? "text/plain",
                                 suggestions);
                                 
+                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
+                                
                             _logger.LogInformation("SRT translation job {JobId} completed successfully", jobId);
                         }
                         else
                         {
                             await jobService.FailJob(jobId, result.ErrorMessage ?? "Translation failed");
+                            await chatService.AddErrorMessage(chatResponse.ChatId, userId, result.ErrorMessage ?? "Translation failed", jobId, cancellationToken);
                             _logger.LogWarning("SRT translation job {JobId} failed: {ErrorMessage}", jobId, result.ErrorMessage);
                         }
                     }
@@ -493,7 +537,9 @@ namespace Api24ContentAI.Controllers
                     {
                         using var scope = _serviceScopeFactory.CreateScope();
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         await jobService.FailJob(jobId, ex.Message);
+                        await chatService.AddErrorMessage(chatResponse.ChatId, userId, $"Translation failed with error: {ex.Message}", jobId, cancellationToken);
                         _logger.LogError(ex, "SRT translation job {JobId} failed: {ErrorMessage}", jobId, ex.Message);
                     }
                     finally
@@ -506,6 +552,7 @@ namespace Api24ContentAI.Controllers
                 return Accepted(new
                 {
                     JobId = jobId,
+                    ChatId = chatResponse.ChatId,
                     Message = "SRT translation started in background. Use the job ID to check status.",
                     EstimatedTimeMinutes = estimatedMinutes,
                     FileType = fileExtension,

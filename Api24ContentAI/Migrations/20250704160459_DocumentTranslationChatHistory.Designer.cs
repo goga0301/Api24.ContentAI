@@ -3,6 +3,7 @@ using System;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Api24ContentAI.Migrations
 {
     [DbContext(typeof(ContentDbContext))]
-    partial class ContentDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250704160459_DocumentTranslationChatHistory")]
+    partial class DocumentTranslationChatHistory
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -65,10 +68,6 @@ namespace Api24ContentAI.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
-
                     b.Property<string>("FileType")
                         .IsRequired()
                         .HasMaxLength(10)
@@ -76,6 +75,9 @@ namespace Api24ContentAI.Migrations
 
                     b.Property<DateTime>("LastActivityAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MessageCount")
+                        .HasColumnType("integer");
 
                     b.Property<string>("OriginalContentType")
                         .HasMaxLength(100)
@@ -104,9 +106,6 @@ namespace Api24ContentAI.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("character varying(255)");
 
-                    b.Property<string>("TranslationResult")
-                        .HasColumnType("text");
-
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -123,6 +122,60 @@ namespace Api24ContentAI.Migrations
                     b.HasIndex("UserId");
 
                     b.ToTable("DocumentTranslationChats", "ContentDb");
+                });
+
+            modelBuilder.Entity("Api24ContentAI.Domain.Entities.DocumentTranslationChatMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AIModel")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ChatId")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("Content")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsVisible")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("MessageType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Metadata")
+                        .HasColumnType("text");
+
+                    b.Property<decimal?>("ProcessingCost")
+                        .HasColumnType("numeric");
+
+                    b.Property<int?>("ProcessingTimeSeconds")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TranslationJobId")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("UserId")
+                        .IsRequired()
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ChatId", "CreatedAt");
+
+                    b.ToTable("DocumentTranslationChatMessages", "ContentDb");
                 });
 
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.Language", b =>
@@ -487,6 +540,18 @@ namespace Api24ContentAI.Migrations
                     b.Navigation("ProductCategory");
                 });
 
+            modelBuilder.Entity("Api24ContentAI.Domain.Entities.DocumentTranslationChatMessage", b =>
+                {
+                    b.HasOne("Api24ContentAI.Domain.Entities.DocumentTranslationChat", "Chat")
+                        .WithMany("Messages")
+                        .HasForeignKey("ChatId")
+                        .HasPrincipalKey("ChatId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Chat");
+                });
+
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.RequestLog", b =>
                 {
                     b.HasOne("Api24ContentAI.Domain.Entities.Marketplace", null)
@@ -531,6 +596,11 @@ namespace Api24ContentAI.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.NoAction);
+                });
+
+            modelBuilder.Entity("Api24ContentAI.Domain.Entities.DocumentTranslationChat", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("Api24ContentAI.Domain.Entities.User", b =>
