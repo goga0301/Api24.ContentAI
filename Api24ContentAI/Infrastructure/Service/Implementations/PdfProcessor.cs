@@ -829,100 +829,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        private static string ExtractTextAndTranslateForGemini(int pageNumber, string sectionName, string targetLanguageName)
-        {
-            string verticalPortion = sectionName switch
-            {
-                "top" => "0-50%",
-                "middle" => "25-75%", 
-                "bottom" => "50-100%",
-                _ => "full page"
-            };
-
-            return $@"
-                You are a professional document translator. Please analyze this image section from page {pageNumber} ({sectionName} section, approximately {verticalPortion} of the page) and:
-
-                1. Extract all visible text accurately
-                2. Translate everything to {targetLanguageName}
-                3. Format the output as clean HTML using only these tags: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
-
-                Important rules:
-                    - Translate ALL text content including headers, labels, contact information, and descriptions
-                    - Keep technical codes, standards (ISO, EN, etc.), and reference numbers unchanged
-                    - Preserve the document structure using appropriate HTML tags
-                    - Use <br> tags for line breaks, not \\n
-                    - Do not add explanatory text or comments
-                    - Output only the translated HTML content
-
-                Translate to: {targetLanguageName}
-            ";
-        }
-
-        private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
-        {
-            string verticalPortion = sectionName switch
-            {
-                "top" => "0-50%",
-                "middle" => "25-75%",
-                "bottom" => "50-100%",
-                _ => "full page"
-            };
-
-            return $@"
-                <role>
-                    You are an advanced OCR and translation system.
-                    Your task is to process an image snippet from a document.
-                </role>
-
-                <context>
-                    Document Context:
-                        - Page Number: {pageNumber}
-                        - Section of Page: {sectionName} (approx. {verticalPortion} vertical portion)
-                </context>
-
-                <actions>
-                    1. <Extract Text>
-                        Accurately extract **all** visible textual content from the provided image snippet.
-
-                    2. <Translate>
-                        Translate the entire extracted text into **{targetLanguageName}**.
-
-                    3. <Format as HTML>
-                        Present the translated content using **strict HTML tags only**. Markdown is prohibited.
-                        Use these HTML elements appropriately:
-                        - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
-                        - Lists: `<ul>`, `<ol>`, with `<li>`
-                        - Emphasis: `<strong>` for bold, `<em>` for italic
-                        - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
-                        - Separators: `<hr />` for distinct section breaks
-                        - Code/Technical blocks: `<pre>`, `<code>`
-
-                    4. <Preserve Original Data>
-                        Keep all numbers, dates, and codes (except technical standards) exactly as in the source or transliterate them suitably for {targetLanguageName}.
-
-                    5. <Non-Translation Rules>
-                        **Do not translate** the following; preserve exactly as in source:
-                        - Technical identifiers
-                        - Standards (e.g., ISO, EN, ДСТУ, ГОСТ)
-                        - Specific codes (e.g., ДФРПОУ, НААУ)
-                        - Reference numbers or part numbers
-
-                    6. <Proper Nouns>
-                        Transliterate proper nouns per standard {targetLanguageName} rules unless a widely accepted translation exists.
-
-                    7. <Contextual Structure>
-                        Use context to infer and apply correct document structure in HTML: titles, sections, lists, paragraphs, etc.
-                </actions>
-
-                <output_requirements>
-                    - Output **only** the translated text in {targetLanguageName}
-                    - Format the entire output strictly in HTML as described
-                    - Do **not** include any explanations, remarks, or original untranslated text
-                    - Do **not** add any introductory or concluding statements
-                </output_requirements>
-
-                ";
-        }
     
         private async Task<string> CombineTranslatedSections(List<List<string>> translatedPageSections, string targetLanguageName, AIModel model, CancellationToken cancellationToken)
         {
@@ -1035,7 +941,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 var sectionsContent = new StringBuilder();
                 for (int i = 0; i < validSections.Count; i++)
                 {
-                    sectionsContent.AppendLine($"SECTION {i + 1}:\n{validSections[i]}\n");
+                    var trimmedSection = validSections[i].Trim(); // Trim to avoid leading/trailing newlines
+                    if (!string.IsNullOrEmpty(trimmedSection))
+                    {
+                        sectionsContent.Append(trimmedSection);
+                        if (i < validSections.Count - 1)
+                        {
+                            sectionsContent.AppendLine(); // Single newline between sections
+                        }
+                    }
                 }
 
                 var prompt = model == AIModel.Gemini25Pro 
@@ -1048,14 +962,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 if (!response.Success || string.IsNullOrWhiteSpace(response.Content))
                 {
                     _logger.LogWarning("AI combination failed for page {PageNumber} using {Model}, using simple concatenation fallback", pageNumber, model);
-                    return string.Join("\n\n", validSections);
+                    return string.Join("\n", validSections.Select(s => s.Trim())); // Single newline, trimmed sections
                 }
 
                 var combinedPage = response.Content.Trim();
-                
+
                 if (combinedPage.StartsWith("Here", StringComparison.OrdinalIgnoreCase) ||
-                    combinedPage.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
-                    combinedPage.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase))
+                        combinedPage.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
+                        combinedPage.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase))
                 {
                     int firstLineBreak = combinedPage.IndexOf('\n');
                     if (firstLineBreak > 0)
@@ -1063,39 +977,21 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         combinedPage = combinedPage.Substring(firstLineBreak + 1).Trim();
                     }
                 }
-                
+
                 if (string.IsNullOrWhiteSpace(combinedPage))
                 {
                     _logger.LogWarning("AI combination returned empty result for page {PageNumber} using {Model}, using concatenation fallback", pageNumber, model);
-                    return string.Join("\n\n", validSections);
+                    return string.Join("\n", validSections.Select(s => s.Trim()));
                 }
-                
+
                 _logger.LogInformation("Successfully combined sections for page {PageNumber} using {Model}, result length: {Length}", pageNumber, model, combinedPage.Length);
                 return combinedPage;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error combining sections for page {PageNumber} using {Model}, using concatenation fallback", pageNumber, model);
-                return string.Join("\n\n", validSections);
+                return string.Join("\n", validSections.Select(s => s.Trim()));
             }
-        }
-
-        private static string GenerateSinglePageCombinationPromptForGemini(string targetLanguageName, string sectionsContent)
-        {
-            return $@"
-                Combine these overlapping text sections from a single document page into one seamless text in {targetLanguageName}. The sections have overlapping content - merge them by removing duplicates while preserving all unique information.
-
-                {sectionsContent}
-
-                Rules:
-                    - Combine overlapping content smoothly
-                    - Keep all unique information
-                    - Maintain HTML formatting
-                    - Output only the combined text
-                    - Do not add explanatory comments
-
-                Combined result:
-                ";
         }
 
         private async Task<string> CombineDocumentPagesWithClaudeAndFallback(string pagesContent, string targetLanguageName, AIModel model, List<string> validPages, CancellationToken cancellationToken)
@@ -1125,16 +1021,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 _logger.LogInformation("Performing document-level assembly with {Model} using sophisticated prompt", model);
                 _logger.LogInformation("Input to document assembly: {InputLength} characters", pagesContent.Length);
-                
-                var lines = pagesContent.Split('\n');
+
+                var lines = pagesContent.Split('\n').Select(l => l.Trim()).Where(l => !string.IsNullOrEmpty(l)).ToList();
                 var pageHeaders = lines.Where(line => line.StartsWith("PAGE ")).ToList();
                 _logger.LogInformation("Found {PageHeaderCount} page headers in assembly input: {PageHeaders}", 
-                    pageHeaders.Count, string.Join(", ", pageHeaders));
-                
+                        pageHeaders.Count, string.Join(", ", pageHeaders));
+
                 var prompt = model == AIModel.Gemini25Pro 
                     ? GenerateDocumentCombinationPromptForGemini(targetLanguageName, pagesContent)
                     : GenerateDocumentCombinationPrompt(targetLanguageName, pagesContent);
-                
+
                 var message = new ContentFile { Type = "text", Text = prompt };
                 var response = await _aiService.SendRequestWithFile([message], model, cancellationToken);
 
@@ -1144,33 +1040,31 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return string.Empty;
                 }
 
-                _logger.LogInformation("{Model} returned response with {ResponseLength} characters", model, response.Content.Length);
-
                 var finalDocument = response.Content.Trim();
-                
+
                 if (finalDocument.StartsWith("Here", StringComparison.OrdinalIgnoreCase) ||
-                    finalDocument.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
-                    finalDocument.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase) ||
-                    finalDocument.StartsWith("The complete", StringComparison.OrdinalIgnoreCase) ||
-                    finalDocument.StartsWith("The assembled", StringComparison.OrdinalIgnoreCase))
+                        finalDocument.StartsWith("I've combined", StringComparison.OrdinalIgnoreCase) ||
+                        finalDocument.StartsWith("Here's the", StringComparison.OrdinalIgnoreCase) ||
+                        finalDocument.StartsWith("The complete", StringComparison.OrdinalIgnoreCase) ||
+                        finalDocument.StartsWith("The assembled", StringComparison.OrdinalIgnoreCase))
                 {
                     int firstLineBreak = finalDocument.IndexOf('\n');
                     if (firstLineBreak > 0)
                     {
                         _logger.LogInformation("Removing AI response prefix, original length: {OriginalLength}, new length will be: {NewLength}", 
-                            finalDocument.Length, finalDocument.Length - firstLineBreak - 1);
+                                finalDocument.Length, finalDocument.Length - firstLineBreak - 1);
                         finalDocument = finalDocument.Substring(firstLineBreak + 1).Trim();
                     }
                 }
-                
+
                 _logger.LogInformation("Successfully assembled final document using {Model}, result length: {Length}", model, finalDocument.Length);
-                
+
                 if (finalDocument.Length > 200)
                 {
                     _logger.LogInformation("Final document begins with: {Beginning}...", finalDocument.Substring(0, 100));
                     _logger.LogInformation("Final document ends with: ...{Ending}", finalDocument.Substring(finalDocument.Length - 100));
                 }
-                
+
                 return finalDocument;
             }
             catch (Exception ex)
@@ -1179,6 +1073,121 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 return string.Empty;
             }
         }
+
+        private static string ExtractTextAndTranslateForGemini(int pageNumber, string sectionName, string targetLanguageName)
+        {
+            string verticalPortion = sectionName switch
+            {
+                "top" => "0-50%",
+                "middle" => "25-75%", 
+                "bottom" => "50-100%",
+                _ => "full page"
+            };
+
+            return $@"
+                You are a professional document translator. Please analyze this image section from page {pageNumber} ({sectionName} section, approximately {verticalPortion} of the page) and:
+
+                1. Extract all visible text accurately
+                2. Translate everything to {targetLanguageName}
+            3. Format the output as clean HTML using only these tags: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
+
+                Important rules:
+                - Translate ALL text content including headers, labels, contact information, and descriptions
+                - Keep technical codes, standards (ISO, EN, etc.), and reference numbers unchanged
+                - Preserve the document structure using appropriate HTML tags
+                - Use <br> tags for line breaks, not \\n
+                - Do not add explanatory text or comments
+                - Output only the translated HTML content
+
+                Translate to: {targetLanguageName}
+            ";
+        }
+
+        private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
+        {
+            string verticalPortion = sectionName switch
+            {
+                "top" => "0-50%",
+                "middle" => "25-75%",
+                "bottom" => "50-100%",
+                _ => "full page"
+            };
+
+            return $@"
+                <role>
+                You are an advanced OCR and translation system.
+                Your task is to process an image snippet from a document.
+                </role>
+
+                <context>
+                Document Context:
+                - Page Number: {pageNumber}
+            - Section of Page: {sectionName} (approx. {verticalPortion} vertical portion)
+                </context>
+
+                <actions>
+                1. <Extract Text>
+                Accurately extract **all** visible textual content from the provided image snippet.
+
+                2. <Translate>
+                Translate the entire extracted text into **{targetLanguageName}**.
+
+                3. <Format as HTML>
+                Present the translated content using **strict HTML tags only**. Markdown is prohibited.
+                Use these HTML elements appropriately:
+                - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
+                - Lists: `<ul>`, `<ol>`, with `<li>`
+                - Emphasis: `<strong>` for bold, `<em>` for italic
+                - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
+                - Separators: `<hr />` for distinct section breaks
+                - Code/Technical blocks: `<pre>`, `<code>`
+
+                4. <Preserve Original Data>
+                Keep all numbers, dates, and codes (except technical standards) exactly as in the source or transliterate them suitably for {targetLanguageName}.
+
+                5. <Non-Translation Rules>
+                **Do not translate** the following; preserve exactly as in source:
+                - Technical identifiers
+                - Standards (e.g., ISO, EN, ДСТУ, ГОСТ)
+                - Specific codes (e.g., ДФРПОУ, НААУ)
+                - Reference numbers or part numbers
+
+                6. <Proper Nouns>
+                Transliterate proper nouns per standard {targetLanguageName} rules unless a widely accepted translation exists.
+
+                7. <Contextual Structure>
+                Use context to infer and apply correct document structure in HTML: titles, sections, lists, paragraphs, etc.
+                </actions>
+
+                <output_requirements>
+                - Output **only** the translated text in {targetLanguageName}
+            - Format the entire output strictly in HTML as described
+                - Do **not** include any explanations, remarks, or original untranslated text
+                - Do **not** add any introductory or concluding statements
+                </output_requirements>
+
+                ";
+        }
+
+
+        private static string GenerateSinglePageCombinationPromptForGemini(string targetLanguageName, string sectionsContent)
+        {
+            return $@"
+                Combine these overlapping text sections from a single document page into one seamless text in {targetLanguageName}. The sections have overlapping content - merge them by removing duplicates while preserving all unique information.
+
+                {sectionsContent}
+
+            Rules:
+                - Combine overlapping content smoothly
+                - Keep all unique information
+                - Maintain HTML formatting
+                - Output only the combined text
+                - Do not add explanatory comments
+
+                Combined result:
+                ";
+        }
+
 
         private static string GenerateDocumentCombinationPromptForGemini(string targetLanguageName, string chunkContent)
         {
@@ -1542,27 +1551,28 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             try
             {
                 var result = new StringBuilder();
-                
+
                 for (int i = 0; i < validPages.Count; i++)
                 {
-                    if (i > 0)
+                    var trimmedPage = validPages[i].Trim();
+                    if (!string.IsNullOrEmpty(trimmedPage))
                     {
-                        result.AppendLine();
-                        result.AppendLine($"<hr class=\"page-break\" data-page=\"{i + 1}\" />");
-                        result.AppendLine();
+                        if (i > 0)
+                        {
+                            result.AppendLine($"<hr class=\"page-break\" data-page=\"{i + 1}\" />");
+                        }
+                        result.Append(trimmedPage); // No extra AppendLine()
                     }
-                    
-                    result.AppendLine(validPages[i]);
                 }
 
-                var finalResult = result.ToString();
+                var finalResult = result.ToString().Trim();
                 _logger.LogInformation("Intelligent page concatenation complete, final length: {Length} chars", finalResult.Length);
                 return finalResult;
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in intelligent page concatenation, using simple concatenation");
-                return string.Join("\n\n<hr class=\"page-break\" />\n\n", validPages);
+                return string.Join("\n<hr class=\"page-break\" />", validPages.Select(p => p.Trim()));
             }
         }
 
@@ -1570,35 +1580,29 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             try
             {
-                _logger.LogWarning("Using emergency fallback combination - simply concatenating all non-empty sections");
-                
+                _logger.LogWarning("Using emergency fallback combination - concatenating non-empty sections");
+
                 var allContent = new StringBuilder();
                 int pageNum = 1;
-                
+
                 foreach (var pageSections in translatedPageSections)
                 {
-                    var validSections = pageSections?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
-                    
+                    var validSections = pageSections?.Where(s => !string.IsNullOrWhiteSpace(s)).Select(s => s.Trim()).ToList() ?? new List<string>();
+
                     if (validSections.Any())
                     {
                         if (allContent.Length > 0)
                         {
-                            allContent.AppendLine();
-                            allContent.AppendLine($"<!-- PAGE {pageNum} -->");
-                            allContent.AppendLine();
+                            allContent.AppendLine($"<hr class=\"page-break\" data-page=\"{pageNum}\" />");
                         }
-                        
-                        foreach (var section in validSections)
-                        {
-                            allContent.AppendLine(section);
-                            allContent.AppendLine();
-                        }
+
+                        allContent.Append(string.Join("\n", validSections));
                     }
-                    
+
                     pageNum++;
                 }
 
-                var result = allContent.ToString();
+                var result = allContent.ToString().Trim();
                 _logger.LogInformation("Emergency fallback combination complete, length: {Length} chars", result.Length);
                 return result;
             }
