@@ -1094,6 +1094,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Important rules:
                 - Translate ALL text content including headers, labels, contact information, and descriptions
                 - Keep technical codes, standards (ISO, EN, etc.), and reference numbers unchanged
+                - **NEVER translate email addresses** - keep them exactly as they appear
                 - Preserve the document structure using appropriate HTML tags
                 - Use <br> tags for line breaks, not \\n
                 - Do not add explanatory text or comments
@@ -1136,7 +1137,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Present the translated content using **strict HTML tags only**. Markdown is prohibited.
                 Use these HTML elements appropriately:
                 - Headings: `<h1>`, `<h2>`, `<h3>`, etc.
-                - Lists: `<ul>`, `<ol>`, with `<li>`
+                - Lists: `<ul>`, `<ol>`, with `<li>` - **Use bullet lists (unordered lists) when content naturally fits list format**
                 - Emphasis: `<strong>` for bold, `<em>` for italic
                 - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
                 - Separators: `<hr />` for distinct section breaks
@@ -1151,6 +1152,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - Standards (e.g., ISO, EN, ДСТУ, ГОСТ)
                 - Specific codes (e.g., ДФРПОУ, НААУ)
                 - Reference numbers or part numbers
+                - **EMAIL ADDRESSES** - Never translate email addresses, keep them exactly as they appear
 
                 6. <Proper Nouns>
                 Transliterate proper nouns per standard {targetLanguageName} rules unless a widely accepted translation exists.
@@ -1283,6 +1285,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         - Mathematical formulas and equations
                         - Chemical formulas and scientific notation
                         - URLs, email addresses, and web links
+                        - **EMAIL ADDRESSES** - NEVER translate email addresses, keep them exactly as they appear
                         - Timestamps and date formats that follow specific standards
                         - Currency symbols and monetary amounts (preserve original format)
                         - Measurement units and their abbreviations
@@ -1293,7 +1296,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 <contact_information_rules>
                     For contact information and business details:
                     - Company names and brand names: Keep in original language
-                    - Email addresses and URLs: Keep exactly as shown
+                    - Email addresses and URLs: Keep exactly as shown - NEVER TRANSLATE EMAIL ADDRESSES
                     - Phone/fax numbers: Keep numbers as shown
                     - Street addresses: Translate descriptive parts (Street, Avenue, Building, etc.) but keep proper nouns
                     - Contact labels: MUST translate labels like ""Phone"", ""Fax"", ""Email"", ""Website"", ""Address"" into {language.Name}
@@ -1334,7 +1337,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         Available HTML elements:
                         - Headings: <h1>, <h2>, <h3>, <h4>, <h5>, <h6>
                         - Paragraphs: <p>
-                        - Lists: <ul> (unordered), <ol> (ordered) with <li> items
+                        - Lists: <ul> (unordered), <ol> (ordered) with <li> items - **Use bullet lists when content naturally fits list format**
                         - Tables: <table>, <thead>, <tbody>, <tr>, <th>, <td>
                         - Code/preformatted: <pre>, <code>
                         - Line breaks: <br />
@@ -1429,7 +1432,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         3. <Natural Phrasing> Fix awkward or unnatural expressions to flow smoothly and idiomatically in {targetLanguage}.
                         4. <Formatting Integrity> Preserve and correct any formatting or structural inconsistencies.
                         5. <Technical Accuracy> Verify and correct technical term translations using standard {targetLanguage} equivalents.
-                        6. <Preservation of Identifiers> CRITICAL: Preserve all technical identifiers, standards (e.g., ISO, EN), codes, and reference numbers exactly as they appear; do NOT translate these.
+                        6. <Preservation of Identifiers> CRITICAL: Preserve all technical identifiers, standards (e.g., ISO, EN), codes, reference numbers, and **EMAIL ADDRESSES** exactly as they appear; do NOT translate these.
                     </objective>
 
                     <instructions>
@@ -1478,7 +1481,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     The final document should read smoothly and logically from start to finish.
 
                     5. <Maintain HTML Formatting>
-                    Preserve and consistently apply all HTML formatting present in the chunks (headings <h1>–<h6>, lists <ul>, <ol>, tables <table>, emphasis <strong>, <em>, etc.).
+                    Preserve and consistently apply all HTML formatting present in the chunks (headings <h1>–<h6>, lists <ul>, <ol> - use bullet lists when appropriate, tables <table>, emphasis <strong>, <em>, etc.).
 
                     6. <Content Fidelity>
                     Do NOT add any new content or information beyond what exists in the provided sections.

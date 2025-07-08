@@ -307,6 +307,7 @@ public class ImageProcessor(
                         - Specific codes (e.g., ДФРПОУ, НААУ)
                         - Reference numbers or part numbers
                         - URLs and email addresses
+                        - **EMAIL ADDRESSES** - NEVER translate email addresses, keep them exactly as they appear
 
                     6. <Proper Nouns>
                         Transliterate proper nouns (people, organizations, places) per standard {targetLanguage} rules unless a widely accepted translation exists.
@@ -363,6 +364,7 @@ public class ImageProcessor(
                         - Specific codes (e.g., EAN codes, НААУ, ДФРПОУ)
                         - Reference numbers
                         - URLs and email addresses
+                        - **EMAIL ADDRESSES** - NEVER translate email addresses, preserve them exactly
 
                     5. <OCR Artifact Handling>
                         - Detect and correct **common OCR errors** (e.g., garbled characters, misreads).

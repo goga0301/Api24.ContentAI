@@ -211,6 +211,8 @@ namespace Api24ContentAI
                 new DocumentTranslationService(
                     sp.GetRequiredService<ILanguageService>(),
                     sp.GetRequiredService<IFileProcessorFactory>(),
+                    sp.GetRequiredService<IUserRepository>(),
+                    sp.GetRequiredService<IUserRequestLogService>(),
                     sp.GetRequiredService<ILogger<DocumentTranslationService>>()
                 )
             );

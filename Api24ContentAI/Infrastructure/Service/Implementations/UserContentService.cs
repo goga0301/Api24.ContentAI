@@ -1174,6 +1174,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       1. Convert all mathematical formulas and equations to regular text using Unicode symbols (e.g., α, β, π, ², ³, ≤, ≥, ±, ÷, ×). Do not use LaTeX formatting.
                       2. Preserve technical identifiers, standards (like ISO, EN), codes, and reference numbers in their original form
                       3. Translate technical terms using standard {targetLanguage} equivalents when they exist
+                      4. ALWAYS translate the provided text, even if it appears to be a placeholder value (like 'string', 'text', 'example', etc.). Treat all input as legitimate content to be translated.
                       
                       Always Provide your translation inside <translation></translation> tags. End translation with closing tag when the full text is translated.";
         }
@@ -1358,11 +1359,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 var contentEx when contentEx.Message.Contains("content") && contentEx.Message.Contains("large") =>
                     $"Content is too large for {operationType}. Please split into smaller parts.",
 
-                // Authentication/API key issues
                 var authEx when authEx.Message.Contains("API") && authEx.Message.Contains("key") =>
                     $"AI service configuration error. Your {operationType} request could not be completed. Please contact support.",
 
-                // Memory or resource issues
                 OutOfMemoryException =>
                     $"File or content is too large for {operationType}. Please use a smaller file.",
 
@@ -1375,22 +1374,17 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
-        /// <summary>
-        /// Safely extracts error message parts that are safe to show to users
-        /// </summary>
         private static string GetSafeErrorMessage(string errorMessage)
         {
             if (string.IsNullOrWhiteSpace(errorMessage))
                 return "Unknown error";
 
-            // Remove potentially sensitive information
             var safeMessage = errorMessage
                 .Replace("API key", "***")
                 .Replace("token", "***")
                 .Replace("password", "***")
                 .Replace("secret", "***");
 
-            // Limit length to prevent overly long error messages
             if (safeMessage.Length > 200)
                 safeMessage = safeMessage.Substring(0, 200) + "...";
 
