@@ -333,12 +333,13 @@ public class TextProcessor(IAIService aiService, ILanguageService languageServic
 
                 1. **Accurate Translation**: Translate the meaning of the original text faithfully and completely.
                 2. **Natural Language**: Use natural, fluent {targetLanguage} that reads smoothly and naturally.
-                3. **Preserve Structure**: Maintain the original text structure, including paragraphs, line breaks, and formatting.
+                3. **Preserve Structure**: Maintain the original text structure, including paragraphs, line breaks, formatting, and use bullet lists when content naturally fits list format.
                 4. **Tone and Style**: Preserve the original tone, style, and register of the text (formal, informal, technical, etc.).
                 5. **Context Awareness**: Consider the context and ensure translations make sense within the broader narrative.
                 6. **Proper Nouns**: Generally keep proper names (people, places, brands) unchanged unless they have standard translations in {targetLanguage}.
                 7. **Technical Terms**: Translate technical terms appropriately, using standard terminology in {targetLanguage}.
-                8. **Completeness**: Ensure no content is omitted or added beyond what's necessary for natural translation.
+                8. **Email Addresses**: NEVER translate email addresses - keep them exactly as they appear in the original text.
+                9. **Completeness**: Ensure no content is omitted or added beyond what's necessary for natural translation.
 
                 **Output Format:**
                 - Return ONLY the translated text.

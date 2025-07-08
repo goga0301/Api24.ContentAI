@@ -370,7 +370,8 @@ public class SrtProcessor(IAIService aiService, ILanguageService languageService
                     5.  **Tone and Emphasis**: Preserve the original emphasis, emotion, and tone of the dialogue/narration wherever possible within the constraints of subtitling.
                     6.  **Line Breaks**: If individual subtitle entries contain internal line breaks, preserve them in the translated version.
                     7.  **Proper Nouns**: Generally, DO NOT translate proper names (people, specific places, brands) unless they have a widely recognized and standard translation in {targetLanguage}. If not, transliterate them appropriately.
-                    8.  **Character Limits (Implied)**: While not explicitly given, translate with an awareness that subtitles have limited screen time. Avoid overly long translations for short lines.
+                    8.  **Email Addresses**: NEVER translate email addresses - keep them exactly as they appear in the original text.
+                    9.  **Character Limits (Implied)**: While not explicitly given, translate with an awareness that subtitles have limited screen time. Avoid overly long translations for short lines.
 
                     **Output Format:**
                     -   Return ONLY the translated subtitle text entries.

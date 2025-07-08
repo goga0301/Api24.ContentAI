@@ -912,13 +912,13 @@ public class WordProcessor(
                 * Table content if present
                 * Any captions or annotations
                 2.  **Translate**: Translate the entire extracted text into **{targetLanguageName}**.
-                3.  **Format as Markdown**: Present the translated content in well-structured Markdown:
-                * Headings: Use `#` syntax (e.g., `# Main Heading`, `## Subheading`).
-                * Lists: Use `-` or `*` for bullet points, or numbered lists (e.g., `1. Item`).
-                * Emphasis: Use `**bold**` for strong emphasis and `*italic*` for regular emphasis.
-                * Tables: If tabular data is present, format it using Markdown table syntax.
-                * Separators: Use horizontal rules (`---`) to logically separate distinct content sections where appropriate.
-                * Code/Technical Blocks: Format code snippets or highly structured technical content using triple backticks (```).
+                3.  **Format as HTML**: Present the translated content using **strict HTML tags only**. Markdown is prohibited.
+                * Headings: Use `<h1>`, `<h2>`, `<h3>`, etc. (e.g., `<h1>Main Heading</h1>`, `<h2>Subheading</h2>`).
+                * Lists: Use `<ul>`, `<ol>`, with `<li>` - **Use bullet lists when content naturally fits list format**.
+                * Emphasis: Use `<strong>` for bold and `<em>` for italic.
+                * Tables: Use `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`.
+                * Separators: Use `<hr />` to logically separate distinct content sections where appropriate.
+                * Code/Technical Blocks: Use `<pre>`, `<code>` for code snippets or highly structured technical content.
                 4.  **Preserve Original Data**:
                 * Keep all numbers, dates, and specific codes exactly as they appear in the original, or transliterate them appropriately if they are part of a sentence structure that requires it in {targetLanguageName}.
                 * Maintain any special formatting cues visible in the Word document (indentation, spacing).
@@ -928,6 +928,7 @@ public class WordProcessor(
                 * Standards (e.g., ISO, EN, ÃÃÃÃÃ, ÃÃÃÃÃ).
                 * Specific codes (e.g., ÃÃÂ¤Ã ÃÃÃÂ£, ÃÃÃÃÂ£).
                 * Reference numbers.
+                * **EMAIL ADDRESSES** - Never translate email addresses, keep them exactly as they appear.
                 * These items must be preserved in their original form.
                 6.  **Proper Nouns**: Transliterate proper nouns (names of people, organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist.
                 7.  **Word Document Structure**: Pay special attention to Word-specific elements:
@@ -956,7 +957,7 @@ public class WordProcessor(
                 2. Ensure technical terms are handled correctly
                 3. Verify that formatting and structure are preserved
                 4. Improve clarity and readability while maintaining meaning
-                5. Keep all codes, standards, and reference numbers unchanged
+                5. Keep all codes, standards, reference numbers, and email addresses unchanged
                 6. Maintain professional document tone
 
                 **Translation to review**:
@@ -965,7 +966,7 @@ public class WordProcessor(
 
                 **CRITICAL OUTPUT REQUIREMENTS:**
                 - Provide ONLY the improved translation in {targetLanguage}
-                - Format ONLY in Markdown
+                - Format ONLY in HTML using strict HTML tags
                 - Do NOT include explanations, comments, or reasoning
                 - Do NOT include phrases like "Improved translation:", "Here is:", etc.
                 - Start your response directly with the improved translated content
@@ -985,7 +986,7 @@ public class WordProcessor(
                 2. Ensure technical terms are handled correctly
                 3. Verify that formatting and structure are preserved
                 4. Improve clarity and readability while maintaining meaning
-                5. Keep all codes, standards, and reference numbers unchanged
+                5. Keep all codes, standards, reference numbers, and email addresses unchanged
                 6. Maintain professional document tone
 
                 **Translation to review**:
@@ -994,7 +995,7 @@ public class WordProcessor(
 
                 **CRITICAL OUTPUT REQUIREMENTS:**
                 - Provide ONLY the improved translation in {targetLanguage}
-                - Format ONLY in Markdown
+                - Format ONLY in HTML using strict HTML tags
                 - Do NOT include any explanations, comments, or reasoning
                 - Do NOT include phrases like "Improved translation:", "Here is:", etc.
                 - Start your response directly with the improved translated content
@@ -1032,9 +1033,9 @@ public class WordProcessor(
                 - Maintain paragraph spacing and document flow
 
                 **FORMATTING REQUIREMENTS**:
-                - Output in clean, professional Markdown
-                - Use proper heading syntax (# ## ###)
-                - Maintain consistent list formatting
+                - Output in clean, professional HTML
+                - Use proper heading syntax (<h1>, <h2>, <h3>)
+                - Maintain consistent list formatting - use bullet lists when content naturally fits list format
                 - Preserve table structures
                 - Keep emphasis and formatting intact
 
@@ -1043,7 +1044,7 @@ public class WordProcessor(
 
                 **CRITICAL OUTPUT REQUIREMENTS:**
                 - Provide ONLY the assembled document in {targetLanguageName}
-                - Format ONLY in Markdown
+                - Format ONLY in HTML using strict HTML tags
                 - MAINTAIN the page and section order as labeled
                 - Remove ALL page/section labels ("PAGE X - SECTION Y")
                 - **ELIMINATE ALL DUPLICATE CONTENT** - each sentence should appear only once unless it is explicitly mentioned in the context of the document
@@ -1097,7 +1098,7 @@ public class WordProcessor(
 
                 **CRITICAL OUTPUT REQUIREMENTS:**
                 - Provide ONLY the final, polished document in {targetLanguageName}
-                - Format ONLY in clean, publication-ready Markdown
+                - Format ONLY in clean, publication-ready HTML using strict HTML tags
                 - Ensure the document reads as a single, cohesive piece
                 - **GUARANTEE NO DUPLICATE CONTENT** - every sentence must be unique
                 - Do NOT include explanations, comments, or editing notes
@@ -1115,9 +1116,9 @@ public class WordProcessor(
 
                 **Rules:**
                 1. Address feedback points
-                2. Keep technical terms unchanged
+                2. Keep technical terms and email addresses unchanged
                 3. Maintain structure
-                4. Format as Markdown
+                4. Format as HTML using strict HTML tags
 
                 **Output:**
                 - ONLY the improved text in {targetLanguage}
