@@ -19,6 +19,7 @@ using System.IdentityModel.Tokens.Jwt;
 using Microsoft.AspNetCore.Identity;
 using Api24ContentAI.Infrastructure.Repository.DbContexts;
 using Api24ContentAI.Domain.Models;
+using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Infrastructure.Middleware;
 using Microsoft.Extensions.Hosting;
