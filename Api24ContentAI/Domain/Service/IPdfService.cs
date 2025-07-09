@@ -8,7 +8,7 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<byte[]> ConvertMarkdownToPdf(IFormFile markdownFile, CancellationToken cancellationToken);
         Task<byte[]> ConvertPdfToWord(IFormFile pdfFile, CancellationToken cancellationToken);
-
+        Task<byte[]> ConvertWordToPdf(IFormFile wordFile, CancellationToken cancellationToken);
     }
 }
 
