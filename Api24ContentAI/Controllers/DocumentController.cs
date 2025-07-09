@@ -628,6 +628,38 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpPost("convert/word-to-pdf")]
+        public async Task<IActionResult> ConvertWordToPdf([FromForm] DocumentConvertRequest convertRequest, CancellationToken cancellation)
+        {
+            try
+            {
+                if (convertRequest.File == null || convertRequest.File.Length == 0)
+                {
+                    return BadRequest("No file uploaded");
+                }
+
+                if (!convertRequest.File.FileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+                {
+                    return BadRequest("Only Word files are supported for this endpoint");
+                }   
+
+                var pdfBytes = await _pdfService.ConvertWordToPdf(convertRequest.File, cancellation);
+                var fileName = Path.GetFileNameWithoutExtension(convertRequest.File.FileName) + ".pdf";
+
+                return File(
+                        fileContents: pdfBytes,
+                        contentType: "application/pdf",
+                        fileDownloadName: fileName
+                        );
+            }
+            catch (Exception e)
+            {   
+                _logger.LogError(e, "Error converting word to pdf");
+                throw;
+            }
+        }
+
+
         [HttpPost("apply-suggestion")]
         public async Task<IActionResult> ApplySuggestion([FromBody] ApplySuggestionRequest request, CancellationToken cancellationToken)
         {
