@@ -372,11 +372,11 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     </avoid>
                 </guidelines>
 
-                    <instructions>
-                    Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers.
+                <instructions>
+                Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers.
 
-                    Return only the JSON array with exactly 4 suggestions - no additional text or explanations outside the JSON structure.
-                    </instructions>";
+                Return only the JSON array with exactly 4 suggestions - no additional text or explanations outside the JSON structure.
+                </instructions>";
         }
 
         private static string GenerateApplySuggestionPrompt(string translatedContent, TranslationSuggestion suggestion, string targetLanguage)
@@ -408,7 +408,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 </improvement_suggestion>
 
                 <critical_instruction>
-                    You must use the ""Suggested Replacement"" text EXACTLY as provided, without any modifications, corrections, or improvements. Do not attempt to fix grammar, spelling, or stylistic issues in the replacement text - use it character-for-character as specified.
+                    -You must use the ""Suggested Replacement"" text EXACTLY as provided, without any modifications, corrections, or improvements.
+                    - Do not attempt to fix grammar, spelling, or stylistic issues in the replacement text - use it character-for-character as specified.
+                    - Do not add or remove any formatting or special characters.
+                    - Maintain the exact formatting of the original text.
                 </critical_instruction>
 
                 <editing_task>
@@ -426,19 +429,24 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             - Use the replacement text character-for-character as specified
                             - Adjust surrounding grammar/syntax if needed for smooth integration
                             - Ensure verb tenses, articles, and agreement patterns remain consistent
+                            - **NEVER alter any formatting elements - keep all markdown, spacing, and structure identical**
                         </exact_match_found>
 
                         <exact_match_not_found>
                             - Identify the most semantically similar text segment
                             - Apply the improvement concept to that section
                             - Maintain the same type of enhancement (grammar, style, terminology, etc.)
+                            - **Preserve all formatting of the text being modified - do not change any markdown, spacing, or structure**
                         </exact_match_not_found>
 
                         <formatting_preservation>
-                            - Markdown: Preserve all markdown formatting (headers, lists, links, emphasis)
-                            - Punctuation: Maintain consistent punctuation patterns
-                            - Spacing: Keep original paragraph breaks and line spacing
-                            - Special Characters: Preserve any special characters, symbols, or formatting codes
+                            **CRITICAL: MAINTAIN EXACT FORMATTING**
+                            - Keep ALL formatting exactly as provided in the original text
+                            - Do NOT change, modify, or alter any formatting elements whatsoever
+                            - Only change the specific words that need replacement according to the suggestion
+                            - Everything else must stay identical: markdown syntax, line breaks, spacing, punctuation, symbols, structure
+                            - Do NOT remove any formatting, add any formatting, or convert markdown to plain text
+                            - Copy the entire text structure exactly, only replacing the target words
                         </formatting_preservation>
 
                         <quality_assurance>
@@ -468,7 +476,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         - Natural, fluent {targetLanguage} that sounds native
                         - Grammatically correct and stylistically appropriate
                         - Meaningful improvement over the original version
-                        - Consistent formatting and structure
+                        - **Identical formatting and structure to the original (NO formatting changes)**
                         - Preserved semantic accuracy
                     </success_criteria>
 
@@ -476,7 +484,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         - Introducing new grammatical errors
                         - Changing the original meaning or intent
                         - Removing or altering unrelated content
-                        - Breaking markdown or other formatting
+                        - **Breaking, removing, or modifying ANY formatting elements**
+                        - **Converting formatted text to plain text**
                         - Making the text sound less natural
                     </avoid>
                 </quality_standards>
@@ -497,6 +506,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     Type = SuggestionType.StyleImprovement,
                     Priority = 2
                 }
+
             };
         }
 

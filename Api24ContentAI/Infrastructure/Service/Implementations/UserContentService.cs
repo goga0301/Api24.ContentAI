@@ -1174,7 +1174,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                       1. Convert all mathematical formulas and equations to regular text using Unicode symbols (e.g., α, β, π, ², ³, ≤, ≥, ±, ÷, ×). Do not use LaTeX formatting.
                       2. Preserve technical identifiers, standards (like ISO, EN), codes, and reference numbers in their original form
                       3. Translate technical terms using standard {targetLanguage} equivalents when they exist
-                      4. ALWAYS translate the provided text, even if it appears to be a placeholder value (like 'string', 'text', 'example', etc.). Treat all input as legitimate content to be translated.
+                      4. **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguage} script/alphabet while preserving the original pronunciation.
+                         Examples: ""John Smith"" → transliterate to {targetLanguage} script, ""María González"" → transliterate to {targetLanguage} script
+                      5. ALWAYS translate the provided text, even if it appears to be a placeholder value (like 'string', 'text', 'example', etc.). Treat all input as legitimate content to be translated.
                       
                       Always Provide your translation inside <translation></translation> tags. End translation with closing tag when the full text is translated.";
         }

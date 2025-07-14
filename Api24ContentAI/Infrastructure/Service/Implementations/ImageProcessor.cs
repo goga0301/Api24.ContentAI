@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -309,8 +308,10 @@ public class ImageProcessor(
                         - URLs and email addresses
                         - **EMAIL ADDRESSES** - NEVER translate email addresses, keep them exactly as they appear
 
-                    6. <Proper Nouns>
-                        Transliterate proper nouns (people, organizations, places) per standard {targetLanguage} rules unless a widely accepted translation exists.
+                    6. <Proper Nouns and Human Names>
+                        **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguage} script/alphabet while preserving the original pronunciation.
+                        Examples: ""John Smith"" → transliterate to {targetLanguage} script, ""María González"" → transliterate to {targetLanguage} script
+                        Transliterate other proper nouns (organizations, places) per standard {targetLanguage} rules unless a widely accepted translation exists.
 
                     7. <Contextual Structure>
                         Use context to infer and apply correct document structure in HTML: titles, sections, lists, paragraphs, tables, etc.
@@ -376,8 +377,10 @@ public class ImageProcessor(
                         - Line spacing (use appropriate HTML formatting)
                         - Sequence of sections
 
-                    7. <Proper Nouns>
-                        Transliterate proper names (people, organizations, places) per {targetLanguage} norms, unless an accepted translation exists.
+                    7. <Proper Nouns and Human Names>
+                        **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguage} script/alphabet while preserving the original pronunciation.
+                        Examples: ""John Smith"" → transliterate to {targetLanguage} script, ""María González"" → transliterate to {targetLanguage} script
+                        Transliterate other proper names (organizations, places) per {targetLanguage} norms, unless an accepted translation exists.
 
                     8. <Technical Terminology>
                         Use **standard technical terms** in {targetLanguage} relevant to the document's subject matter.

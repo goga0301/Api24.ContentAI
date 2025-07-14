@@ -11,6 +11,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Linq;
+using System.Net.Http.Json;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -46,7 +47,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
                 
-                var url = $"v1beta/models/gemini-2.0-flash-exp:generateContent?key={_apiKey}";
+                var url = $"v1beta/models/gemini-2.5-flash:generateContent?key={_apiKey}";
                 var response = await _httpClient.PostAsync(url, httpContent, cancellationToken);
 
                 var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -76,11 +77,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 
                 _logger.LogDebug("Sending request to Gemini API with {Count} parts", parts.Count);
                 
-                bool hasImages = parts.Any(p => p.InlineData != null);
-                int totalImageDataSize = parts.Where(p => p.InlineData != null)
+                // Check for unsupported file types and convert them using screenshot service
+                var processedParts = await ProcessPartsWithScreenshotService(parts, cancellationToken);
+                
+                bool hasImages = processedParts.Any(p => p.InlineData != null);
+                int totalImageDataSize = processedParts.Where(p => p.InlineData != null)
                                              .Sum(p => p.InlineData.Data?.Length ?? 0);
                 
-                var request = new GeminiRequest(parts);
+                var request = new GeminiRequest(processedParts);
                 
                 var jsonOptions = new JsonSerializerOptions
                 {
@@ -105,7 +109,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             jsonContent.Length, hasImages, totalImageDataSize, timeout.TotalSeconds);
                     }
 
-                    var url = $"v1beta/models/gemini-2.0-flash-exp:generateContent?key={_apiKey}";
+                    var url = $"v1beta/models/gemini-2.5-flash:generateContent?key={_apiKey}";
                     var response = await _httpClient.PostAsync(url, httpContent, linkedCts.Token);
 
                     var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -158,6 +162,155 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
+        private async Task<List<GeminiPart>> ProcessPartsWithScreenshotService(List<GeminiPart> parts, CancellationToken cancellationToken)
+        {
+            var processedParts = new List<GeminiPart>();
+            
+            foreach (var part in parts)
+            {
+                if (part.InlineData != null && IsUnsupportedFileType(part.InlineData.MimeType))
+                {
+                    _logger.LogInformation("Converting unsupported file type {MimeType} using screenshot service", part.InlineData.MimeType);
+                    
+                    try
+                    {
+                        var screenshotParts = await ConvertFileToScreenshots(part.InlineData, cancellationToken);
+                        processedParts.AddRange(screenshotParts);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to convert file using screenshot service for MIME type: {MimeType}", part.InlineData.MimeType);
+                        processedParts.Add(part);
+                    }
+                }
+                else
+                {
+                    processedParts.Add(part);
+                }
+            }
+            
+            return processedParts;
+        }
+
+        private static bool IsUnsupportedFileType(string mimeType)
+        {
+            var unsupportedTypes = new[]
+            {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+                "application/msword", // .doc
+                "application/vnd.ms-word" // .doc
+            };
+            
+            return unsupportedTypes.Contains(mimeType);
+        }
+
+        private async Task<List<GeminiPart>> ConvertFileToScreenshots(GeminiInlineData fileData, CancellationToken cancellationToken)
+        {
+            var results = new List<GeminiPart>();
+            
+            try
+            {
+                var fileBytes = Convert.FromBase64String(fileData.Data);
+                var tempFileName = GetTempFileName(fileData.MimeType);
+                
+                await System.IO.File.WriteAllBytesAsync(tempFileName, fileBytes, cancellationToken);
+                
+                try
+                {
+                    var screenshotResult = await CallScreenshotService(tempFileName, fileData.MimeType, cancellationToken);
+                    
+                    foreach (var page in screenshotResult.Pages)
+                    {
+                        if (!string.IsNullOrWhiteSpace(page.Text))
+                        {
+                            results.Add(new GeminiPart { Text = $"Extracted text from page {page.Page}: {page.Text}" });
+                        }
+                        
+                        foreach (var screenshot in page.ScreenShots)
+                        {
+                            if (!string.IsNullOrWhiteSpace(screenshot))
+                            {
+                                results.Add(new GeminiPart
+                                {
+                                    InlineData = new GeminiInlineData
+                                    {
+                                        MimeType = "image/png",
+                                        Data = screenshot
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    if (System.IO.File.Exists(tempFileName))
+                    {
+                        System.IO.File.Delete(tempFileName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error converting file to screenshots");
+                throw;
+            }
+            
+            return results;
+        }
+
+        private async Task<ScreenShotResult> CallScreenshotService(string filePath, string mimeType, CancellationToken cancellationToken)
+        {
+            using var httpClient = new HttpClient();
+            httpClient.Timeout = TimeSpan.FromMinutes(5);
+            
+            using var content = new MultipartFormDataContent();
+            using var fileStream = System.IO.File.OpenRead(filePath);
+            using var streamContent = new StreamContent(fileStream);
+            
+            streamContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
+            content.Add(streamContent, "file", System.IO.Path.GetFileName(filePath));
+            
+            var endpoint = GetScreenshotEndpoint(mimeType);
+            
+            _logger.LogInformation("Sending file to screenshot service endpoint: {Endpoint}", endpoint);
+            
+            var response = await httpClient.PostAsync($"http://127.0.0.1:8000/{endpoint}", content, cancellationToken);
+            response.EnsureSuccessStatusCode();
+            
+            var result = await response.Content.ReadFromJsonAsync<ScreenShotResult>(cancellationToken: cancellationToken);
+            if (result == null)
+                throw new InvalidOperationException("Screenshot service returned null");
+                
+            return result;
+        }
+
+        private static string GetScreenshotEndpoint(string mimeType)
+        {
+            return mimeType switch
+            {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => "process-word",
+                "application/msword" => "process-word",
+                "application/vnd.ms-word" => "process-word",
+                "application/pdf" => "screenshot",
+                _ => "screenshot" // Default to general screenshot endpoint
+            };
+        }
+
+        private static string GetTempFileName(string mimeType)
+        {
+            var extension = mimeType switch
+            {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document" => ".docx",
+                "application/msword" => ".doc",
+                "application/vnd.ms-word" => ".doc",
+                "application/pdf" => ".pdf",
+                _ => ".tmp"
+            };
+            
+            return System.IO.Path.GetTempPath() + Guid.NewGuid().ToString() + extension;
+        }
+
         private static TimeSpan DetermineGeminiTimeout(int requestSize, bool hasImages, int totalImageDataSize)
         {
             TimeSpan baseTimeout = requestSize switch
@@ -183,7 +336,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 baseTimeout = baseTimeout.Add(imageProcessingTime);
             }
 
-            // Ensure minimum timeout for any request
             var minimumTimeout = TimeSpan.FromMinutes(2);
             return baseTimeout < minimumTimeout ? minimumTimeout : baseTimeout;
         }
