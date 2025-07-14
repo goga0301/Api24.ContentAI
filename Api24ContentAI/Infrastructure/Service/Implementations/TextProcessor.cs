@@ -336,7 +336,10 @@ public class TextProcessor(IAIService aiService, ILanguageService languageServic
                 3. **Preserve Structure**: Maintain the original text structure, including paragraphs, line breaks, formatting, and use bullet lists when content naturally fits list format.
                 4. **Tone and Style**: Preserve the original tone, style, and register of the text (formal, informal, technical, etc.).
                 5. **Context Awareness**: Consider the context and ensure translations make sense within the broader narrative.
-                6. **Proper Nouns**: Generally keep proper names (people, places, brands) unchanged unless they have standard translations in {targetLanguage}.
+                6. **Proper Nouns and Human Names**: 
+                **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguage} script/alphabet while preserving the original pronunciation.
+                Examples: "John Smith" → transliterate to {targetLanguage} script, "María González" → transliterate to {targetLanguage} script
+                Generally keep other proper names (places, brands) unchanged unless they have standard translations in {targetLanguage}.
                 7. **Technical Terms**: Translate technical terms appropriately, using standard terminology in {targetLanguage}.
                 8. **Email Addresses**: NEVER translate email addresses - keep them exactly as they appear in the original text.
                 9. **Completeness**: Ensure no content is omitted or added beyond what's necessary for natural translation.

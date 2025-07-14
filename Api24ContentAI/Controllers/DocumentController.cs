@@ -27,6 +27,7 @@ namespace Api24ContentAI.Controllers
         private readonly ITranslationJobService _translationJobService;
         private readonly IDocumentSuggestionService _documentSuggestionService;
         private readonly IDocumentTranslationChatService _chatService;
+        private readonly IUserNameExtractionService _userNameExtractionService;
 
         public DocumentController(
             IDocumentTranslationService documentTranslationService,
@@ -35,7 +36,8 @@ namespace Api24ContentAI.Controllers
             IServiceScopeFactory serviceScopeFactory,
             ITranslationJobService translationJobService,
             IDocumentSuggestionService documentSuggestionService,
-            IDocumentTranslationChatService chatService)
+            IDocumentTranslationChatService chatService,
+            IUserNameExtractionService userNameExtractionService)
         {
             _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
             _pdfService = pdfService ?? throw new ArgumentNullException(nameof(pdfService));
@@ -44,6 +46,7 @@ namespace Api24ContentAI.Controllers
             _translationJobService = translationJobService ?? throw new ArgumentNullException(nameof(translationJobService));
             _documentSuggestionService = documentSuggestionService ?? throw new ArgumentNullException(nameof(documentSuggestionService));
             _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
+            _userNameExtractionService = userNameExtractionService ?? throw new ArgumentNullException(nameof(userNameExtractionService));
         }
         
         private const long MaxFileSizeBytes = 100 * 1024 * 1024; // 100MB limit
@@ -295,7 +298,6 @@ namespace Api24ContentAI.Controllers
                     }
                     finally
                     {
-                        // Clean up temp file
                         CleanupTempFile(tempFilePath);
                     }
                 }, cancellationToken);
@@ -472,6 +474,7 @@ namespace Api24ContentAI.Controllers
                 };
                 
                 var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                var chatId = chatResponse.ChatId; // Capture chatId for use in Task.Run
                 
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
                 
@@ -522,14 +525,14 @@ namespace Api24ContentAI.Controllers
                                 result.ContentType ?? "text/plain",
                                 suggestions);
                                 
-                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
+                            await chatService.AddTranslationResult(chatId, userId, result, jobId, cancellationToken);
                                 
                             _logger.LogInformation("SRT translation job {JobId} completed successfully", jobId);
                         }
                         else
                         {
                             await jobService.FailJob(jobId, result.ErrorMessage ?? "Translation failed");
-                            await chatService.AddErrorMessage(chatResponse.ChatId, userId, result.ErrorMessage ?? "Translation failed", jobId, cancellationToken);
+                            await chatService.AddErrorMessage(chatId, userId, result.ErrorMessage ?? "Translation failed", jobId, cancellationToken);
                             _logger.LogWarning("SRT translation job {JobId} failed: {ErrorMessage}", jobId, result.ErrorMessage);
                         }
                     }
@@ -539,7 +542,7 @@ namespace Api24ContentAI.Controllers
                         var jobService = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
                         var chatService = scope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
                         await jobService.FailJob(jobId, ex.Message);
-                        await chatService.AddErrorMessage(chatResponse.ChatId, userId, $"Translation failed with error: {ex.Message}", jobId, cancellationToken);
+                        await chatService.AddErrorMessage(chatId, userId, $"Translation failed with error: {ex.Message}", jobId, cancellationToken);
                         _logger.LogError(ex, "SRT translation job {JobId} failed: {ErrorMessage}", jobId, ex.Message);
                     }
                     finally
@@ -552,7 +555,7 @@ namespace Api24ContentAI.Controllers
                 return Accepted(new
                 {
                     JobId = jobId,
-                    ChatId = chatResponse.ChatId,
+                    ChatId = chatId,
                     Message = "SRT translation started in background. Use the job ID to check status.",
                     EstimatedTimeMinutes = estimatedMinutes,
                     FileType = fileExtension,
@@ -706,6 +709,86 @@ namespace Api24ContentAI.Controllers
             {
                 _logger.LogError(ex, "Error applying suggestion");
                 return StatusCode(StatusCodes.Status500InternalServerError, $"Error applying suggestion: {ex.Message}");
+            }
+        }
+
+        [HttpPost("get-user-names")]
+        public async Task<IActionResult> GetUserNamesFromInputFile([FromForm] DocumentConvertRequest convertRequest, [FromForm] string language = "English", CancellationToken cancellation = default)
+        {
+            try
+            {
+                if (convertRequest?.File == null || convertRequest.File.Length == 0)
+                {
+                    return BadRequest(new { Success = false, Message = "No file uploaded" });
+                }
+
+                var file = convertRequest.File;
+                var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+                if (!_userNameExtractionService.IsSupportedFileType(fileExtension))
+                {
+                    return BadRequest(new 
+                    { 
+                        Success = false, 
+                        Message = $"Unsupported file type: {fileExtension}. Supported types: PDF, Word, Text, Markdown, and Images (PNG, JPG, JPEG)." 
+                    });
+                }
+
+                if (file.Length > MaxFileSizeBytes)
+                {
+                    return BadRequest(new 
+                    { 
+                        Success = false, 
+                        Message = $"File size exceeds maximum limit of {MaxFileSizeBytes / (1024 * 1024)}MB" 
+                    });
+                }
+
+                _logger.LogInformation("Starting user name extraction from {FileType} file: {FileName} ({FileSize} bytes) for {Language} language", 
+                    fileExtension, file.FileName, file.Length, language);
+
+                var result = await _userNameExtractionService.ExtractUserNamesFromFileAsync(file, language, cancellation);
+
+                if (!result.Success)
+                {
+                    _logger.LogWarning("User name extraction failed for {FileName}: {ErrorMessage}", 
+                        file.FileName, result.ErrorMessage);
+                    
+                    return BadRequest(new 
+                    { 
+                        Success = false, 
+                        Message = result.ErrorMessage,
+                        FileType = result.FileType,
+                        FileName = result.FileName
+                    });
+                }
+
+                _logger.LogInformation("Successfully extracted {UserNameCount} user names from {FileName}", 
+                    result.UserNames.Count, file.FileName);
+
+                return Ok(new
+                {
+                    Success = true,
+                    Message = $"Successfully extracted {result.UserNames.Count} user names from the file using {language} language context",
+                    UserNames = result.UserNames,
+                    FileType = result.FileType,
+                    FileName = result.FileName,
+                    Language = language,
+                    TextLength = result.ExtractedTextLength,
+                    ExtractionMethod = result.ExtractionMethod
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error extracting user names from file: {FileName}", 
+                    convertRequest?.File?.FileName ?? "unknown");
+                
+                return StatusCode(StatusCodes.Status500InternalServerError, new 
+                { 
+                    Success = false, 
+                    Message = $"Internal server error: {ex.Message}",
+                    FileType = convertRequest?.File != null ? Path.GetExtension(convertRequest.File.FileName).ToLowerInvariant() : "unknown",
+                    FileName = convertRequest?.File?.FileName ?? "unknown"
+                });
             }
         }
 

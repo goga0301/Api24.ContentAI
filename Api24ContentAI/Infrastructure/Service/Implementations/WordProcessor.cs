@@ -930,7 +930,10 @@ public class WordProcessor(
                 * Reference numbers.
                 * **EMAIL ADDRESSES** - Never translate email addresses, keep them exactly as they appear.
                 * These items must be preserved in their original form.
-                6.  **Proper Nouns**: Transliterate proper nouns (names of people, organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist.
+                6.  **Proper Nouns and Human Names**: 
+                **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguageName} script/alphabet while preserving the original pronunciation.
+                Examples: "John Smith" → transliterate to {targetLanguageName} script, "María González" → transliterate to {targetLanguageName} script
+                Transliterate other proper nouns (organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist.
                 7.  **Word Document Structure**: Pay special attention to Word-specific elements:
                 * Document titles and subtitles
                 * Section breaks and page breaks

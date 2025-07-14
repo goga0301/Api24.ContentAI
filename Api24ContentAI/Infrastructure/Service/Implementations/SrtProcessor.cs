@@ -369,7 +369,10 @@ public class SrtProcessor(IAIService aiService, ILanguageService languageService
                     4.  **Natural Language**: Use conversational and natural phrasing appropriate for {targetLanguage} spoken dialogue or narration.
                     5.  **Tone and Emphasis**: Preserve the original emphasis, emotion, and tone of the dialogue/narration wherever possible within the constraints of subtitling.
                     6.  **Line Breaks**: If individual subtitle entries contain internal line breaks, preserve them in the translated version.
-                    7.  **Proper Nouns**: Generally, DO NOT translate proper names (people, specific places, brands) unless they have a widely recognized and standard translation in {targetLanguage}. If not, transliterate them appropriately.
+                    7.  **Proper Nouns and Human Names**: 
+                    **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguage} script/alphabet while preserving the original pronunciation.
+                    Examples: "John Smith" → transliterate to {targetLanguage} script, "María González" → transliterate to {targetLanguage} script
+                    Generally, DO NOT translate other proper names (specific places, brands) unless they have a widely recognized and standard translation in {targetLanguage}. If not, transliterate them appropriately.
                     8.  **Email Addresses**: NEVER translate email addresses - keep them exactly as they appear in the original text.
                     9.  **Character Limits (Implied)**: While not explicitly given, translate with an awareness that subtitles have limited screen time. Avoid overly long translations for short lines.
 

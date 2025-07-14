@@ -1154,8 +1154,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - Reference numbers or part numbers
                 - **EMAIL ADDRESSES** - Never translate email addresses, keep them exactly as they appear
 
-                6. <Proper Nouns>
-                Transliterate proper nouns per standard {targetLanguageName} rules unless a widely accepted translation exists.
+                6. <Proper Nouns and Human Names>
+                    **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguageName} script/alphabet while preserving the original pronunciation.
+                    Examples: ""John Smith"" → transliterate to {targetLanguageName} script, ""María González"" → transliterate to {targetLanguageName} script
+                    Transliterate other proper nouns (organizations, places) per standard {targetLanguageName} rules unless a widely accepted translation exists.
 
                 7. <Contextual Structure>
                 Use context to infer and apply correct document structure in HTML: titles, sections, lists, paragraphs, etc.

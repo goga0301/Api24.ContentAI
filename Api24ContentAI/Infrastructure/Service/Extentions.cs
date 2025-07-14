@@ -29,6 +29,7 @@ namespace Api24ContentAI.Infrastructure.Service
             services.AddScoped<IJwtGenerator, JwtTokenGenerator>();
             services.AddScoped<IDocumentSuggestionService, DocumentSuggestionService>();
             services.AddScoped<IDocumentTranslationChatService, DocumentTranslationChatService>();
+            services.AddScoped<IUserNameExtractionService, UserNameExtractionService>();
 
             services.AddHttpContextAccessor();
         }
