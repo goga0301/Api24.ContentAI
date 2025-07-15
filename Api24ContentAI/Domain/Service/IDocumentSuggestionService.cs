@@ -11,7 +11,9 @@ namespace Api24ContentAI.Domain.Service
             string originalContent, 
             string translatedContent, 
             int targetLanguageId, 
-            CancellationToken cancellationToken);
+            CancellationToken cancellationToken,
+            List<TranslationSuggestion> previousSuggestions = null,
+            AIModel? model = null);
 
         Task<ApplySuggestionResponse> ApplySuggestion(
             ApplySuggestionRequest request, 

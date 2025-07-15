@@ -63,7 +63,6 @@ public class ImageProcessor(
             _logger.LogInformation("Processing image file {FileName} for OCR and translation to {LanguageName}",
                 file.FileName, targetLanguage.Name);
 
-            // Step 1: Get OCR text from microservice
             using var content = new MultipartFormDataContent();
             using var fileStream = file.OpenReadStream();
             using var streamContent = new StreamContent(fileStream);
@@ -84,7 +83,6 @@ public class ImageProcessor(
                 return new DocumentTranslationResult { Success = false, ErrorMessage = "OCR service returned empty result" };
             }
 
-            // Step 2: Send OCR text to Claude for translation
             var prompt = GenerateTranslationPrompt(ocrResult.Text, targetLanguage.Name);
 
             _logger.LogInformation("Sending OCR text to AI for translation");

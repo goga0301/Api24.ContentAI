@@ -185,10 +185,10 @@ namespace Api24ContentAI.Domain.Models
     public class GeminiGenerationConfig
     {
         [JsonPropertyName("temperature")]
-        public decimal Temperature { get; set; } = 0.5m;
+        public decimal Temperature { get; set; } = 0.3m;
 
         [JsonPropertyName("maxOutputTokens")]
-        public int MaxOutputTokens { get; set; } = 8192;
+        public int MaxOutputTokens { get; set; } = 16384;
     }
 
     public class GeminiResponse

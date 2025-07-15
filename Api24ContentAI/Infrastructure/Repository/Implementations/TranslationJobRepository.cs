@@ -37,6 +37,32 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             return entity.JobId;
         }
 
+        public async Task<string> CreateWithModel(string fileType, long fileSizeKB, int estimatedTimeMinutes, string userId, AIModel model, CancellationToken cancellationToken)
+        {
+            var jobId = Guid.NewGuid().ToString();
+            var entity = new TranslationJobEntity
+            {
+                Id = Guid.NewGuid(),
+                JobId = jobId,
+                FileType = fileType,
+                FileSizeKB = fileSizeKB,
+                EstimatedTimeMinutes = estimatedTimeMinutes,
+                Status = "Processing",
+                Progress = 0,
+                UserId = userId,
+                AIModel = (int)model,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+                ExpiresAt = DateTime.UtcNow.AddHours(2)
+            };
+            
+            await _dbContext.TranslationJobs.AddAsync(entity, cancellationToken);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            
+            _logger.LogInformation("Created translation job {JobId} for user {UserId} with model {Model}", jobId, userId, model);
+            return jobId;
+        }
+
         public async Task<TranslationJobEntity?> GetByJobId(string jobId, CancellationToken cancellationToken)
         {
             return await _dbContext.TranslationJobs
@@ -91,6 +117,49 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             }
         }
 
+        public async Task UpdateReturnedSuggestionIds(string jobId, List<string> returnedSuggestionIds, CancellationToken cancellationToken)
+        {
+            var job = await _dbContext.TranslationJobs
+                .FirstOrDefaultAsync(x => x.JobId == jobId, cancellationToken);
+                
+            if (job != null)
+            {
+                var existingIds = new List<string>();
+                if (!string.IsNullOrEmpty(job.ReturnedSuggestionIds))
+                {
+                    try
+                    {
+                        existingIds = JsonSerializer.Deserialize<List<string>>(job.ReturnedSuggestionIds) ?? new List<string>();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning("Failed to deserialize existing returned suggestion IDs for job {JobId}: {Error}", jobId, ex.Message);
+                    }
+                }
+
+                // Add new IDs to existing ones (avoid duplicates)
+                foreach (var id in returnedSuggestionIds)
+                {
+                    if (!existingIds.Contains(id))
+                    {
+                        existingIds.Add(id);
+                    }
+                }
+
+                // Serialize back to JSON
+                job.ReturnedSuggestionIds = JsonSerializer.Serialize(existingIds, new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    WriteIndented = false
+                });
+
+                job.UpdatedAt = DateTime.UtcNow;
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                
+                _logger.LogDebug("Updated returned suggestion IDs for job {JobId}. Total returned: {Count}", jobId, existingIds.Count);
+            }
+        }
+
         public async Task FailJob(string jobId, string errorMessage, CancellationToken cancellationToken)
         {
             var job = await _dbContext.TranslationJobs
@@ -99,22 +168,18 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             if (job != null)
             {
                 job.Status = "Failed";
-                job.ErrorMessage = errorMessage?.Length > 500 
-                    ? errorMessage.Substring(0, 497) + "..." 
-                    : errorMessage;
+                job.ErrorMessage = errorMessage;
                 job.UpdatedAt = DateTime.UtcNow;
-                
                 await _dbContext.SaveChangesAsync(cancellationToken);
                 
-                _logger.LogWarning("Translation job {JobId} failed: {Error}", jobId, errorMessage);
+                _logger.LogInformation("Translation job {JobId} failed: {ErrorMessage}", jobId, errorMessage);
             }
         }
 
         public async Task CleanupExpiredJobs(CancellationToken cancellationToken)
         {
-            var cutoff = DateTime.UtcNow;
             var expiredJobs = await _dbContext.TranslationJobs
-                .Where(x => x.ExpiresAt < cutoff)
+                .Where(x => x.ExpiresAt < DateTime.UtcNow)
                 .ToListAsync(cancellationToken);
 
             if (expiredJobs.Any())

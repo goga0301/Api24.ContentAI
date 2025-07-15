@@ -17,5 +17,6 @@ namespace Api24ContentAI.Domain.Models
         public string FileType { get; set; } = string.Empty;
         public long FileSizeKB { get; set; }
         public List<TranslationSuggestion> Suggestions { get; set; } = new List<TranslationSuggestion>();
+        public AIModel? UsedAIModel { get; set; }
     }
 } 

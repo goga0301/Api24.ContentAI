@@ -48,6 +48,10 @@ namespace Api24ContentAI.Domain.Entities
         
         public string? Suggestions { get; set; }
         
+        public string? ReturnedSuggestionIds { get; set; }
+        
+        public int? AIModel { get; set; }
+        
         // Index for cleanup operations - expire after 2 hours
         public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddHours(2);
     }

@@ -7,10 +7,13 @@ namespace Api24ContentAI.Domain.Service
     public interface ITranslationJobService
     {
         string CreateJob(string fileType, long fileSizeKB, int estimatedTimeMinutes);
+        Task<string> CreateJobWithModel(string fileType, long fileSizeKB, int estimatedTimeMinutes, string userId, AIModel model);
         Task UpdateProgress(string jobId, int progress);
         Task CompleteJob(string jobId, byte[] resultData, string fileName, string contentType, List<TranslationSuggestion>? suggestions = null);
         Task FailJob(string jobId, string errorMessage);
         Task<TranslationJob?> GetJob(string jobId);
         Task CleanupOldJobs();
+        Task UpdateReturnedSuggestionIds(string jobId, List<string> returnedSuggestionIds);
+        Task<List<TranslationSuggestion>> GetUnreturnedSuggestions(string jobId);
     }
 } 
