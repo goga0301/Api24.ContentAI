@@ -12,15 +12,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
     public class DocumentSuggestionService : IDocumentSuggestionService
     {
+        private readonly IAIService _aiService;
         private readonly IClaudeService _claudeService;
         private readonly ILanguageService _languageService;
         private readonly ILogger<DocumentSuggestionService> _logger;
 
         public DocumentSuggestionService(
+            IAIService aiService,
             IClaudeService claudeService,
             ILanguageService languageService,
             ILogger<DocumentSuggestionService> logger)
         {
+            _aiService = aiService;
             _claudeService = claudeService;
             _languageService = languageService;
             _logger = logger;
@@ -30,11 +33,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             string originalContent,
             string translatedContent,
             int targetLanguageId,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            List<TranslationSuggestion> previousSuggestions = null,
+            AIModel? model = null)
         {
             try
             {
-                _logger.LogInformation("Generating suggestions for translation to language ID: {LanguageId}", targetLanguageId);
+                _logger.LogInformation("Generating suggestions for translation to language ID: {LanguageId} using model: {Model}", 
+                    targetLanguageId, model?.ToString() ?? "Claude (default)");
 
                 // Use a fresh cancellation token with timeout for database operations to avoid inherited cancellation
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -62,55 +68,63 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return new List<TranslationSuggestion>();
                 }
 
-                // Use original cancellation token for Claude API call (should be fast)
-                var prompt = GenerateTranslationReviewPrompt(originalContent, translatedContent, language.Name);
+                var prompt = GenerateTranslationReviewPrompt(originalContent, translatedContent, language.Name, previousSuggestions);
 
-                var claudeRequest = new ClaudeRequest(prompt);
-                
-                ClaudeResponse claudeResponse;
-                try
+                string responseText;
+                if (model.HasValue)
                 {
-                    // Use a timeout for Claude API call as well
-                    using var claudeTimeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-                    using var claudeCombinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, claudeTimeoutCts.Token);
-                    
-                    claudeResponse = await _claudeService.SendRequest(claudeRequest, claudeCombinedCts.Token);
+                    var aiResponse = await SendAIRequestWithTimeout(prompt, model.Value, cancellationToken);
+                    if (!aiResponse.Success)
+                    {
+                        _logger.LogWarning("AI service failed for model {Model}: {Error}", model.Value, aiResponse.ErrorMessage);
+                        return GenerateFallbackSuggestions();
+                    }
+                    responseText = aiResponse.Content;
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                else
                 {
-                    _logger.LogInformation("Claude API call was cancelled by user request");
-                    return GenerateFallbackSuggestions();
-                }
-                catch (OperationCanceledException)
-                {
-                    _logger.LogWarning("Claude API call timed out, returning fallback suggestions");
-                    return GenerateFallbackSuggestions();
+                    var claudeResponse = await SendClaudeRequestWithTimeout(prompt, cancellationToken);
+                    if (claudeResponse == null)
+                    {
+                        return GenerateFallbackSuggestions();
+                    }
+                    responseText = claudeResponse.Content?.FirstOrDefault()?.Text;
                 }
 
-                var responseText = claudeResponse.Content?.FirstOrDefault()?.Text;
                 if (string.IsNullOrEmpty(responseText))
                 {
-                    _logger.LogWarning("Empty response from Claude for suggestions");
+                    _logger.LogWarning("Empty response from AI service for suggestions");
                     return GenerateFallbackSuggestions();
                 }
+
+                // Debug logging to see what each AI model returns
+                _logger.LogInformation("AI Response from {Model} (length: {Length}): {Response}", 
+                    model?.ToString() ?? "Claude", responseText.Length, 
+                    responseText.Length > 500 ? responseText.Substring(0, 500) + "..." : responseText);
 
                 var jsonStart = responseText.IndexOf('[');
                 var jsonEnd = responseText.LastIndexOf(']');
 
                 if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart)
                 {
-                    _logger.LogWarning("No valid JSON array found in Claude response");
+                    _logger.LogWarning("No valid JSON array found in AI response from {Model}. Response: {Response}", 
+                        model?.ToString() ?? "Claude", responseText);
                     return GenerateFallbackSuggestions();
                 }
 
                 var jsonContent = responseText.Substring(jsonStart, jsonEnd - jsonStart + 1);
+                _logger.LogInformation("Extracted JSON from {Model}: {JsonContent}", 
+                    model?.ToString() ?? "Claude", jsonContent);
 
                 var suggestions = JsonSerializer.Deserialize<List<JsonSuggestion>>(jsonContent, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true
                 });
 
-                var result = suggestions?.Select(s => new TranslationSuggestion
+                _logger.LogInformation("Deserialized {Count} suggestions from {Model}", 
+                    suggestions?.Count ?? 0, model?.ToString() ?? "Claude");
+
+                var rawResult = suggestions?.Select(s => new TranslationSuggestion
                 {
                     Title = s.Title ?? "Improvement Suggestion",
                     Description = s.Description ?? "Consider this improvement",
@@ -120,8 +134,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     Priority = Math.Max(1, Math.Min(3, s.Priority))
                 }).ToList() ?? new List<TranslationSuggestion>();
 
-                _logger.LogInformation("Successfully generated {Count} suggestions", result.Count);
-                return result;
+                // Filter out duplicates and similar suggestions
+                var filteredResult = FilterDuplicateSuggestions(rawResult, previousSuggestions ?? new List<TranslationSuggestion>());
+
+                _logger.LogInformation("Generated {RawCount} suggestions, filtered to {FilteredCount} unique suggestions using {Model}", 
+                    rawResult.Count, filteredResult.Count, model?.ToString() ?? "Claude");
+                
+                return filteredResult;
 
             }
             catch (Exception ex)
@@ -240,7 +259,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 List<TranslationSuggestion> newSuggestions;
                 try
                 {
-                    newSuggestions = await GenerateSuggestions("", updatedContent, request.TargetLanguageId, newSuggestionsCts.Token);
+                    // Create a list of all previous suggestions including the one just applied
+                    var allPreviousSuggestions = new List<TranslationSuggestion> { effectiveSuggestion };
+                    newSuggestions = await GenerateSuggestions("", updatedContent, request.TargetLanguageId, newSuggestionsCts.Token, allPreviousSuggestions);
                 }
                 catch (OperationCanceledException)
                 {
@@ -271,6 +292,174 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
+        private async Task<AIResponse> SendAIRequestWithTimeout(string prompt, AIModel model, CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                
+                return await _aiService.SendTextRequest(prompt, model, combinedCts.Token);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("AI API call was cancelled by user request");
+                return new AIResponse { Success = false, ErrorMessage = "Request was cancelled" };
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("AI API call timed out");
+                return new AIResponse { Success = false, ErrorMessage = "Request timed out" };
+            }
+        }
+
+        private async Task<ClaudeResponse> SendClaudeRequestWithTimeout(string prompt, CancellationToken cancellationToken)
+        {
+            try
+            {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+                using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+                
+                var claudeRequest = new ClaudeRequest(prompt);
+                return await _claudeService.SendRequest(claudeRequest, combinedCts.Token);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Claude API call was cancelled by user request");
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogWarning("Claude API call timed out");
+                return null;
+            }
+        }
+
+        private List<TranslationSuggestion> FilterDuplicateSuggestions(
+                List<TranslationSuggestion> newSuggestions, 
+                List<TranslationSuggestion> previousSuggestions)
+        {
+            if (previousSuggestions == null || !previousSuggestions.Any())
+            {
+                return newSuggestions;
+            }
+
+            var filteredSuggestions = new List<TranslationSuggestion>();
+
+            foreach (var newSuggestion in newSuggestions)
+            {
+                bool isDuplicate = false;
+
+                foreach (var previousSuggestion in previousSuggestions)
+                {
+                    if (IsSimilarSuggestion(newSuggestion, previousSuggestion))
+                    {
+                        isDuplicate = true;
+                        _logger.LogDebug("Filtered duplicate suggestion: '{Title}' - similar to previous suggestion", newSuggestion.Title);
+                        break;
+                    }
+                }
+
+                if (!isDuplicate)
+                {
+                    filteredSuggestions.Add(newSuggestion);
+                }
+            }
+
+            return filteredSuggestions;
+        }
+
+        private bool IsSimilarSuggestion(TranslationSuggestion suggestion1, TranslationSuggestion suggestion2)
+        {
+            if (AreSimilarTexts(suggestion1.OriginalText, suggestion2.OriginalText))
+            {
+                if (AreSimilarTexts(suggestion1.SuggestedText, suggestion2.SuggestedText))
+                {
+                    return true;
+                }
+
+                if (suggestion1.Type == suggestion2.Type)
+                {
+                    return true;
+                }
+            }
+
+            if (AreSimilarTexts(suggestion1.Title, suggestion2.Title, 0.8))
+            {
+                return true;
+            }
+
+            if (string.Equals(suggestion1.OriginalText?.Trim(), suggestion2.OriginalText?.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(suggestion1.SuggestedText?.Trim(), suggestion2.SuggestedText?.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool AreSimilarTexts(string text1, string text2, double threshold = 0.9)
+        {
+            if (string.IsNullOrWhiteSpace(text1) || string.IsNullOrWhiteSpace(text2))
+            {
+                return string.IsNullOrWhiteSpace(text1) && string.IsNullOrWhiteSpace(text2);
+            }
+
+            text1 = text1.Trim().ToLowerInvariant();
+            text2 = text2.Trim().ToLowerInvariant();
+
+            if (text1 == text2)
+            {
+                return true;
+            }
+
+            int distance = CalculateLevenshteinDistance(text1, text2);
+            int maxLength = Math.Max(text1.Length, text2.Length);
+            
+            if (maxLength == 0)
+            {
+                return true;
+            }
+
+            double similarity = 1.0 - (double)distance / maxLength;
+            return similarity >= threshold;
+        }
+
+        private int CalculateLevenshteinDistance(string source, string target)
+        {
+            if (string.IsNullOrEmpty(source))
+            {
+                return string.IsNullOrEmpty(target) ? 0 : target.Length;
+            }
+
+            if (string.IsNullOrEmpty(target))
+            {
+                return source.Length;
+            }
+
+            int sourceLength = source.Length;
+            int targetLength = target.Length;
+            var distance = new int[sourceLength + 1, targetLength + 1];
+
+            for (int i = 0; i <= sourceLength; i++)
+                distance[i, 0] = i;
+            for (int j = 0; j <= targetLength; j++)
+                distance[0, j] = j;
+
+            for (int i = 1; i <= sourceLength; i++)
+            {
+                for (int j = 1; j <= targetLength; j++)
+                {
+                    int cost = source[i - 1] == target[j - 1] ? 0 : 1;
+                    distance[i, j] = Math.Min(
+                        Math.Min(distance[i - 1, j] + 1, distance[i, j - 1] + 1),
+                        distance[i - 1, j - 1] + cost);
+                }
+            }
+
+            return distance[sourceLength, targetLength];
+        }
+
         private static SuggestionType ParseSuggestionType(string type)
         {
             return type?.ToLower() switch
@@ -287,11 +476,28 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             };
         }
 
-        private static string GenerateTranslationReviewPrompt(string originalContent, string translatedContent, string targetLanguage)
+
+
+        private static string GenerateTranslationReviewPrompt(string originalContent, string translatedContent, string targetLanguage, List<TranslationSuggestion> previousSuggestions = null)
         {
+            var duplicateAvoidanceInstruction = "";
+            if (previousSuggestions != null && previousSuggestions.Any())
+            {
+                var previousSuggestionsText = string.Join("\n", previousSuggestions.Select(s => 
+                    $"- {s.Title}: '{s.OriginalText}' → '{s.SuggestedText}' (Type: {s.Type})"));
+                
+                duplicateAvoidanceInstruction = $@"
+                <previous_suggestions>
+                    The following suggestions have already been made for this translation. You MUST NOT provide similar or duplicate suggestions:
+                    {previousSuggestionsText}
+                    
+                    Focus on finding NEW and DIFFERENT improvement areas that have not been addressed by these previous suggestions.
+                </previous_suggestions>";
+            }
+
             return $@"
             <role>
-                You are an expert professional translation quality reviewer and linguist with deep expertise in {targetLanguage} language and cross-cultural communication. Your task is to meticulously analyze the provided translation and identify exactly 4 specific, actionable improvement suggestions.
+                You are an expert professional translation quality reviewer and linguist with deep expertise in {targetLanguage} language and cross-cultural communication. Your task is to meticulously analyze the provided translation and identify exactly 10 specific, actionable improvement suggestions.
             </role>
 
             <content_to_analyze>
@@ -303,6 +509,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     {translatedContent}
                 </translation_to_review>
             </content_to_analyze>
+
+            {duplicateAvoidanceInstruction}
 
             <analysis_task>
                 Conduct a comprehensive quality assessment focusing on these critical areas:
@@ -339,7 +547,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             </analysis_task>
 
                 <output_requirements>
-                    Provide your analysis as a valid JSON array containing exactly 4 suggestion objects. Each suggestion must include:
+                    Provide your analysis as a valid JSON array containing exactly 10 suggestion objects. Each suggestion must include:
 
                     ```json
                     [
@@ -362,6 +570,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     - Consider cultural nuances and target audience expectations
                     - Prioritize improvements that affect meaning accuracy and naturalness
                     - Ensure suggested improvements are grammatically correct and contextually appropriate
+                    - Avoid duplicating or repeating previous suggestions
+                    - Look for different types of improvements than those already suggested
+                    - Provide a diverse range of suggestion types across all focus areas
+                    - Include both critical fixes and minor polish improvements
                     </do>
 
                     <avoid>
@@ -369,13 +581,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     - Changes that alter the original meaning or intent
                     - Overly minor cosmetic changes unless they affect readability
                     - Suggestions that make the text less natural in the target language
+                    - Repeating similar suggestions to those already provided
                     </avoid>
                 </guidelines>
 
                 <instructions>
-                Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers.
+                Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers. Look for improvements across all categories: critical errors, moderate improvements, and minor polish.
 
-                Return only the JSON array with exactly 4 suggestions - no additional text or explanations outside the JSON structure.
+                Return only the JSON array with exactly 10 suggestions - no additional text or explanations outside the JSON structure.
                 </instructions>";
         }
 
