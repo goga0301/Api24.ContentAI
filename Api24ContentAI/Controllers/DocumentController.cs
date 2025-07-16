@@ -29,6 +29,7 @@ namespace Api24ContentAI.Controllers
         private readonly IDocumentTranslationChatService _chatService;
         private readonly IUserNameExtractionService _userNameExtractionService;
         private readonly ILanguageService _languageService;
+        private readonly IWordProcessor _wordProcessor;
 
         public DocumentController(
             IDocumentTranslationService documentTranslationService,
@@ -39,7 +40,8 @@ namespace Api24ContentAI.Controllers
             IDocumentSuggestionService documentSuggestionService,
             IDocumentTranslationChatService chatService,
             IUserNameExtractionService userNameExtractionService,
-            ILanguageService languageService)
+            ILanguageService languageService,
+            IWordProcessor wordProcessor)
         {
             _documentTranslationService = documentTranslationService ?? throw new ArgumentNullException(nameof(documentTranslationService));
             _pdfService = pdfService ?? throw new ArgumentNullException(nameof(pdfService));
@@ -50,6 +52,7 @@ namespace Api24ContentAI.Controllers
             _chatService = chatService ?? throw new ArgumentNullException(nameof(chatService));
             _userNameExtractionService = userNameExtractionService ?? throw new ArgumentNullException(nameof(userNameExtractionService));
             _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
+            _wordProcessor = wordProcessor ?? throw new ArgumentNullException(nameof(wordProcessor));
         }
         
         private const long MaxFileSizeBytes = 100 * 1024 * 1024; // 100MB limit
@@ -827,6 +830,52 @@ namespace Api24ContentAI.Controllers
                     Message = $"Internal server error: {ex.Message}",
                     FileType = convertRequest?.File != null ? Path.GetExtension(convertRequest.File.FileName).ToLowerInvariant() : "unknown",
                     FileName = convertRequest?.File?.FileName ?? "unknown"
+                });
+            }
+        }
+
+        [HttpPost("count-pages")]
+        public async Task<IActionResult> CountPages([FromForm] PageCountRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                if (request.File == null || request.File.Length == 0)
+                {
+                    return BadRequest(new PageCountResponse
+                    {
+                        Success = false,
+                        ErrorMessage = "No file uploaded"
+                    });
+                }
+
+                var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+                if (!_wordProcessor.CanProcess(fileExtension))
+                {
+                    return BadRequest(new PageCountResponse
+                    {
+                        Success = false,
+                        ErrorMessage = $"Unsupported file type. Only .doc and .docx files are supported."
+                    });
+                }
+
+                _logger.LogInformation("Counting pages for Word document: {FileName}", request.File.FileName);
+
+                var pageCount = await _wordProcessor.CountPagesAsync(request.File, cancellationToken);
+
+                return Ok(new PageCountResponse
+                {
+                    Success = true,
+                    PageCount = pageCount,
+                    FileName = request.File.FileName
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error counting pages in Word document: {FileName}", request.File?.FileName);
+                return StatusCode(500, new PageCountResponse
+                {
+                    Success = false,
+                    ErrorMessage = "An error occurred while counting pages in the document"
                 });
             }
         }

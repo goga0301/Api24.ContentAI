@@ -164,3 +164,16 @@ namespace Api24ContentAI.Domain.Models
         public List<TranslationSuggestion> NewSuggestions { get; set; } = new List<TranslationSuggestion>();
     }
 }
+
+public class PageCountRequest
+{
+    public IFormFile File { get; set; }
+}
+
+public class PageCountResponse
+{
+    public bool Success { get; set; }
+    public int PageCount { get; set; }
+    public string? FileName { get; set; }
+    public string? ErrorMessage { get; set; }
+}

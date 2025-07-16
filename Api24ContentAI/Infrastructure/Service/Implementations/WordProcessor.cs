@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -241,6 +242,45 @@ public class WordProcessor(
         }
     }
     
+    public async Task<int> CountPagesAsync(IFormFile file, CancellationToken cancellationToken)
+    {
+        try
+        {
+            if (file == null || file.Length == 0)
+            {
+                _logger.LogWarning("Cannot count pages: file is null or empty");
+                return 0;
+            }
+
+            var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!CanProcess(fileExtension))
+            {
+                _logger.LogWarning("Cannot count pages: unsupported file extension {Extension}", fileExtension);
+                throw new ArgumentException($"Unsupported file extension: {fileExtension}");
+            }
+
+            _logger.LogInformation("Counting pages for Word document: {FileName}", file.FileName);
+
+            var screenshotResult = await GetWordDocumentScreenshots(file, cancellationToken);
+            
+            if (screenshotResult?.Pages == null)
+            {
+                _logger.LogWarning("Failed to get pages from Word document processing service");
+                return 0;
+            }
+
+            var pageCount = screenshotResult.Pages.Count;
+            _logger.LogInformation("Word document {FileName} has {PageCount} pages", file.FileName, pageCount);
+            
+            return pageCount;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error counting pages in Word document {FileName}", file.FileName);
+            throw;
+        }
+    }
+
     private async Task<ScreenShotResult> GetWordDocumentScreenshots(IFormFile file, CancellationToken cancellationToken)
     {
         if (file == null || file.Length == 0)
