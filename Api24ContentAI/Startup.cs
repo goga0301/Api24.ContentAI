@@ -29,6 +29,7 @@ using System.Threading.Tasks;
 
 namespace Api24ContentAI
 {
+
     public class Startup(IConfiguration configuration)
     {
         private IConfiguration Configuration { get; } = configuration;
