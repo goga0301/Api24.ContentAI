@@ -394,6 +394,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     file.FileName, file.Length);
                 
                 using var httpClient = new HttpClient();
+                // Set longer timeout for OCR processing
+                httpClient.Timeout = TimeSpan.FromMinutes(10);
+                
                 using var formContent = new MultipartFormDataContent();
 
                 await using var fileStream = file.OpenReadStream();
@@ -401,7 +404,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 
                 formContent.Add(streamContent, "file", file.FileName);
                 
-                var response = await httpClient.PostAsync("http://127.0.0.1:8000/ocr", formContent, cancellationToken);
+                // First check if OCR service is healthy
+                try
+                {
+                    var healthResponse = await httpClient.GetAsync("http://localhost:8000/health", cancellationToken);
+                    if (!healthResponse.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("OCR service health check failed with status: {StatusCode}", healthResponse.StatusCode);
+                    }
+                }
+                catch (Exception healthEx)
+                {
+                    _logger.LogWarning(healthEx, "OCR service health check failed");
+                    throw new Exception("OCR service is not responding. Please ensure the OCR microservice is running on port 8000.");
+                }
+                
+                var response = await httpClient.PostAsync("http://localhost:8000/ocr", formContent, cancellationToken);
                 response.EnsureSuccessStatusCode();
                 
                 var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -418,6 +436,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
                 
                 return responseContent;
+            }
+            catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+            {
+                _logger.LogError("OCR service timeout after 10 minutes for file {FileName}", file.FileName);
+                throw new Exception($"OCR processing timed out for file {file.FileName}. The file may be too large or complex.");
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogError(ex, "HTTP error communicating with OCR service");
+                throw new Exception($"Failed to communicate with OCR service. Please ensure the OCR microservice is running. Error: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -745,7 +773,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             HttpResponseMessage response;
             try
             {
-                response = await httpClient.PostAsync("http://127.0.0.1:8000/screenshot", content, cancellationToken);
+                response = await httpClient.PostAsync("http://localhost:8000/screenshot", content, cancellationToken);
                 response.EnsureSuccessStatusCode();
             }
             catch (HttpRequestException ex)

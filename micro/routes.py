@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from tempfile import NamedTemporaryFile
 from pdf_utils import convert_pdf_to_images
@@ -14,38 +14,108 @@ import mammoth
 
 router = APIRouter()
 
+@router.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring the OCR service"""
+    return {"status": "healthy", "service": "ocr-service"}
+
+@router.get("/")
+async def root():
+    return {"message": "OCR Service is running"}
+
 
 @router.post("/ocr")
 async def ocr_pdf(file: UploadFile = File(...)):
-    tess_lang = "+".join(TESS_LANGS)
-    logger.info(f"OCR using: {tess_lang}")
-    pdf_bytes = await file.read()
-
-    with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
-        temp_pdf.write(pdf_bytes)
-        temp_pdf.flush()
-        temp_pdf_name = temp_pdf.name
-
-    image_paths = convert_pdf_to_images(temp_pdf_name)
-
-    output_txt_path = NamedTemporaryFile(delete=False, suffix=".txt").name
-    with open(output_txt_path, "w", encoding="utf-8") as out_f:
-        for i, img_path in enumerate(image_paths):
-            text = run_tesseract_cli(img_path, tess_lang)
-            try:
-                os.remove(img_path)
-            except Exception as e:
-                logger.warning(f"Failed to remove temp image: {e}")
-            out_f.write(f"--- Page {i+1} ---\n{text}\n\n")
-
+    temp_pdf_name = None
+    output_txt_path = None
+    image_paths = []
+    
     try:
-        os.remove(temp_pdf_name)
-    except Exception as e:
-        logger.warning(f"Failed to remove temp PDF: {e}")
+        tess_lang = "+".join(TESS_LANGS)
+        logger.info(f"OCR using: {tess_lang}")
+        
+        # Validate file size (limit to 50MB for stability)
+        if file.size and file.size > 50 * 1024 * 1024:
+            logger.error(f"File too large: {file.size} bytes")
+            raise HTTPException(status_code=413, detail="File too large. Maximum size is 50MB.")
+        
+        pdf_bytes = await file.read()
+        
+        if len(pdf_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Empty file received")
 
-    return FileResponse(
-        output_txt_path, filename="ocr_output.txt", media_type="text/plain"
-    )
+        with NamedTemporaryFile(delete=False, suffix=".pdf") as temp_pdf:
+            temp_pdf.write(pdf_bytes)
+            temp_pdf.flush()
+            temp_pdf_name = temp_pdf.name
+            
+        logger.info(f"Created temp PDF: {temp_pdf_name}, size: {len(pdf_bytes)} bytes")
+
+        try:
+            image_paths = convert_pdf_to_images(temp_pdf_name)
+            logger.info(f"Generated {len(image_paths)} images from PDF")
+        except Exception as e:
+            logger.error(f"Failed to convert PDF to images: {e}")
+            raise HTTPException(status_code=500, detail=f"PDF conversion failed: {str(e)}")
+
+        output_txt_path = NamedTemporaryFile(delete=False, suffix=".txt").name
+        
+        # Process images and write OCR results
+        with open(output_txt_path, "w", encoding="utf-8") as out_f:
+            for i, img_path in enumerate(image_paths):
+                try:
+                    logger.debug(f"Processing image {i+1}/{len(image_paths)}: {img_path}")
+                    text = run_tesseract_cli(img_path, tess_lang)
+                    out_f.write(f"--- Page {i+1} ---\n{text}\n\n")
+                except Exception as e:
+                    logger.error(f"OCR failed for image {img_path}: {e}")
+                    out_f.write(f"--- Page {i+1} ---\n[OCR ERROR: {str(e)}]\n\n")
+                finally:
+                    # Clean up image file immediately after processing
+                    try:
+                        if os.path.exists(img_path):
+                            os.remove(img_path)
+                            logger.debug(f"Removed temp image: {img_path}")
+                    except Exception as cleanup_e:
+                        logger.warning(f"Failed to remove temp image {img_path}: {cleanup_e}")
+
+        logger.info(f"OCR processing completed successfully for {file.filename}")
+        
+        # Return the OCR result as JSON instead of FileResponse to avoid streaming issues
+        with open(output_txt_path, "r", encoding="utf-8") as f:
+            ocr_text = f.read()
+            
+        return {"text": ocr_text, "status": "success", "pages_processed": len(image_paths)}
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions (400, 413, 500)
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in OCR processing: {e}")
+        raise HTTPException(status_code=500, detail=f"OCR processing failed: {str(e)}")
+    finally:
+        # Cleanup temporary files
+        cleanup_files = []
+        if temp_pdf_name:
+            cleanup_files.append(temp_pdf_name)
+        if output_txt_path:
+            cleanup_files.append(output_txt_path)
+        
+        for file_path in cleanup_files:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                    logger.debug(f"Cleaned up temp file: {file_path}")
+            except Exception as cleanup_e:
+                logger.warning(f"Failed to cleanup {file_path}: {cleanup_e}")
+        
+        # Clean up any remaining image files
+        for img_path in image_paths:
+            try:
+                if os.path.exists(img_path):
+                    os.remove(img_path)
+            except:
+                pass
 
 
 @router.post("/screenshot")
