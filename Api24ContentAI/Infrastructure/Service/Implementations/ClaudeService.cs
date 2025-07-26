@@ -14,6 +14,7 @@ using System.Net.Http.Headers;
 using Microsoft.Extensions.Logging;
 using System.Text.Encodings.Web;
 using System.Collections.Generic;
+using Api24ContentAI.Infrastructure.Middleware;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -98,7 +99,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 StringContent httpContent = new(jsonContent, Encoding.UTF8, "application/json");
                 
-                // Enhanced timeout logic considering both request size and image processing complexity
                 TimeSpan timeout = DetermineTimeout(jsonContent.Length, hasImages, totalImageDataSize);
                 
                 using (var timeoutCts = new CancellationTokenSource(timeout))
@@ -119,9 +119,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     if (!response.IsSuccessStatusCode)
                     {
                         _logger.LogError("Claude API error: {StatusCode} - {Response}", 
-                            response.StatusCode, responseStr);
-                        throw new Exception($"Claude API error: {responseStr}");
+                                response.StatusCode, responseStr);
+
+                        return response.StatusCode switch
+                        {
+                            System.Net.HttpStatusCode.TooManyRequests => throw new ClaudeRateLimitException("Rate limited by Claude API", responseStr),
+                            System.Net.HttpStatusCode.Unauthorized => throw new ClaudeApiException("Invalid Claude API key", (int)response.StatusCode, responseStr),
+                            System.Net.HttpStatusCode.BadRequest => throw new ClaudeApiException("Claude request was malformed", (int)response.StatusCode, responseStr),
+                            _ => throw new ClaudeApiException("Unknown Claude error", (int)response.StatusCode, responseStr)
+                        };
                     }
+
+
                 
                     return JsonSerializer.Deserialize<ClaudeResponse>(responseStr, jsonOptions);
                 }

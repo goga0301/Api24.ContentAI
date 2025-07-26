@@ -12,6 +12,8 @@ using System.Threading.Tasks;
 using Path = System.IO.Path;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
 
 namespace Api24ContentAI.Controllers
 {
@@ -263,36 +265,46 @@ namespace Api24ContentAI.Controllers
                         
                         if (result.Success)
                         {
-                            List<TranslationSuggestion> suggestions = new List<TranslationSuggestion>();
-                            try
-                            {
-                                var suggestionService = taskScope.ServiceProvider.GetRequiredService<IDocumentSuggestionService>();
-                                suggestions = await suggestionService.GenerateSuggestions(
-                                    result.OriginalContent ?? "",
-                                    result.TranslatedContent ?? "",
-                                    request.TargetLanguageId,
-                                    cancellationToken,
-                                    null,
-                                    request.Model);
-                                
-                                _logger.LogInformation("Generated {Count} suggestions for {Model} translation job {JobId}", 
-                                    suggestions.Count, request.Model, jobId);
-                            }
-                            catch (Exception suggestionEx)
-                            {
-                                _logger.LogWarning(suggestionEx, "Failed to generate suggestions for {Model} translation job {JobId}", request.Model, jobId);
-                            }
 
                             await jobService.CompleteJob(
-                                jobId, 
-                                result.FileData ?? System.Text.Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
-                                result.FileName ?? "translated-file",
-                                result.ContentType ?? "text/plain",
-                                suggestions);
-                                
+                                    jobId, 
+                                    result.FileData ?? Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
+                                    result.FileName ?? "translated-file",
+                                    result.ContentType ?? "text/plain",
+                                    suggestions: new List<TranslationSuggestion>()
+                                    );
+
                             await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
-                                
-                            _logger.LogInformation("{Model} translation job {JobId} completed successfully", request.Model, jobId);
+
+                            _ = Task.Run(async () => {
+                                    using var asyncScope = _serviceScopeFactory.CreateScope();
+                                    try
+                                    {
+                                        var suggestionService = asyncScope.ServiceProvider.GetRequiredService<IDocumentSuggestionService>();
+                                        var jobServiceAsync = asyncScope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+
+                                        var suggestions = await suggestionService.GenerateSuggestions(
+                                                result.OriginalContent ?? "",
+                                                result.TranslatedContent ?? "",
+                                                request.TargetLanguageId,
+                                                CancellationToken.None,
+                                                null,
+                                                request.Model);
+
+                                        _logger.LogInformation("Suggestions generated: {SuggestionsJson}", 
+                                                JsonSerializer.Serialize(suggestions, new JsonSerializerOptions { WriteIndented = true }));
+
+
+                                        await jobServiceAsync.AttachSuggestions(jobId, suggestions);  
+                                        _logger.LogInformation("Async: Suggestions generated and attached for job {JobId}", jobId);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogWarning(ex, "Async: Suggestion generation failed for job {JobId}", jobId);
+                                    }
+                                   
+                            });
+
                         }
                         else
                         {

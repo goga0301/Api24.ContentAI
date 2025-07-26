@@ -9,5 +9,12 @@ namespace Api24ContentAI.Domain.Service
     {
         Task<GeminiResponse> SendRequest(GeminiRequest request, CancellationToken cancellationToken);
         Task<GeminiResponse> SendRequestWithFile(List<GeminiPart> parts, CancellationToken cancellationToken);
+
+        Task<VerificationResult> VerifyResponseQuality(ClaudeRequest request, ClaudeResponse response, CancellationToken cancellationToken);
+
+        Task<VerificationResult> VerifyTranslationBatch(List<KeyValuePair<int, string>> translations, CancellationToken cancellationToken);
+
+        Task<VerificationResult> EvaluateTranslationQuality(string prompt, CancellationToken cancellationToken);
+
     }
 } 

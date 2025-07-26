@@ -135,10 +135,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 try
                 {
-                    allSuggestions = JsonSerializer.Deserialize<List<TranslationSuggestion>>(jobEntity.Suggestions, new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                    }) ?? new List<TranslationSuggestion>();
+
+                    allSuggestions = JsonSerializer.Deserialize<List<TranslationSuggestion>>(jobEntity.Suggestions)
+                        ?? new List<TranslationSuggestion>();
                 }
                 catch (Exception ex)
                 {
@@ -147,26 +146,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
             }
 
-            var returnedIds = new List<string>();
+            var returnedIds = new List<Guid>();
             if (!string.IsNullOrEmpty(jobEntity.ReturnedSuggestionIds))
             {
-                try
-                {
-                    returnedIds = JsonSerializer.Deserialize<List<string>>(jobEntity.ReturnedSuggestionIds, new JsonSerializerOptions
-                    {
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                    }) ?? new List<string>();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning("Failed to deserialize returned suggestion IDs for job {JobId}: {Error}", jobId, ex.Message);
-                }
+                returnedIds = JsonSerializer.Deserialize<List<Guid>>(jobEntity.ReturnedSuggestionIds) ?? new List<Guid>();
             }
+            var unreturnedSuggestions = allSuggestions
+                .Where(s => Guid.TryParse(s.Id, out var guid) && !returnedIds.Contains(guid))
+                .ToList();
 
-            var unreturnedSuggestions = allSuggestions.Where(s => !returnedIds.Contains(s.Id)).ToList();
-            
-            _logger.LogDebug("Job {JobId}: Found {TotalSuggestions} total suggestions, {ReturnedCount} already returned, {UnreturnedCount} unreturned", 
-                jobId, allSuggestions.Count, returnedIds.Count, unreturnedSuggestions.Count);
 
             return unreturnedSuggestions;
         }
@@ -175,5 +163,25 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             await _repository.CleanupExpiredJobs(CancellationToken.None);
         }
+
+        public async Task AttachSuggestions(string jobId, List<TranslationSuggestion> suggestions)
+        {
+            if (suggestions == null || suggestions.Count == 0)
+            {
+                _logger.LogInformation("No suggestions to attach for job {JobId}", jobId);
+                return;
+            }
+
+            try
+            {
+                await _repository.AttachSuggestions(jobId, suggestions, CancellationToken.None);
+                _logger.LogInformation("Attached {Count} suggestions to job {JobId}", suggestions.Count, jobId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to attach suggestions for job {JobId}", jobId);
+            }
+        }
+
     }
 } 

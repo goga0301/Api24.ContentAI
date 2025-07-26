@@ -53,20 +53,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
 
                 string verificationPrompt = $"""
-                                                             You are a quality assurance expert. Evaluate the following AI response for quality, accuracy, and relevance.
-                                                             
-                                                             Original request:
-                                                             {request.Messages}
-                                                             
-                                                             AI response:
-                                                             {responseContent}
-                                                             
-                                                             Rate the response on a scale from 0.0 to 1.0 where:
-                                                             - 0.0 means completely irrelevant, inaccurate, or low quality
-                                                             - 1.0 means perfect quality, highly accurate and relevant
-                                                             
-                                                             Provide your rating as a single decimal number between 0.0 and 1.0, followed by a brief explanation.
-                                                             Format: <rating>|<explanation>
+                                                 You are a quality assurance expert. Evaluate the following AI response for quality, accuracy, and relevance.
+                                                 
+                                                 Original request:
+                                                 {request.Messages}
+                                                 
+                                                 AI response:
+                                                 {responseContent}
+                                                 
+                                                 Rate the response on a scale from 0.0 to 1.0 where:
+                                                 - 0.0 means completely irrelevant, inaccurate, or low quality
+                                                 - 1.0 means perfect quality, highly accurate and relevant
+                                                 
+                                                 Provide your rating as a single decimal number between 0.0 and 1.0, followed by a brief explanation.
+                                                 Format: <rating>|<explanation>
                                                              
                                              """;
 

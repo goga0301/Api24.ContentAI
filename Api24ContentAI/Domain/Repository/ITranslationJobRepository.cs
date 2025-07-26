@@ -16,5 +16,6 @@ namespace Api24ContentAI.Domain.Repository
         Task FailJob(string jobId, string errorMessage, CancellationToken cancellationToken);
         Task CleanupExpiredJobs(CancellationToken cancellationToken);
         Task UpdateReturnedSuggestionIds(string jobId, List<string> returnedSuggestionIds, CancellationToken cancellationToken);
+        Task AttachSuggestions(string jobId, List<TranslationSuggestion> suggestions, CancellationToken cancellationToken);
     }
 } 
