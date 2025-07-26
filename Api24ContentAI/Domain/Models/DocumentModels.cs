@@ -90,11 +90,11 @@ namespace Api24ContentAI.Domain.Models
     public class TranslationSuggestion
     {
         public string Id { get; set; } = Guid.NewGuid().ToString();
-        public string Title { get; set; }
-        public string Description { get; set; }
+        public string? Title { get; set; }
+        public string? Description { get; set; }
         public SuggestionType Type { get; set; }
-        public string OriginalText { get; set; }
-        public string SuggestedText { get; set; }
+        public string? OriginalText { get; set; }
+        public string? SuggestedText { get; set; }
         public int Priority { get; set; } // 1 = High, 2 = Medium, 3 = Low
     }
     

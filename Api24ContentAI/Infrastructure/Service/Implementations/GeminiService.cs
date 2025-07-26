@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Net.Http.Json;
+using System.Text.RegularExpressions;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -28,6 +29,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
             _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
         }
 
         public async Task<GeminiResponse> SendRequest(GeminiRequest request, CancellationToken cancellationToken)
@@ -77,7 +79,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 
                 _logger.LogDebug("Sending request to Gemini API with {Count} parts", parts.Count);
                 
-                // Check for unsupported file types and convert them using screenshot service
                 var processedParts = await ProcessPartsWithScreenshotService(parts, cancellationToken);
                 
                 bool hasImages = processedParts.Any(p => p.InlineData != null);
@@ -357,5 +358,492 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             
             _headersInitialized = true;
         }
+
+        public async Task<VerificationResult> VerifyResponseQuality(ClaudeRequest request, ClaudeResponse response, CancellationToken cancellationToken)
+        {
+            try
+            {
+
+                var jsonOptions = new JsonSerializerOptions
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    WriteIndented = false
+                };
+
+                _logger.LogInformation("Starting response quality verification with gemini");
+
+                string responseContent = response.Content?.FirstOrDefault()?.Text ?? string.Empty;
+
+                if (string.IsNullOrEmpty(responseContent))
+                {
+                    _logger.LogWarning("Empty response content detected during verification");
+                    return new VerificationResult { 
+                        Success = false, 
+                        ErrorMessage = "Empty response content" 
+                    };
+                }
+
+                string verificationPrompt = $"""
+                    You are a quality assurance expert. Evaluate the following AI response for quality, accuracy, and relevance.
+
+                    Original request:
+                    {request.Messages}
+
+                    AI response:
+                    {responseContent}
+
+                    Rate the response on a scale from 0.0 to 1.0 where:
+                    - 0.0 means completely irrelevant, inaccurate, or low quality
+                    - 1.0 means perfect quality, highly accurate and relevant
+
+                    Provide your rating as a single decimal number between 0.0 and 1.0, followed by a brief explanation.
+                    Format: <rating>|<explanation>
+
+                    """;
+
+                var geminiRequest = new GeminiRequest(new List<GeminiPart> {
+                        new GeminiPart{ Text = verificationPrompt}
+                        });
+                _logger.LogInformation("Sending verification request to gemini API");
+
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("gemini Request for VerifyResponseQuality: {Request}", JsonSerializer.Serialize(geminiRequest, jsonOptions));
+                }
+                else
+                {
+                    _logger.LogInformation("Sending verification request to gemini API. Model: Gemini Flash 2.5");
+                }
+
+                var geminiResponse = await SendRequest(geminiRequest, cancellationToken);
+
+                var geminiContent = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+
+                if (string.IsNullOrEmpty(geminiContent))
+                {
+                    _logger.LogWarning("Empty response from verification service");
+                    return new VerificationResult { Success = false, ErrorMessage = "Empty response from verification service" };
+                }
+                _logger.LogInformation("gemini verification response: {Response}",geminiContent );
+
+                string[] parts = geminiContent.Split('|', 2);
+                if (parts.Length < 2 || !double.TryParse(parts[0].Trim(), out var rating))
+                {
+                    _logger.LogWarning("Failed to parse verification response: {Response}", geminiContent);
+                    return new VerificationResult { Success = false, ErrorMessage = "Failed to parse verification response" };
+                }
+
+                _logger.LogInformation("Verification completed. Quality score: {Score}", rating);
+
+                return new VerificationResult
+                {
+                    Success = true,
+                    QualityScore = Math.Clamp(rating, 0.0, 1.0),
+                    Feedback = parts[1].Trim()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during response quality verification");
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Verification failed: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<VerificationResult> VerifyTranslationBatch(List<KeyValuePair<int, string>> translations, CancellationToken cancellationToken)
+        {
+            try
+            {
+                _logger.LogInformation("Starting translation verification with gemini service for {Count} translations", translations?.Count ?? 0);
+
+                if (translations == null || translations.Count == 0)
+                {
+                    _logger.LogWarning("Empty translation batch provided for verification");
+                    return new VerificationResult { 
+                        Success = false, 
+                        ErrorMessage = "No translations provided for verification" 
+                    };
+                }
+
+                var samples = translations;
+
+                _logger.LogInformation("Selected {SampleCount} samples for verification", samples.Count);
+
+                double totalScore = 0;
+                var feedbacks = new List<string>();
+                var chunkWarnings = new Dictionary<int, string>();
+                var verifiedChunks = 0;
+
+                foreach (var sample in samples)
+                {
+                    _logger.LogInformation("Verifying translation chunk {ChunkId}", sample.Key);
+
+                    if (string.IsNullOrWhiteSpace(sample.Value))
+                    {
+                        _logger.LogWarning("Empty translation chunk {ChunkId}", sample.Key);
+                        chunkWarnings.Add(sample.Key, "Empty translation chunk");
+                        continue;
+                    }
+
+                    string sampleText = sample.Value;
+                    if (sampleText.Length > 3000)
+                    {
+                        _logger.LogWarning("Translation chunk {ChunkId} is too large ({Length} chars), truncating to 3000 chars", 
+                                sample.Key, sampleText.Length);
+                        sampleText = sampleText.Substring(0, 3000) + "... [truncated for verification]";
+                    }
+
+                    string verificationPrompt = $"""
+                        You are a translation quality expert. Evaluate the following translated text for quality, accuracy, and fluency.
+
+                        This is a translation of a document chunk (chunk ID: {sample.Key}).
+                        The text has been translated to another language.
+
+                        Translated text:
+                        {sampleText}
+
+                        Even without seeing the original text, evaluate the translation quality based on:
+                        1. Fluency and naturalness of language
+                        2. Consistency of terminology and style
+                        3. Absence of obvious translation errors
+                        4. Proper formatting and structure
+                        5. Check for untranslated text or codes that should have remained untranslated
+                        6. Proper handling of mathematical formulas:
+                        - All mathematical formulas should use regular text characters (no LaTeX formatting)
+                        - Use Unicode symbols where appropriate (e.g., α, β, π, ², ³, ≤, ≥, ±, ÷, ×)
+                        - Variables and mathematical symbols should be preserved as plain text
+
+                        Be VERY CRITICAL in your evaluation. If you see any of the following issues, reduce the score significantly:
+                        - Untranslated words that should have been translated
+                        - Mixed languages in the same text
+                        - Inconsistent terminology
+                        - Awkward phrasing or unnatural language
+                        - Formatting issues
+                        - Mathematical formulas using LaTeX formatting instead of plain text
+
+                        Rate the translation on a scale from 0.0 to 1.0 where:
+                        - 0.0 means poor quality, potentially machine-translated text with errors
+                        - 0.5 means average quality with some issues
+                        - 1.0 means professional quality, fluent and accurate translation with no issues
+
+                        Provide your rating as a single decimal number between 0.0 and 1.0, followed by a brief explanation.
+                        Format: <rating>|<explanation>
+                        """;
+
+
+                    var geminiRequest = new GeminiRequest(new List<GeminiPart>
+                            {
+                            new GeminiPart { Text = verificationPrompt }
+                            });
+
+                    _logger.LogInformation("Sending verification request to gemini API for chunk {ChunkId}", sample.Key);
+
+                    try
+                    {
+                        var geminiResponse = await SendRequest(geminiRequest, cancellationToken);
+
+                        var geminiContent = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+
+                        if (string.IsNullOrEmpty(geminiContent))
+                        {
+                            _logger.LogWarning("Failed to get verification for chunk {ChunkId}", sample.Key);
+                            chunkWarnings.Add(sample.Key, "Failed to get verification for this chunk");
+                            continue;
+                        }
+
+                        if (!geminiContent.Contains("|"))
+                        {
+                            _logger.LogWarning("Response doesn't contain expected format for chunk {ChunkId}: {Response}", sample.Key, geminiContent);
+
+                            double defaultRating = 0.7; // Reasonable default
+                            feedbacks.Add($"Chunk {sample.Key}: Unable to parse rating. gemini response: {geminiContent}");
+                            totalScore += defaultRating;
+                            verifiedChunks++;
+                            continue;
+                        }
+
+                        string[] parts = geminiContent.Split('|', 2);
+                        if (parts.Length < 2 || !double.TryParse(parts[0].Trim(), out double rating))
+                        {
+                            _logger.LogWarning("Failed to parse verification response for chunk {ChunkId}: {Response}", sample.Key, geminiContent);
+                            chunkWarnings.Add(sample.Key, "Failed to parse verification response for this chunk");
+                            continue;
+                        }
+
+                        _logger.LogInformation("Chunk {ChunkId} verification score: {Score}", sample.Key, rating);
+                        totalScore += Math.Clamp(rating, 0.0, 1.0);
+                        feedbacks.Add($"Chunk {sample.Key}: {parts[1].Trim()}");
+                        verifiedChunks++;
+                    }
+                    catch (Exception ex) when (ex.Message.Contains("context_length_exceeded"))
+                    {
+                        _logger.LogWarning("Context length exceeded for chunk {ChunkId}, trying with shorter sample", sample.Key);
+
+                        if (sampleText.Length > 1000)
+                        {
+                            sampleText = sampleText.Substring(0, 1000) + "... [truncated for verification]";
+
+                            verificationPrompt = $"""
+                                You are a translation quality expert. Evaluate the following translated text sample for quality.
+
+                                Translated text sample (chunk ID: {sample.Key}):
+                                {sampleText}
+
+                                Rate the translation quality from 0.0 to 1.0 based on fluency, consistency, and absence of errors.
+                                Format: <rating>|<brief explanation>
+                                """;
+
+                            var shorterRequest = new GeminiRequest(new List<GeminiPart> {
+                                                            new GeminiPart { Text =  verificationPrompt }
+                                    });
+
+                            try
+                            {
+                                var geminiResponse = await SendRequest(shorterRequest, cancellationToken);
+                                var geminiContent = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+
+                                if (!string.IsNullOrEmpty(geminiContent) && geminiContent.Contains("|"))
+                                {
+                                    string[] parts = geminiContent.Split('|', 2);
+                                    if (parts.Length >= 2 && double.TryParse(parts[0].Trim(), out double rating))
+                                    {
+                                        _logger.LogInformation("Chunk {ChunkId} verification score (with shorter sample): {Score}", sample.Key, rating);
+                                        totalScore += Math.Clamp(rating, 0.0, 1.0);
+                                        feedbacks.Add($"Chunk {sample.Key}: {parts[1].Trim()} (based on truncated sample)");
+                                        verifiedChunks++;
+                                    }
+                                    else
+                                    {
+                                        chunkWarnings.Add(sample.Key, "Failed to parse verification response even with shorter sample");
+                                    }
+                                }
+                                else
+                                {
+                                    chunkWarnings.Add(sample.Key, "Failed to get verification even with shorter sample");
+                                }
+                            }
+                            catch (Exception innerEx)
+                            {
+                                _logger.LogError(innerEx, "Error verifying chunk {ChunkId} with shorter sample", sample.Key);
+                                chunkWarnings.Add(sample.Key, $"Error verifying: {innerEx.Message}");
+                            }
+                        }
+                        else
+                        {
+                            chunkWarnings.Add(sample.Key, "Sample too large for verification");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error verifying chunk {ChunkId}", sample.Key);
+                        chunkWarnings.Add(sample.Key, $"Error verifying: {ex.Message}");
+                    }
+                }
+
+                if (verifiedChunks == 0)
+                {
+                    _logger.LogWarning("Failed to verify any translation samples");
+                    return new VerificationResult { 
+                        Success = false, 
+                        ErrorMessage = "Failed to verify any translation samples",
+                        ChunkWarnings = chunkWarnings
+                    };
+                }
+
+                double averageScore = totalScore / verifiedChunks;
+                _logger.LogInformation("Translation verification completed. Average score: {Score}, Verified chunks: {VerifiedChunks}/{TotalChunks}", 
+                        averageScore, verifiedChunks, translations.Count);
+
+                return new VerificationResult
+                {
+                    Success = true,
+                    QualityScore = averageScore,
+                    Feedback = string.Join("\n", feedbacks),
+                    VerifiedChunks = verifiedChunks,
+                    RecoveredChunks = translations.Count,
+                    ChunkWarnings = chunkWarnings
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during translation batch verification");
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Translation verification failed: {ex.Message}"
+                };
+            }
+        }
+
+        public async Task<VerificationResult> EvaluateTranslationQuality(string prompt, CancellationToken cancellationToken)
+        {
+            try
+            {
+
+                var jsonOptions = new JsonSerializerOptions
+                {
+                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                    WriteIndented = false
+                };
+
+                _logger.LogInformation("Starting translation quality evaluation with Gemini");
+
+                if (prompt.Length > 6000)
+                {
+                    _logger.LogWarning("Prompt is too long ({Length} chars), truncating to 6000 chars", prompt.Length);
+                    prompt = prompt.Substring(0, 6000) + "... [truncated for evaluation]";
+                }
+
+                var geminiRequest = new GeminiRequest(new List<GeminiPart>
+                        {
+                        new GeminiPart { Text = prompt }
+                        });
+
+
+                _logger.LogInformation("Sending evaluation request to gemini API");
+
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogDebug("gemini Request for EvaluateTranslationQuality: {Request}", JsonSerializer.Serialize(geminiRequest, jsonOptions));
+                }
+                else
+                {
+                    _logger.LogInformation("Sending evaluation request to Gemini API. Model: 2.5 Flash");
+                }
+
+                var geminiResponse = await SendRequest(geminiRequest, cancellationToken);
+                var geminiContent = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+
+                if (string.IsNullOrEmpty(geminiContent))
+                {
+                    _logger.LogWarning("Empty response from gemini evaluation service");
+                    return new VerificationResult { Success = false, ErrorMessage = "Empty response from evaluation service" };
+                }
+
+                _logger.LogInformation("gemini evaluation response: {Response}", geminiContent);
+
+                string[] parts = geminiContent.Split('|', 2);
+                if (parts.Length < 2 || !double.TryParse(parts[0].Trim(), out double rating))
+                {
+                    _logger.LogWarning("Failed to parse evaluation response: {Response}", geminiContent);
+
+                    var ratingMatch = Regex.Match(geminiContent, @"(\d+\.\d+)");
+                    if (ratingMatch.Success && double.TryParse(ratingMatch.Value, out rating))
+                    {
+                        _logger.LogInformation("Extracted rating from unformatted response: {Rating}", rating);
+                        return new VerificationResult
+                        {
+                            Success = true,
+                            QualityScore = Math.Clamp(rating, 0.0, 1.0),
+                            Feedback = geminiContent
+                        };
+                    }
+
+                    _logger.LogWarning("Using default rating of 0.7 due to parsing failure");
+                    return new VerificationResult
+                    {
+                        Success = true,
+                        QualityScore = 0.7,
+                        Feedback = "Could not parse rating from response: " + geminiContent
+                    };
+                }
+
+                _logger.LogInformation("Evaluation completed. Quality score: {Score}", rating);
+
+                return new VerificationResult
+                {
+                    Success = true,
+                    QualityScore = Math.Clamp(rating, 0.0, 1.0),
+                    Feedback = parts[1].Trim()
+                };
+            }
+            catch (Exception ex) when (ex.Message.Contains("context_length_exceeded"))
+            {
+                _logger.LogWarning("Context length exceeded during evaluation, trying with shorter prompt");
+
+                string shorterPrompt = "Evaluate this translation sample for quality. Rate from 0.0 to 1.0.\n\n";
+
+                var match = Regex.Match(prompt, @"Sample \d+:\s*([\s\S]{1,2000})(?:\n\n---|$)");
+                if (match.Success)
+                {
+                    shorterPrompt += match.Groups[1].Value;
+                }
+                else
+                {
+                    shorterPrompt += prompt.Substring(0, Math.Min(prompt.Length, 2000));
+                }
+
+                shorterPrompt += "\n\nCheck especially that mathematical formulas use plain text and Unicode symbols instead of LaTeX formatting.\nProvide rating as: <rating>|<brief explanation>";
+
+                var shorterRequest = new GeminiRequest(new List<GeminiPart>
+                        {
+                        new GeminiPart { Text = shorterPrompt }
+                        });
+
+                try
+                {
+                    var geminiResponse = await SendRequest(shorterRequest, cancellationToken);
+                    var geminiContent = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+
+                    if (string.IsNullOrEmpty(geminiContent))
+                    {
+                        return new VerificationResult { Success = false, ErrorMessage = "Empty response from evaluation service" };
+                    }
+
+                    string[] parts = geminiContent.Split('|', 2);
+                    if (parts.Length < 2 || !double.TryParse(parts[0].Trim(), out double rating))
+                    {
+                        var ratingMatch = Regex.Match(geminiContent, @"(\d+\.\d+)");
+                        if (ratingMatch.Success && double.TryParse(ratingMatch.Value, out rating))
+                        {
+                            return new VerificationResult
+                            {
+                                Success = true,
+                                QualityScore = Math.Clamp(rating, 0.0, 1.0),
+                                Feedback = geminiResponse + " (based on truncated sample)"
+                            };
+                        }
+
+                        return new VerificationResult
+                        {
+                            Success = true,
+                            QualityScore = 0.7,
+                            Feedback = "Could not parse rating from response: " + geminiResponse + " (based on truncated sample)"
+                        };
+                    }
+
+                    return new VerificationResult
+                    {
+                        Success = true,
+                        QualityScore = Math.Clamp(rating, 0.0, 1.0),
+                        Feedback = parts[1].Trim() + " (based on truncated sample)"
+                    };
+                }
+                catch (Exception innerEx)
+                {
+                    _logger.LogError(innerEx, "Error during shortened translation quality evaluation");
+                    return new VerificationResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"Evaluation failed: {innerEx.Message}"
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during translation quality evaluation");
+                return new VerificationResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Evaluation failed: {ex.Message}"
+                };
+            }
+        }
+
+
+        
     }
 } 

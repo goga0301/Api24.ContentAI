@@ -19,20 +19,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly IAIService _aiService;
         private readonly ILanguageService _languageService;
         private readonly IUserService _userService;
-        private readonly IGptService _gptService;
+        private readonly IGeminiService _geminiService;
         private readonly ILogger<DocumentTranslationService> _logger;
 
         public PdfProcessor(
             IAIService aiService,
             ILanguageService languageService,
             IUserService userService,
-            IGptService gptService,
+            IGeminiService geminiService,
             ILogger<DocumentTranslationService> logger)
         {
             _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
             _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
             _userService = userService ?? throw new ArgumentNullException(nameof(userService));
-            _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
+            _geminiService = geminiService ?? throw new ArgumentNullException(nameof(geminiService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
@@ -145,6 +145,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     }
 
                     // Attempt translation with retry logic for failed sections
+                    // TODO: add new as new endpoint for front end to recover the sections that did not finish translation
+                    // currentry max attempt = 1 so this works only 1 time (no actual retry)
                     var translatedSection = await TranslateSectionWithRetry(base64Data, page.Page, sectionName, targetLanguage.Name, model, cancellationToken);
                     pageTranslations.Add(translatedSection);
                     
@@ -171,7 +173,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _logger.LogInformation("Translation summary: {TranslatedSections}/{TotalSections} sections translated across {PagesWithContent}/{TotalPages} pages", 
                 translatedSections, totalSections, pagesWithContent, translatedPages.Count);
 
-            // Log detailed page statistics
             for (int i = 0; i < translatedPages.Count; i++)
             {
                 var pageSections = translatedPages[i];
@@ -181,7 +182,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     i + 1, nonEmptySections, pageSections.Count, totalPageContentLength);
             }
 
-            // Only fail if absolutely no content was extracted from any page
             if (translatedSections == 0)
             {
                 _logger.LogError("No content could be extracted and translated from any section of the document");
@@ -300,7 +300,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return translationResult;
         }
 
-        private async Task<string> TranslateSectionWithRetry(string base64Data, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, int maxRetries = 3)
+        private async Task<string> TranslateSectionWithRetry(string base64Data, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, int maxRetries = 1)
         {
             Exception lastException = null;
             
@@ -640,7 +640,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             VerificationResult verificationResult;
             try
             {
-                verificationResult = await _gptService.VerifyTranslationBatch(
+                verificationResult = await _geminiService.VerifyTranslationBatch(
                     translationChunksForVerification, cancellationToken);
                     
                 _logger.LogInformation("Translation verification completed. Success: {Success}, Score: {Score}, Verified: {Verified}/{Total}", 
@@ -674,7 +674,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                             
                         _logger.LogInformation("Re-verifying improved translation...");
                         
-                        var improvedVerification = await _gptService.EvaluateTranslationQuality(
+                        var improvedVerification = await _geminiService.EvaluateTranslationQuality(
                             $"Evaluate this translation to {language.Name}:\n\n{improvedTranslation}", 
                             cancellationToken);
                             
@@ -742,7 +742,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     
                 var verificationPrompt = GenerateVerificationPrompt(translatedText, targetLanguage, improvedTranslation);
                     
-                var verificationResult = await _gptService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
+                var verificationResult = await _geminiService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
                     
                 if (verificationResult.Success && verificationResult.Feedback.StartsWith("A|"))
                 {

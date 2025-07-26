@@ -1,4 +1,5 @@
 using Api24ContentAI.Domain.Models;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 
@@ -15,5 +16,6 @@ namespace Api24ContentAI.Domain.Service
         Task CleanupOldJobs();
         Task UpdateReturnedSuggestionIds(string jobId, List<string> returnedSuggestionIds);
         Task<List<TranslationSuggestion>> GetUnreturnedSuggestions(string jobId);
+        Task AttachSuggestions(string jobId, List<TranslationSuggestion> suggestions);
     }
 } 

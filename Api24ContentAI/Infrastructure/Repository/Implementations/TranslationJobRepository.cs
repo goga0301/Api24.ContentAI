@@ -190,5 +190,62 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
                 _logger.LogInformation("Cleaned up {Count} expired translation jobs", expiredJobs.Count);
             }
         }
+
+        public async Task AttachSuggestions(string jobId, List<TranslationSuggestion> suggestions, CancellationToken cancellationToken)
+        {
+            var jobEntity = await _dbContext.TranslationJobs
+                .FirstOrDefaultAsync(j => j.JobId == jobId, cancellationToken);
+
+            if (jobEntity == null)
+            {
+                _logger.LogWarning("Job {JobId} not found when attaching suggestions", jobId);
+                return;
+            }
+
+            var existingSuggestions = new List<TranslationSuggestion>();
+            if (!string.IsNullOrEmpty(jobEntity.Suggestions))
+            {
+                try
+                {
+                    existingSuggestions = JsonSerializer.Deserialize<List<TranslationSuggestion>>(jobEntity.Suggestions) ?? new List<TranslationSuggestion>();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize existing suggestions for job {JobId}", jobId);
+                    existingSuggestions = new List<TranslationSuggestion>();
+                }
+            }
+
+            var validSuggestions = suggestions
+                                    .Where(s =>
+                                            !string.IsNullOrWhiteSpace(s.Title) &&
+                                            !string.IsNullOrWhiteSpace(s.Description) &&
+                                            !string.IsNullOrWhiteSpace(s.OriginalText) &&
+                                            !string.IsNullOrWhiteSpace(s.SuggestedText) &&
+                                            s.Type > 0 &&
+                                            s.Priority > 0)
+                                    .ToList();
+
+            var discardedCount = suggestions.Count - validSuggestions.Count;
+            if (discardedCount > 0)
+            {
+                _logger.LogWarning("Discarded {Count} invalid suggestions for job {JobId}", discardedCount, jobId);
+            }
+
+            if (!validSuggestions.Any())
+            {
+                _logger.LogInformation("No valid suggestions to attach for job {JobId}", jobId);
+                return;
+            }
+
+            existingSuggestions.AddRange(suggestions);
+
+            jobEntity.Suggestions = JsonSerializer.Serialize(existingSuggestions);
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Successfully attached {Count} suggestions to job {JobId}", suggestions.Count, jobId);
+        }
+
     }
 } 
