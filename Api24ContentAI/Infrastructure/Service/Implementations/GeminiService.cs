@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging;
 using System.Linq;
 using System.Net.Http.Json;
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
@@ -76,80 +77,22 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             try
             {
                 EnsureHeaders();
-                
                 _logger.LogDebug("Sending request to Gemini API with {Count} parts", parts.Count);
-                
+
                 var processedParts = await ProcessPartsWithScreenshotService(parts, cancellationToken);
-                
-                bool hasImages = processedParts.Any(p => p.InlineData != null);
-                int totalImageDataSize = processedParts.Where(p => p.InlineData != null)
-                                             .Sum(p => p.InlineData.Data?.Length ?? 0);
-                
-                var request = new GeminiRequest(processedParts);
-                
-                var jsonOptions = new JsonSerializerOptions
-                {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    WriteIndented = false
-                };
-
-                string jsonContent = JsonSerializer.Serialize(request, jsonOptions);
-                _logger.LogDebug("Gemini API request size: {Size} bytes, has images: {HasImages}, total image data: {ImageDataSize}", 
-                    jsonContent.Length, hasImages, totalImageDataSize);
-
+                var request = CreateGeminiRequest(processedParts, out bool hasImages, out int imageDataSize);
+                var jsonContent = SerializeRequest(request, out var jsonSize);
                 var httpContent = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                
-                TimeSpan timeout = DetermineGeminiTimeout(jsonContent.Length, hasImages, totalImageDataSize);
-                
-                using (var timeoutCts = new CancellationTokenSource(timeout))
-                using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token))
-                {
-                    if (hasImages || jsonContent.Length > 500000) // 500KB
-                    {
-                        _logger.LogInformation("Gemini request contains images or is large (Size: {Size} bytes, Images: {HasImages}, Image data: {ImageDataSize}), using extended timeout of {Timeout} seconds", 
-                            jsonContent.Length, hasImages, totalImageDataSize, timeout.TotalSeconds);
-                    }
 
-                    var url = $"v1beta/models/gemini-2.5-flash:generateContent?key={_apiKey}";
-                    var response = await _httpClient.PostAsync(url, httpContent, linkedCts.Token);
+                var timeout = DetermineGeminiTimeout(jsonSize, hasImages, imageDataSize);
 
-                    var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
-                    _logger.LogDebug("Gemini API response: {Response}", responseStr);
+                using var timeoutCts = new CancellationTokenSource(timeout);
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
 
-                    if (!response.IsSuccessStatusCode)
-                    {
-                        _logger.LogError("Gemini API error: {StatusCode} - {Response}", response.StatusCode, responseStr);
-                        throw new Exception($"Gemini API error: {responseStr}");
-                    }
+                LogIfLargeRequest(jsonSize, hasImages, imageDataSize, timeout);
 
-                    var geminiResponse = JsonSerializer.Deserialize<GeminiResponse>(responseStr, jsonOptions);
-                    if (geminiResponse == null)
-                    {
-                        _logger.LogError("Failed to deserialize Gemini response. Raw response: {Response}", responseStr);
-                        throw new Exception("Failed to deserialize Gemini response");
-                    }
-
-                    var content = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
-                    if (string.IsNullOrWhiteSpace(content))
-                    {
-                        _logger.LogWarning("Gemini returned empty or null content. Response structure: Candidates={CandidateCount}", 
-                            geminiResponse.Candidates?.Count ?? 0);
-                        
-                        if (geminiResponse.Candidates?.Any() == true)
-                        {
-                            var candidate = geminiResponse.Candidates.First();
-                            _logger.LogWarning("First candidate details: FinishReason={FinishReason}, ContentParts={ContentParts}", 
-                                candidate.FinishReason ?? "null", 
-                                candidate.Content?.Parts?.Count ?? 0);
-                        }
-                    }
-                    else
-                    {
-                        _logger.LogInformation("Gemini returned content with {Length} characters", content.Length);
-                    }
-
-                    return geminiResponse;
-                }
+                var responseStr = await PostGeminiRequestAsync(httpContent, linkedCts.Token);
+                return ParseGeminiResponse(responseStr);
             }
             catch (OperationCanceledException ex) when (ex.CancellationToken.IsCancellationRequested)
             {
@@ -162,6 +105,96 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new Exception("Error in Gemini integration service: " + ex.Message, ex);
             }
         }
+
+        private GeminiRequest CreateGeminiRequest(List<GeminiPart> parts, out bool hasImages, out int totalImageDataSize)
+        {
+            hasImages = parts.Any(p => p.InlineData != null);
+            totalImageDataSize = parts.Where(p => p.InlineData != null)
+                .Sum(p => p.InlineData.Data?.Length ?? 0);
+            return new GeminiRequest(parts);
+        }
+
+        private string SerializeRequest(GeminiRequest request, out int size)
+        {
+            var jsonOptions = new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                WriteIndented = false
+            };
+
+            var json = JsonSerializer.Serialize(request, jsonOptions);
+            size = json.Length;
+            return json;
+        }
+
+        private void LogIfLargeRequest(int size, bool hasImages, int imageDataSize, TimeSpan timeout)
+        {
+            if (hasImages || size > 500000)
+            {
+                _logger.LogInformation("Gemini request is large (Size: {Size} bytes, Images: {HasImages}, Image data: {ImageDataSize}). Timeout: {Timeout} seconds",
+                        size, hasImages, imageDataSize, timeout.TotalSeconds);
+            }
+        }
+
+        private async Task<string> PostGeminiRequestAsync(HttpContent httpContent, CancellationToken cancellationToken)
+        {
+            var url = $"v1beta/models/gemini-2.5-flash:generateContent?key={_apiKey}";
+            _logger.LogInformation("Sending HTTP request to Gemini API at {Url}", url);
+
+            var stopwatch = Stopwatch.StartNew();
+            var response = await _httpClient.PostAsync(url, httpContent, cancellationToken);
+            stopwatch.Stop();
+
+            _logger.LogInformation("Received response from Gemini API in {Elapsed}ms", stopwatch.ElapsedMilliseconds);
+
+            var responseStr = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Gemini API error: {StatusCode} - {Response}", response.StatusCode, responseStr);
+                throw new Exception($"Gemini API error: {responseStr}");
+            }
+
+            return responseStr;
+        }
+
+        private GeminiResponse ParseGeminiResponse(string responseStr)
+        {
+            var options = new JsonSerializerOptions
+            {
+                DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                WriteIndented = false
+            };
+
+            var geminiResponse = JsonSerializer.Deserialize<GeminiResponse>(responseStr, options);
+
+            if (geminiResponse == null)
+            {
+                _logger.LogError("Failed to deserialize Gemini response. Raw response: {Response}", responseStr);
+                throw new Exception("Failed to deserialize Gemini response");
+            }
+
+            var content = geminiResponse.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                _logger.LogWarning("Gemini returned empty or null content. Candidates={Count}",
+                        geminiResponse.Candidates?.Count ?? 0);
+
+                if (geminiResponse.Candidates?.Any() == true)
+                {
+                    var candidate = geminiResponse.Candidates.First();
+                    _logger.LogWarning("First candidate details: FinishReason={FinishReason}, ContentParts={PartsCount}",
+                            candidate.FinishReason ?? "null", candidate.Content?.Parts?.Count ?? 0);
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Gemini returned content with {Length} characters", content.Length);
+            }
+
+            return geminiResponse;
+        }
+
 
         private async Task<List<GeminiPart>> ProcessPartsWithScreenshotService(List<GeminiPart> parts, CancellationToken cancellationToken)
         {
