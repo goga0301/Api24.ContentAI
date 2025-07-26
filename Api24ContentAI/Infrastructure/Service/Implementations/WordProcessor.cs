@@ -14,21 +14,24 @@ using Microsoft.Extensions.Logging;
 
 namespace Api24ContentAI.Infrastructure.Service.Implementations;
 
-public class WordProcessor(
-    IAIService aiService,
-    ILanguageService languageService, 
-    IUserService userService, 
-    IGptService gptService,
-    ILogger<DocumentTranslationService> logger
-) : IWordProcessor
+public class WordProcessor : IWordProcessor
 {
-    
-    private readonly IAIService _aiService = aiService ?? throw new ArgumentNullException(nameof(aiService));
-    private readonly ILanguageService _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
-    private readonly IUserService _userService = userService ?? throw new ArgumentNullException(nameof(userService));
-    private readonly IGptService _gptService = gptService ?? throw new ArgumentNullException(nameof(gptService));
-    private readonly ILogger<DocumentTranslationService> _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-    
+
+    private readonly IAIService _aiService;
+    private readonly ILanguageService _languageService ;
+    private readonly IUserService _userService ;
+    private readonly IGeminiService _geminiService  ;  
+    private readonly ILogger<DocumentTranslationService> _logger;   
+
+    public WordProcessor(IAIService aIService, ILanguageService languageService, IUserService userService,
+            IGeminiService geminiService, ILogger<DocumentTranslationService> logger){
+        this._aiService = aIService;
+        this._languageService = languageService;
+        this._userService = userService;
+        this._geminiService = geminiService;
+        this._logger = logger;
+    }
+
     public bool CanProcess(string fileExtension)
     {
         if (string.IsNullOrWhiteSpace(fileExtension))
@@ -113,6 +116,7 @@ public class WordProcessor(
                     }
 
                     // Use retry mechanism for failed sections
+                    // this will also be changed to only use 1 attempt
                     var translatedSection = await TranslateWordSectionWithRetry(base64Data, page.Page, sectionName, targetLanguage.Name, model, cancellationToken, page.Text);
                     pageTranslations.Add(translatedSection ?? string.Empty);
                     
@@ -430,7 +434,7 @@ public class WordProcessor(
 
             _logger.LogInformation("Starting translation verification for {Count} chunks", translationChunks.Count);
 
-            var verificationResult = await _gptService.VerifyTranslationBatch(
+            var verificationResult = await _geminiService.VerifyTranslationBatch(
                 translationChunks, cancellationToken);
                     
             _logger.LogInformation("Translation verification completed. Success: {Success}, Score: {Score}, Verified: {Verified}/{Total}", 
@@ -452,19 +456,19 @@ public class WordProcessor(
                 verificationResult.QualityScore < 0.8 && 
                 !string.IsNullOrEmpty(verificationResult.Feedback))
             {
-                _logger.LogInformation("GPT suggested improvements: {Feedback}", verificationResult.Feedback);
+                _logger.LogInformation("Gemini suggested improvements: {Feedback}", verificationResult.Feedback);
                         
                 string improvedTranslation = await ImproveTranslationWithFeedback(
                     originalTranslation, targetLanguage.Name, verificationResult.Feedback, cancellationToken);
                         
                 if (!string.IsNullOrEmpty(improvedTranslation))
                 {
-                    _logger.LogInformation("Applied GPT's suggestions to improve translation");
+                    _logger.LogInformation("Applied Gemini's suggestions to improve translation");
                     originalTranslation = improvedTranslation;
                             
                     _logger.LogInformation("Re-verifying improved translation...");
                         
-                    var improvedVerification = await _gptService.EvaluateTranslationQuality(
+                    var improvedVerification = await _geminiService.EvaluateTranslationQuality(
                         $"Evaluate this translation to {targetLanguage.Name}:\n\n{improvedTranslation}", 
                         cancellationToken);
                             
@@ -547,7 +551,7 @@ public class WordProcessor(
                 
             var verificationPrompt = GenerateVerificationPrompt(translatedText, targetLanguage, improvedTranslation);
                     
-            var verificationResult = await _gptService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
+            var verificationResult = await _geminiService.EvaluateTranslationQuality(verificationPrompt, cancellationToken);
                     
             if (verificationResult.Success && verificationResult.Feedback.StartsWith("A|"))
             {
@@ -951,7 +955,9 @@ public class WordProcessor(
                 * Bullet points and numbered lists
                 * Table content if present
                 * Any captions or annotations
+                
                 2.  **Translate**: Translate the entire extracted text into **{targetLanguageName}**.
+
                 3.  **Format as HTML**: Present the translated content using **strict HTML tags only**. Markdown is prohibited.
                 * Headings: Use `<h1>`, `<h2>`, `<h3>`, etc. (e.g., `<h1>Main Heading</h1>`, `<h2>Subheading</h2>`).
                 * Lists: Use `<ul>`, `<ol>`, with `<li>` - **Use bullet lists when content naturally fits list format**.
@@ -959,9 +965,12 @@ public class WordProcessor(
                 * Tables: Use `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`.
                 * Separators: Use `<hr />` to logically separate distinct content sections where appropriate.
                 * Code/Technical Blocks: Use `<pre>`, `<code>` for code snippets or highly structured technical content.
+                * **CRITICAL**: Use **inline CSS styles** (e.g., `style="font-size:14px; margin-left:20px"`) to reflect the original layout, alignment, font sizes, and spacing seen in the Word document.
+                
                 4.  **Preserve Original Data**:
                 * Keep all numbers, dates, and specific codes exactly as they appear in the original, or transliterate them appropriately if they are part of a sentence structure that requires it in {targetLanguageName}.
                 * Maintain any special formatting cues visible in the Word document (indentation, spacing).
+                
                 5.  **CRITICAL - Non-Translation Rules**:
                 * **DO NOT TRANSLATE** the following items:
                 * Technical identifiers, model numbers, part numbers.
@@ -970,10 +979,12 @@ public class WordProcessor(
                 * Reference numbers.
                 * **EMAIL ADDRESSES** - Never translate email addresses, keep them exactly as they appear.
                 * These items must be preserved in their original form.
+                
                 6.  **Proper Nouns and Human Names**: 
                 **HUMAN NAMES**: When encountering human names (first names, last names, full names), always use TRANSLITERATION rather than translation - convert the name to {targetLanguageName} script/alphabet while preserving the original pronunciation.
                 Examples: "John Smith" → transliterate to {targetLanguageName} script, "María González" → transliterate to {targetLanguageName} script
                 Transliterate other proper nouns (organizations, specific places) according to standard {targetLanguageName} conventions if a common translation doesn't exist.
+                
                 7.  **Word Document Structure**: Pay special attention to Word-specific elements:
                 * Document titles and subtitles
                 * Section breaks and page breaks
@@ -991,59 +1002,31 @@ public class WordProcessor(
     private static string GenerateVerificationPrompt(string targetLanguage, string translatedText)
     {
         return $"""
-                You are a professional translation quality reviewer.
+            You are a professional translation quality reviewer.
 
-                **Task**: Review and improve the following {targetLanguage} translation.
+            **Task**: Review and improve the following {targetLanguage} translation.
 
-                **Review Guidelines**:
-                1. Check for grammatical accuracy and natural flow
-                2. Ensure technical terms are handled correctly
-                3. Verify that formatting and structure are preserved
-                4. Improve clarity and readability while maintaining meaning
-                5. Keep all codes, standards, reference numbers, and email addresses unchanged
-                6. Maintain professional document tone
+            **Review Guidelines**:
+            1. Check for grammatical accuracy and natural flow.
+            2. Ensure technical terms are handled correctly.
+            3. Verify that formatting, structure, and inline CSS styles (used for original layout, font sizes, spacing, and alignment) are preserved.
+            4. Improve clarity and readability while maintaining meaning.
+            5. Keep all codes, standards, reference numbers, email addresses, and inline CSS styles unchanged.
+            6. Maintain professional document tone.
 
-                **Translation to review**:
+            **Translation to review**:
 
-                {translatedText}
+            {translatedText}
 
-                **CRITICAL OUTPUT REQUIREMENTS:**
-                - Provide ONLY the improved translation in {targetLanguage}
-                - Format ONLY in HTML using strict HTML tags
-                - Do NOT include explanations, comments, or reasoning
-                - Do NOT include phrases like "Improved translation:", "Here is:", etc.
-                - Start your response directly with the improved translated content
-                """;
+            **CRITICAL OUTPUT REQUIREMENTS:**
+            - Provide ONLY the improved translation in {targetLanguage}.
+            - Format ONLY in HTML using strict HTML tags and preserve all inline CSS styles.
+            - Do NOT include explanations, comments, or reasoning.
+            - Do NOT include phrases like "Improved translation:", "Here is:", etc.
+            - Start your response directly with the improved translated content.
+            """;
     }
 
-
-    private static string GenerateGptVerificationPrompt(string targetLanguage, string translatedText)
-    {
-        return $"""
-                You are an expert translation quality reviewer.
-
-                **Task**: Review and improve the following {targetLanguage} translation.
-
-                **Review Guidelines**:
-                1. Check for grammatical accuracy and natural flow
-                2. Ensure technical terms are handled correctly
-                3. Verify that formatting and structure are preserved
-                4. Improve clarity and readability while maintaining meaning
-                5. Keep all codes, standards, reference numbers, and email addresses unchanged
-                6. Maintain professional document tone
-
-                **Translation to review**:
-
-                {translatedText}
-
-                **CRITICAL OUTPUT REQUIREMENTS:**
-                - Provide ONLY the improved translation in {targetLanguage}
-                - Format ONLY in HTML using strict HTML tags
-                - Do NOT include any explanations, comments, or reasoning
-                - Do NOT include phrases like "Improved translation:", "Here is:", etc.
-                - Start your response directly with the improved translated content
-                """;
-    }
 
     private static string GenerateWordDocumentCombinationPrompt(string targetLanguageName, string sectionsToCompine)
     {
@@ -1059,6 +1042,7 @@ public class WordProcessor(
                 4. **REMOVE LABELS**: Strip all "PAGE X - SECTION Y" markers from the final output
                 5. **PRESERVE HIERARCHY**: Maintain heading levels and document structure
                 6. **SEAMLESS TRANSITIONS**: Create natural flow between pages without gaps or redundancy
+                7. **PRESERVE INLINE CSS STYLES**: Keep all inline CSS intact to maintain original formatting, layout, spacing, fonts, and alignment.
 
                 **DUPLICATE CONTENT ELIMINATION**:
                 - **CRITICAL**: Remove any duplicate sentences, paragraphs, or content blocks
@@ -1127,6 +1111,7 @@ public class WordProcessor(
                 - Maintain technical accuracy and preserve all codes/references
                 - Fix any grammatical issues or unclear passages
                 - Ensure proper paragraph breaks and spacing
+                - Preserve all **inline CSS styles** to maintain original formatting, layout, fonts, spacing, and alignment
 
                 **STRUCTURE VERIFICATION**:
                 - Title/header should be at the beginning
@@ -1144,6 +1129,7 @@ public class WordProcessor(
                 - Format ONLY in clean, publication-ready HTML using strict HTML tags
                 - Ensure the document reads as a single, cohesive piece
                 - **GUARANTEE NO DUPLICATE CONTENT** - every sentence must be unique
+                - Preserve **all inline CSS** to retain original document’s visual fidelity
                 - Do NOT include explanations, comments, or editing notes
                 - Do NOT add phrases like "Final document:", "Here is:", "Edited version:", etc.
                 - Start immediately with the document title/content
@@ -1152,29 +1138,29 @@ public class WordProcessor(
                 """;
     }
 
-        private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
+    private static string GenerateImprovedTranslationPrompt(string translatedText, string targetLanguage, string feedback)
     {
         return $"""
-                You are a translation system. Your task is to improve the translation.
+            You are a translation system. Your task is to improve the translation.
 
-                **Rules:**
-                1. Address feedback points
-                2. Keep technical terms and email addresses unchanged
-                3. Maintain structure
-                4. Format as HTML using strict HTML tags
+            **Rules:**
+            1. Address feedback points
+            2. Keep technical terms and email addresses unchanged
+            3. Maintain structure and preserve all inline CSS styles for original formatting
+            4. Format as HTML using strict HTML tags
 
-                **Output:**
-                - ONLY the improved text in {targetLanguage}
-                - NO explanations or comments
-                - NO prefixes like "Improved translation:" or "Here is:"
-                - Start directly with the improved content
+            **Output:**
+            - ONLY the improved text in {targetLanguage}
+        - NO explanations or comments
+            - NO prefixes like "Improved translation:" or "Here is:"
+            - Start directly with the improved content
 
-                **Original:**
-                {translatedText}
+            **Original:**
+            {translatedText}
 
-                **Feedback:**
-                {feedback}
-                """;
+        **Feedback:**
+        {feedback}
+        """;
     }
 
     private static string GenerateVerificationPrompt(string originalText, string targetLanguage, string improvedText)
@@ -1207,7 +1193,7 @@ public class WordProcessor(
                 """;
     } 
 
-    private async Task<string> TranslateWordSectionWithRetry(string base64Data, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, string extractedText = null, int maxRetries = 3)
+    private async Task<string> TranslateWordSectionWithRetry(string base64Data, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, string extractedText = null, int maxRetries = 1)
     {
         Exception lastException = null;
         

@@ -662,14 +662,14 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     verificationResult.QualityScore < 0.8 && 
                     !string.IsNullOrEmpty(verificationResult.Feedback))
                 {
-                    _logger.LogInformation("GPT suggested improvements: {Feedback}", verificationResult.Feedback);
+                    _logger.LogInformation("Gemini suggested improvements: {Feedback}", verificationResult.Feedback);
                         
                     string improvedTranslation = await ImproveTranslationWithFeedback(
                         translatedText, language.Name, verificationResult.Feedback, model, cancellationToken);
                         
                     if (!string.IsNullOrEmpty(improvedTranslation))
                     {
-                        _logger.LogInformation("Applied GPT's suggestions to improve translation");
+                        _logger.LogInformation("Applied Gemini's suggestions to improve translation");
                         translatedText = improvedTranslation;
                             
                         _logger.LogInformation("Re-verifying improved translation...");
@@ -699,7 +699,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         {
             try
             {
-                _logger.LogInformation("Attempting to improve translation based on GPT feedback");
+                _logger.LogInformation("Attempting to improve translation based on Gemini feedback");
                 
                 var prompt = GenerateImprovedTranslationPrompt(translatedText, targetLanguage, feedback);
                 
@@ -1117,7 +1117,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 1. Extract all visible text accurately
                 2. Translate everything to {targetLanguageName}
-            3. Format the output as clean HTML using only these tags: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
+                3. Format the output as clean HTML using only these tags: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
+                    - **Use inline CSS styles in each element to preserve original formatting, spacing, and layout where applicable**
 
                 Important rules:
                 - Translate ALL text content including headers, labels, contact information, and descriptions
@@ -1170,6 +1171,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - Tables: `<table>`, `<thead>`, `<tbody>`, `<tr>`, `<th>`, `<td>`
                 - Separators: `<hr />` for distinct section breaks
                 - Code/Technical blocks: `<pre>`, `<code>`
+                    - **Use inline CSS styles in all HTML elements to retain original formatting, alignment, spacing, and layout**
 
                 4. <Preserve Original Data>
                 Keep all numbers, dates, and codes (except technical standards) exactly as in the source or transliterate them suitably for {targetLanguageName}.
@@ -1213,6 +1215,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - Combine overlapping content smoothly
                 - Keep all unique information
                 - Maintain HTML formatting
+                - **Use inline CSS styles to preserve layout, font styles, spacing, and structure exactly as in the original document**
                 - Output only the combined text
                 - Do not add explanatory comments
 
@@ -1233,6 +1236,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     - Remove PAGE markers from final output
                     - Combine any overlapping content between pages
                     - Maintain HTML formatting
+                    - **Use inline CSS to preserve layout, styles, fonts, spacing, and structure as close to the original as possible**
                     - Output only the complete document
                     - Do not add explanatory text
 
@@ -1265,6 +1269,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     2. <Terminology Consistency>: Is domain-specific or repeated vocabulary used consistently and appropriately?
                     3. <Completeness>: Are all elements of the presumed source text fully conveyed, with no omissions or unjustified additions?
                     4. <Accuracy and Fidelity>: Which version better preserves the meaning, nuance, and intent of the original text?
+                    5. <Formatting and Structure>: Which version better maintains proper document structure and formatting?
+
+                    - **Formatting must use strict HTML**
+                    - **Inline CSS must be used to preserve layout, styling, and structure as close to the source as possible**
 
                     <response_instructions>
                     Provide your final decision in the format: <A or B>|<one-sentence rationale>
@@ -1277,7 +1285,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ";
         }
 
-                private static string GenerateTranslationPrompt(LanguageModel language, int i, List<string> chunks, string chunk)
+        private static string GenerateTranslationPrompt(LanguageModel language, int i, List<string> chunks, string chunk)
         {
             return $@"
                 <role>
@@ -1307,135 +1315,136 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 </content_translation>
 
                 <preservation_rules>
-                    <non_translatable_elements>
-                        The following elements must remain EXACTLY as they appear in the source text:
-                        - Technical identifiers (part numbers, model numbers, serial numbers)
-                        - Official standards and certifications (ISO 9001, ДСТУ Б В.2.7-170:2008, EN standards, etc.)
-                        - Specific codes and reference numbers (EAN codes, НААУ, ДФРПОУ, etc.)
-                        - Mathematical formulas and equations
-                        - Chemical formulas and scientific notation
-                        - URLs, email addresses, and web links
-                        - **EMAIL ADDRESSES** - NEVER translate email addresses, keep them exactly as they appear
-                        - Timestamps and date formats that follow specific standards
-                        - Currency symbols and monetary amounts (preserve original format)
-                        - Measurement units and their abbreviations
-                        - Brand names and trademarked terms
-                        - Legal document reference numbers
-                    </non_translatable_elements>
+                <non_translatable_elements>
+                The following elements must remain EXACTLY as they appear in the source text:
+                - Technical identifiers (part numbers, model numbers, serial numbers)
+                - Official standards and certifications (ISO 9001, ДСТУ Б В.2.7-170:2008, EN standards, etc.)
+                - Specific codes and reference numbers (EAN codes, НААУ, ДФРПОУ, etc.)
+                - Mathematical formulas and equations
+                - Chemical formulas and scientific notation
+                - URLs, email addresses, and web links
+                - **EMAIL ADDRESSES** - NEVER translate email addresses, keep them exactly as they appear
+                - Timestamps and date formats that follow specific standards
+                - Currency symbols and monetary amounts (preserve original format)
+                - Measurement units and their abbreviations
+                - Brand names and trademarked terms
+                - Legal document reference numbers
+                </non_translatable_elements>
 
                 <contact_information_rules>
-                    For contact information and business details:
-                    - Company names and brand names: Keep in original language
-                    - Email addresses and URLs: Keep exactly as shown - NEVER TRANSLATE EMAIL ADDRESSES
-                    - Phone/fax numbers: Keep numbers as shown
-                    - Street addresses: Translate descriptive parts (Street, Avenue, Building, etc.) but keep proper nouns
-                    - Contact labels: MUST translate labels like ""Phone"", ""Fax"", ""Email"", ""Website"", ""Address"" into {language.Name}
-                    - Certification listings: Keep certification names (ISO 9001, CE, etc.) but translate descriptive text
-                    - Signatures and titles: MUST translate personal titles and roles into {language.Name}
-                </contact_information_rules>
+                For contact information and business details:
+                - Company names and brand names: Keep in original language
+                - Email addresses and URLs: Keep exactly as shown - NEVER TRANSLATE EMAIL ADDRESSES
+                - Phone/fax numbers: Keep numbers as shown
+                - Street addresses: Translate descriptive parts (Street, Avenue, Building, etc.) but keep proper nouns
+                - Contact labels: MUST translate labels like ""Phone"", ""Fax"", ""Email"", ""Website"", ""Address"" into {language.Name}
+                - Certification listings: Keep certification names (ISO 9001, CE, etc.) but translate descriptive text
+                - Signatures and titles: MUST translate personal titles and roles into {language.Name}
+            </contact_information_rules>
 
-                    <data_integrity>
-                        - Preserve all numbers, dates, and numerical data in their original form
-                        - Maintain original punctuation for technical data
-                        - Keep decimal separators and number formatting as in source
-                        - Preserve mathematical and scientific notation exactly
-                        - Maintain original capitalization for codes and identifiers
-                        - Transliterate proper names according to established {language.Name} conventions
-                        - For organization names, use officially accepted translations if they exist, otherwise transliterate
-                        - For geographic locations, use standard {language.Name} place names
-                    </data_integrity>
+                <data_integrity>
+                - Preserve all numbers, dates, and numerical data in their original form
+                - Maintain original punctuation for technical data
+                - Keep decimal separators and number formatting as in source
+                - Preserve mathematical and scientific notation exactly
+                - Maintain original capitalization for codes and identifiers
+                - Transliterate proper names according to established {language.Name} conventions
+                - For organization names, use officially accepted translations if they exist, otherwise transliterate
+                - For geographic locations, use standard {language.Name} place names
+                </data_integrity>
                 </preservation_rules>
 
                 <ocr_processing>
-                    <error_detection>
-                        - Identify and correct common OCR errors such as:
-                        * Character substitutions (0/O, 1/l/I, rn/m, etc.)
-                        * Garbled or corrupted characters
-                        * Incorrect spacing or word breaks
-                        * Missing or extra punctuation
-                        * Misaligned text fragments
-                        - When uncertain about OCR corrections, prioritize faithful transcription over guessing
-                        - Preserve intentional formatting even if it appears irregular
-                        - Maintain original spacing for technical diagrams or formatted data
-                    </error_detection>
+                <error_detection>
+                - Identify and correct common OCR errors such as:
+                * Character substitutions (0/O, 1/l/I, rn/m, etc.)
+                * Garbled or corrupted characters
+                * Incorrect spacing or word breaks
+                * Missing or extra punctuation
+                * Misaligned text fragments
+                - When uncertain about OCR corrections, prioritize faithful transcription over guessing
+                - Preserve intentional formatting even if it appears irregular
+                - Maintain original spacing for technical diagrams or formatted data
+                </error_detection>
                 </ocr_processing>
 
                 <structural_formatting>
-                    <html_requirements>
-                        You must format the translated text using ONLY HTML tags. Do NOT use any Markdown formatting under any circumstances.
+                <html_requirements>
+                You must format the translated text using ONLY HTML tags. Do NOT use any Markdown formatting under any circumstances.
 
-                        Available HTML elements:
-                        - Headings: <h1>, <h2>, <h3>, <h4>, <h5>, <h6>
-                        - Paragraphs: <p>
-                        - Lists: <ul> (unordered), <ol> (ordered) with <li> items - **Use bullet lists when content naturally fits list format**
-                        - Tables: <table>, <thead>, <tbody>, <tr>, <th>, <td>
-                        - Code/preformatted: <pre>, <code>
-                        - Line breaks: <br />
-                        - Horizontal rules: <hr />
-                        - Text formatting: <strong>, <em>, <u> (use sparingly, only when clearly indicated)
-                        - Divisions: <div> (for complex layouts when necessary)
-                    </html_requirements>
+                Available HTML elements:
+                - Headings: <h1>, <h2>, <h3>, <h4>, <h5>, <h6>
+                - Paragraphs: <p>
+                - Lists: <ul> (unordered), <ol> (ordered) with <li> items - **Use bullet lists when content naturally fits list format**
+                - Tables: <table>, <thead>, <tbody>, <tr>, <th>, <td>
+                - Code/preformatted: <pre>, <code>
+                - Line breaks: <br />
+                - Horizontal rules: <hr />
+                - Text formatting: <strong>, <em>, <u> (use sparingly, only when clearly indicated)
+                - Divisions: <div> (for complex layouts when necessary)
+                **CRITICAL**: Use **inline CSS styles** within HTML tags to preserve the **original layout, font sizing, text alignment, color, spacing, indentation, and other visible formatting** exactly as it appeared in the source.
+                </html_requirements>
 
-                    <header_application_rules>
-                        Apply header tags (<h1>, <h2>, <h3>, etc.) ONLY when the source text explicitly demonstrates hierarchical structure through:
-                        - Clear section titles or chapter headings
-                        - Numbered sections (1., 2., 3. or I., II., III.)
-                        - Visually distinct headings in the original layout
-                        - Text that serves as a title or subtitle for following content
+                <header_application_rules>
+                Apply header tags (<h1>, <h2>, <h3>, etc.) ONLY when the source text explicitly demonstrates hierarchical structure through:
+                - Clear section titles or chapter headings
+                - Numbered sections (1., 2., 3. or I., II., III.)
+                - Visually distinct headings in the original layout
+                - Text that serves as a title or subtitle for following content
 
-                        DO NOT apply header tags to:
-                        - Regular paragraphs or sentences
-                        - Text that is simply bold or emphasized
-                        - List items or bullet points
-                        - Table headers (use <th> instead)
-                        - Captions or labels
+                DO NOT apply header tags to:
+                - Regular paragraphs or sentences
+                - Text that is simply bold or emphasized
+                - List items or bullet points
+                - Table headers (use <th> instead)
+                - Captions or labels
 
-                        When in doubt, use <p> tags instead of headers.
-                    </header_application_rules>
+                When in doubt, use <p> tags instead of headers.
+                </header_application_rules>
 
-                    <layout_preservation>
-                        - Reproduce the exact visual hierarchy and structure from the source
-                        - Maintain paragraph breaks exactly as they appear
-                        - Preserve meaningful line breaks within content using <br />
-                        - Maintain the sequence and order of all sections
-                        - Keep table structures intact with proper HTML table formatting
-                        - Preserve list formatting and indentation levels
-                        - Maintain spacing between sections using appropriate HTML elements
-                        - Ensure consistent formatting throughout the document
-                    </layout_preservation>
+                <layout_preservation>
+                - Reproduce the exact visual hierarchy and structure from the source
+                - Maintain paragraph breaks exactly as they appear
+                - Preserve meaningful line breaks within content using <br />
+                - Maintain the sequence and order of all sections
+                - Keep table structures intact with proper HTML table formatting
+                - Preserve list formatting and indentation levels
+                - Maintain spacing between sections using appropriate HTML elements
+                - Ensure consistent formatting throughout the document
+                </layout_preservation>
 
-                    <table_formatting>
-                        When encountering tabular data:
-                        - Use proper HTML table structure with <table>, <thead>, <tbody>
-                        - Apply <th> tags for header cells
-                        - Use <td> for data cells
-                        - Preserve column alignment and structure
-                        - Maintain row and column spans if present
-                        - Translate table content while preserving table structure
-                    </table_formatting>
+                <table_formatting>
+                When encountering tabular data:
+                - Use proper HTML table structure with <table>, <thead>, <tbody>
+                - Apply <th> tags for header cells
+                - Use <td> for data cells
+                - Preserve column alignment and structure
+                - Maintain row and column spans if present
+                - Translate table content while preserving table structure
+                </table_formatting>
                 </structural_formatting>
 
                 <quality_assurance>
-                    - Ensure all HTML tags are properly nested and closed
-                    - Validate that the output is clean, valid HTML
-                    - Check that no content has been accidentally omitted
-                    - Verify that the translation maintains professional quality
-                    - Confirm that technical terms are accurately translated
-                    - Ensure consistent formatting throughout the output
+                - Ensure all HTML tags are properly nested and closed
+                - Validate that the output is clean, valid HTML
+                - Check that no content has been accidentally omitted
+                - Verify that the translation maintains professional quality
+                - Confirm that technical terms are accurately translated
+                - Ensure consistent formatting throughout the output
                 </quality_assurance>
 
                 <output_constraints>
-                    - Your response must contain ONLY the final translated HTML content
-                    - Do NOT include any explanations, comments, or meta-commentary
-                    - Do NOT include the original text or show translation comparisons
-                    - Do NOT add any English text or annotations
-                    - Do NOT use any Markdown formatting
-                    - Begin your response immediately with the translated HTML content
-                    - End your response immediately after the last HTML tag
+                - Your response must contain ONLY the final translated HTML content
+                - Do NOT include any explanations, comments, or meta-commentary
+                - Do NOT include the original text or show translation comparisons
+                - Do NOT add any English text or annotations
+                - Do NOT use any Markdown formatting
+                - Begin your response immediately with the translated HTML content
+                - End your response immediately after the last HTML tag
                 </output_constraints>
 
                 <source_text>
-                    {chunk}
+                {chunk}
                 </source_text>
 
                 Translate the above text following all instructions precisely:";
@@ -1470,6 +1479,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         - DO NOT include intros, explanations, apologies, or change summaries.
                         - Format all output using strict HTML tags ONLY. No Markdown or other markup allowed.
                         - Use HTML elements to represent structure (e.g., `<p>`, `<h1>`, `<ul>`, `<li>`, `<table>`, `<pre>`, `<br>`, `<hr>`).
+                        - **Apply inline CSS styles** inside HTML tags to faithfully preserve original formatting such as:
+                            * Font size and weight
+                            * Color
+                            * Spacing and indentation
+                            * Alignment
+                            * Visible layout positioning
                         - Ensure clean, valid HTML with proper nesting and no inline styles.
                     </instructions>
 
@@ -1512,6 +1527,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                     5. <Maintain HTML Formatting>
                     Preserve and consistently apply all HTML formatting present in the chunks (headings <h1>–<h6>, lists <ul>, <ol> - use bullet lists when appropriate, tables <table>, emphasis <strong>, <em>, etc.).
+                    - Use inline CSS styles to accurately reflect original formatting, including:
+                        * Text alignment
+                        * Font size and weight
+                        * Line spacing
+                        * Indentation
+                        * Color
+                        * Layout positioning
 
                     6. <Content Fidelity>
                     Do NOT add any new content or information beyond what exists in the provided sections.
@@ -1523,6 +1545,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 <output_requirements>
                     - Return ONLY the final, seamlessly combined document.
                     - The output must be in {targetLanguageName}, formatted strictly in clean, valid HTML.
+                    - Apply inline CSS styles to preserve original visual structure.
                     - Absolutely NO explanations, notes, or comments.
                 </output_requirements>
 
@@ -1560,6 +1583,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                     3. <Preserve Structure and Formatting>
                        Maintain the original structure (headings, paragraphs, lists, tables) and all HTML formatting present in the sections.
+                       - **Apply inline CSS styles** where needed to reflect original visual formatting, such as:
+                           * Text alignment
+                           * Font weight and size
+                           * Indentation and spacing
+                           * Layout structure
+                           * Line breaks and color (if relevant)
 
                     4. <Content Fidelity>
                        Do NOT add any new content or information. The output should only be the combined text.
@@ -1568,6 +1597,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 <output_requirements>
                     - Return ONLY the final, seamlessly combined text.
                     - The output must be in {targetLanguageName}, formatted strictly in clean, valid HTML.
+                    - Apply inline CSS where appropriate to preserve original layout fidelity.
                     - Absolutely NO explanations, notes, or comments.
                 </output_requirements>
 
