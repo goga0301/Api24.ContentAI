@@ -349,89 +349,312 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task<TranslateResponse> ChunkedTranslate(UserTranslateRequestWithChunks request, string userId, CancellationToken cancellationToken)
+        public async Task<TranslateResponse> ChunkedTranslate(
+                UserTranslateRequestWithChunks request, 
+                string userId, 
+                CancellationToken cancellationToken)
         {
             _logger.LogInformation("Starting translation request for user {UserId}", userId);
-            
+
+            ValidateRequest(request);
+
+            var user = await GetUserOrThrowAsync(userId, cancellationToken);
+
+            var textToTranslate = request.UserText;
+            decimal requestPrice = CalculateRequestPrice(textToTranslate.Length);
+
+            EnsureUserHasBalance(user, requestPrice);
+
+            var (sourceLanguage, targetLanguage) = await GetLanguagesAsync(request, cancellationToken);
+
+            _logger.LogInformation("Translating {Length} characters from {Source} to {Target}",
+                    textToTranslate.Length, sourceLanguage.Name, targetLanguage.Name);
+
+            var chunks = GetChunksOfLargeText(textToTranslate);
+            var translatedText = await TranslateChunksAsync(chunks, targetLanguage.Name, sourceLanguage.Name, cancellationToken);
+
+            _logger.LogInformation("Translation completed, final length: {Length} characters", translatedText.Length);
+
+            var response = new TranslateResponse { Text = translatedText };
+
+            await LogRequestAsync(userId, request, response, cancellationToken);
+            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
+
+            return response;
+        }
+
+        private void ValidateRequest(UserTranslateRequestWithChunks request)
+        {
             if (string.IsNullOrWhiteSpace(request.UserText))
             {
                 _logger.LogWarning("No text provided for translation");
                 throw new Exception("No text to translate. Please provide text in the description field.");
             }
-            
+        }
+
+        private async Task<User> GetUserOrThrowAsync(string userId, CancellationToken cancellationToken)
+        {
             var user = await _userRepository.GetById(userId, cancellationToken);
             if (user == null)
             {
                 _logger.LogWarning("User {UserId} not found", userId);
                 throw new Exception("User not found");
             }
-            
-            string textToTranslate = request.UserText;
-            
-            decimal requestPrice = GetRequestPrice(RequestType.Translate) * 
-                                   ((textToTranslate.Length / 250) + (textToTranslate.Length % 250 == 0 ? 0 : 1));
-            
-            if (user.UserBalance.Balance < requestPrice)
+            return user;
+        }
+
+        private decimal CalculateRequestPrice(int textLength)
+        {
+            int chunksCount = (textLength / 250) + (textLength % 250 == 0 ? 0 : 1);
+            return GetRequestPrice(RequestType.Translate) * chunksCount;
+        }
+
+        private void EnsureUserHasBalance(User user, decimal price)
+        {
+            if (user.UserBalance.Balance < price)
             {
-                _logger.LogWarning("Insufficient balance for user {UserId}. Required: {Price}, Available: {Balance}", 
-                    userId, requestPrice, user.UserBalance.Balance);
+                _logger.LogWarning("Insufficient balance for user {UserId}. Required: {Price}, Available: {Balance}",
+                        user.Id, price, user.UserBalance.Balance);
                 throw new Exception("ბალანსი არ არის საკმარისი მოთხოვნის დასამუშავებლად!!!");
             }
-            
+        }
+
+        private async Task<(LanguageModel sourceLanguage, LanguageModel targetLanguage)> GetLanguagesAsync(
+                UserTranslateRequestWithChunks request, CancellationToken cancellationToken)
+        {
             var targetLanguage = await _languageService.GetById(request.LanguageId, cancellationToken);
             var sourceLanguage = await _languageService.GetById(request.SourceLanguageId, cancellationToken);
-            
-            _logger.LogInformation("Translating {Length} characters from {SourceLanguage} to {TargetLanguage}", 
-                textToTranslate.Length, sourceLanguage.Name, targetLanguage.Name);
-            
-            var chunks = GetChunksOfLargeText(textToTranslate);
-            StringBuilder translatedText = new();
-            List<Task<KeyValuePair<int, string>>> tasks = [];
-            
-            for (var i = 0; i < chunks.Count; i++)
+
+            return (sourceLanguage, targetLanguage);
+        }
+
+        private static readonly string[] ClaudeErrorIndicators = new[]
+        {
+            "I apologize", "I'm sorry", "don't see any image"
+        };
+
+        private async Task<KeyValuePair<int, string>> TranslateTextAsync(
+                int order,
+                string text,
+                string targetLanguage,
+                string sourceLanguage,
+                CancellationToken cancellationToken)
+        {
+            const int maxAttempts = 3;
+            int attempt = 0;
+            TimeSpan delay = TimeSpan.FromSeconds(1);
+
+            while (attempt < maxAttempts)
             {
-                var chunk = chunks[i];
-                _logger.LogDebug("Creating translation task for chunk {Index}, length: {Length} chars", i, chunk.Length);
-                var task = TranslateTextAsync(i, chunk, targetLanguage.Name, sourceLanguage.Name, cancellationToken);
-                tasks.Add(task);
+                attempt++;
+
+                try
+                {
+                    _logger.LogDebug("Translating chunk {Order}, attempt {Attempt}", order, attempt);
+
+                    string templateText = GetTranslateTemplate(targetLanguage, sourceLanguage, text);
+                    var contents = new List<ContentFile>
+                    {
+                        new ContentFile { Type = "text", Text = templateText }
+                    };
+                    var requestWithFile = new ClaudeRequestWithFile(contents);
+
+                    var claudeResponse = await _claudeService.SendRequestWithFile(requestWithFile, cancellationToken);
+
+                    if (claudeResponse == null || claudeResponse.Content == null || !claudeResponse.Content.Any())
+                    {
+                        _logger.LogWarning("Claude API returned empty response for chunk {Order}, attempt {Attempt}", order, attempt);
+                        await Task.Delay(delay, cancellationToken);
+                        delay = delay * 2; // exponential backoff
+                        continue;
+                    }
+
+                    var responseText = claudeResponse.Content.First().Text;
+                    if (string.IsNullOrWhiteSpace(responseText))
+                    {
+                        _logger.LogWarning("Claude API response text is empty for chunk {Order}, attempt {Attempt}", order, attempt);
+                        await Task.Delay(delay, cancellationToken);
+                        delay = delay * 2;
+                        continue;
+                    }
+
+                    if (ClaudeErrorIndicators.Any(ind => responseText.Contains(ind, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        _logger.LogWarning("Claude returned error indicator for chunk {Order}, attempt {Attempt}", order, attempt);
+
+                        if (attempt == maxAttempts)
+                        {
+                            var retryResult = await RetryWithSimplePrompt(order, text, sourceLanguage, targetLanguage, cancellationToken);
+                            return new KeyValuePair<int, string>(order, retryResult);
+                        }
+
+                        await Task.Delay(delay, cancellationToken);
+                        delay = delay * 2;
+                        continue;
+                    }
+
+                    var extracted = ExtractTranslationFromTags(responseText);
+                    if (!string.IsNullOrEmpty(extracted))
+                    {
+                        _logger.LogDebug("Extracted translation for chunk {Order}, length: {Length}", order, extracted.Length);
+                        return new KeyValuePair<int, string>(order, extracted);
+                    }
+
+                    _logger.LogWarning("No translation tags found for chunk {Order}, returning full response", order);
+                    return new KeyValuePair<int, string>(order, responseText);
+                }
+                catch (Exception ex) when (attempt < maxAttempts)
+                {
+                    _logger.LogError(ex, "Exception during translation of chunk {Order}, attempt {Attempt}", order, attempt);
+                    await Task.Delay(delay, cancellationToken);
+                    delay = delay * 2;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Translation failed for chunk {Order} after {Attempts} attempts", order, attempt);
+                    return new KeyValuePair<int, string>(order, $"Error translating text: {ex.Message}");
+                }
             }
-            
-            _logger.LogInformation("Waiting for {Count} translation tasks to complete", tasks.Count);
-            var results = await Task.WhenAll(tasks);
-            
-            foreach (var result in results.OrderBy(r => r.Key))
+
+            return new KeyValuePair<int, string>(order, "Translation failed after multiple attempts.");
+        }
+
+        private async Task<string> RetryWithSimplePrompt(
+                int order,
+                string text,
+                string sourceLanguage,
+                string targetLanguage,
+                CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("Retrying translation with simplified prompt for chunk {Order}", order);
+
+            string directPrompt = $"""
+                TASK: Translate the following text from {sourceLanguage} to {targetLanguage}.
+
+                TEXT TO TRANSLATE:
+                {text}
+
+                INSTRUCTIONS:
+                - Provide ONLY the translated text
+                - Do not include any explanations or notes
+                - Do not mention that this is a translation
+                - Do not apologize or explain your capabilities
+                - This is a TEXT translation task, not an image task
+                """;
+
+            var retryContents = new List<ContentFile>
             {
-                translatedText.AppendLine(result.Value);
-            }
-            
-            string finalTranslation = translatedText.ToString();
-            _logger.LogInformation("Translation completed, final length: {Length} characters", finalTranslation.Length);
-            
-            TranslateResponse response = new()
-            {
-                Text = finalTranslation
+                new ContentFile { Type = "text", Text = directPrompt }
             };
-            
-            
-            await _requestLogService.Create(new CreateUserRequestLogModel
+            var retryRequest = new ClaudeRequestWithFile(retryContents);
+
+            try
             {
-                UserId = userId,
-                Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                var retryResponse = await _claudeService.SendRequestWithFile(retryRequest, cancellationToken);
+
+                if (retryResponse == null || retryResponse.Content == null || !retryResponse.Content.Any())
                 {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-                }),
-                Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                    _logger.LogWarning("Retry simplified prompt returned empty response for chunk {Order}", order);
+                    return "Error: Empty response on retry";
+                }
+
+                var retryText = retryResponse.Content.First().Text.Trim();
+
+                if (ClaudeErrorIndicators.Any(ind => retryText.Contains(ind, StringComparison.OrdinalIgnoreCase)))
                 {
-                    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-                    Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-                }),
-                RequestType = RequestType.Translate,
-            }, cancellationToken);
-            
-            await _userRepository.UpdateUserBalance(userId, requestPrice, cancellationToken);
-            
-            return response;
+                    _logger.LogWarning("Retry simplified prompt returned error indicator for chunk {Order}", order);
+                    return await FallbackSimpleApiCall(order, text, targetLanguage, cancellationToken);
+                }
+
+                return retryText;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception during retry simplified prompt for chunk {Order}", order);
+                return $"Error in retry: {ex.Message}";
+            }
+        }
+
+        private async Task<string> FallbackSimpleApiCall(
+                int order,
+                string text,
+                string targetLanguage,
+                CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("Performing fallback simple API call for chunk {Order}", order);
+
+            try
+            {
+                var fallbackRequest = new ClaudeRequest($"Translate this text to {targetLanguage}: {text}");
+                var fallbackResponse = await _claudeService.SendRequest(fallbackRequest, cancellationToken);
+
+                if (fallbackResponse == null || fallbackResponse.Content == null || !fallbackResponse.Content.Any())
+                {
+                    _logger.LogWarning("Fallback simple API call returned empty response for chunk {Order}", order);
+                    return "Error: Empty response in fallback";
+                }
+
+                return fallbackResponse.Content.First().Text.Trim();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception during fallback simple API call for chunk {Order}", order);
+                return $"Fallback translation error: {ex.Message}";
+            }
+        }
+
+        private string ExtractTranslationFromTags(string text)
+        {
+            const string startTag = "<translation>";
+            const string endTag = "</translation>";
+
+            int start = text.IndexOf(startTag, StringComparison.OrdinalIgnoreCase);
+            int end = text.IndexOf(endTag, StringComparison.OrdinalIgnoreCase);
+
+            if (start >= 0 && end > start)
+            {
+                start += startTag.Length;
+                return text[start..end].Trim();
+            }
+
+            return null;
+        }
+
+        private async Task<string> TranslateChunksAsync(
+                List<string> chunks, string targetLanguage, string sourceLanguage, CancellationToken cancellationToken)
+        {
+            var translationTasks = new List<Task<KeyValuePair<int, string>>>();
+
+            for (int i = 0; i < chunks.Count; i++)
+            {
+                _logger.LogDebug("Creating translation task for chunk {Index}, length: {Length} chars", i, chunks[i].Length);
+                translationTasks.Add(TranslateTextAsync(i, chunks[i], targetLanguage, sourceLanguage, cancellationToken));
+            }
+
+            _logger.LogInformation("Waiting for {Count} translation tasks to complete", translationTasks.Count);
+            var results = await Task.WhenAll(translationTasks);
+
+            var sortedResults = results.OrderBy(r => r.Key).Select(r => r.Value);
+            return string.Join(Environment.NewLine, sortedResults);
+        }
+
+        private async Task LogRequestAsync(string userId, UserTranslateRequestWithChunks request, TranslateResponse response, CancellationToken cancellationToken)
+        {
+            await _requestLogService.Create(new CreateUserRequestLogModel
+                    {
+                    UserId = userId,
+                    Request = JsonSerializer.Serialize(request, new JsonSerializerOptions()
+                            {
+                            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                            Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
+                            }),
+                    Response = JsonSerializer.Serialize(response, new JsonSerializerOptions()
+                            {
+                            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+                            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+                            }),
+                    RequestType = RequestType.Translate,
+                    }, cancellationToken);
         }
 
         private static byte[] ConvertHtmlToPdf(StringBuilder htmlContent)
@@ -601,7 +824,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
     
             return (enhancedText, suggestions);
-        }        private string GetSystemPromptForPdfToHtml()
+        }
+
+        private string GetSystemPromptForPdfToHtml()
         {
             string systemPrompt = @"You are an AI assistant specialized in converting Word and PDF documents to HTML format. You maintain the original document's structure, formatting, and visual elements while ensuring compatibility with A4 page size (210mm x 297mm).
 
@@ -655,117 +880,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         }
 
-        private async Task<KeyValuePair<int, string>> TranslateTextAsync(int order, string text, string targetLanguage, 
-            string sourceLanguage, CancellationToken cancellationToken)
-        {
-            try
-            {
-                _logger.LogDebug("Translating chunk {Order}: {Preview}...", order, 
-                    text.Substring(0, Math.Min(100, text.Length)));
-                
-                string templateText = GetTranslateTemplate(targetLanguage, sourceLanguage, text);
-                List<ContentFile> contents = [];
-
-                ContentFile message = new()
-                {
-                    Type = "text",
-                    Text = templateText
-                };
-                contents.Add(message);
-                ClaudeRequestWithFile claudeRequest = new(contents);
-                
-                _logger.LogDebug("Sending chunk {Order} to Claude for translation", order);
-                ClaudeResponse claudeResponse = await _claudeService.SendRequestWithFile(claudeRequest, cancellationToken);
-
-                string claudResponsePlainText = claudeResponse.Content.Single().Text;
-                _logger.LogDebug("Received response for chunk {Order}, length: {Length} chars", 
-                    order, claudResponsePlainText.Length);
-
-                int start = claudResponsePlainText.IndexOf("<translation>", StringComparison.Ordinal);
-                int end = claudResponsePlainText.IndexOf("</translation>", StringComparison.Ordinal);
-                
-                if (start >= 0 && end > start)
-                {
-                    start += 13; // Length of "<translation>"
-                    string extractedText = claudResponsePlainText[start..end];
-                    _logger.LogDebug("Successfully extracted translation for chunk {Order}, length: {Length} chars", 
-                        order, extractedText.Length);
-                    return new KeyValuePair<int, string>(order, extractedText);
-                }
-                
-                if (claudResponsePlainText.Contains("I apologize") || 
-                    claudResponsePlainText.Contains("I'm sorry") ||
-                    claudResponsePlainText.Contains("don't see any image"))
-                {
-                    _logger.LogWarning("Claude returned an error message for chunk {Order}, attempting retry", order);
-                    
-                    string directPrompt = $"""
-
-                                                                   TASK: Translate the following text from {sourceLanguage} to {targetLanguage}.
-                                                                   
-                                                                   TEXT TO TRANSLATE:
-                                                                   {text}
-                                                                   
-                                                                   INSTRUCTIONS:
-                                                                   - Provide ONLY the translated text
-                                                                   - Do not include any explanations or notes
-                                                                   - Do not mention that this is a translation
-                                                                   - Do not apologize or explain your capabilities
-                                                                   - This is a TEXT translation task, not an image task
-                                                               
-                                           """;
-                    
-                    ContentFile retryMessage = new()
-                    {
-                        Type = "text",
-                        Text = directPrompt
-                    };
-                    
-                    ClaudeRequestWithFile retryRequest = new([retryMessage]);
-                    _logger.LogInformation("Retrying translation with simplified prompt for chunk {Order}", order);
-                    
-                    ClaudeResponse retryResponse = await _claudeService.SendRequestWithFile(retryRequest, cancellationToken);
-                    string retryResult = retryResponse.Content.Single().Text.Trim();
-                    
-                    _logger.LogDebug("Retry translation for chunk {Order} returned {Length} chars", 
-                        order, retryResult.Length);
-                        
-                    if (retryResult.Contains("I apologize") || retryResult.Contains("I'm sorry"))
-                    {
-                        _logger.LogWarning("Retry still returned an error for chunk {Order}, trying regular API", order);
-                        
-                        try
-                        {
-                            _logger.LogInformation("Sending fallback translation request to Claude API for chunk {Order}", order);
-                            
-                            ClaudeRequest finalRequest = new($"Translate this text to {targetLanguage}: {text}");
-                            ClaudeResponse finalResponse = await _claudeService.SendRequest(finalRequest, cancellationToken);
-                            string finalResult = finalResponse.Content.Single().Text.Trim();
-                            
-                            _logger.LogInformation("Successfully received fallback translation response for chunk {Order}, length: {Length} chars", 
-                                order, finalResult.Length);
-                            
-                            return new KeyValuePair<int, string>(order, finalResult);
-                        }
-                        catch (Exception fallbackEx)
-                        {
-                            _logger.LogError(fallbackEx, "Error occurred in fallback Claude API call for chunk {Order}", order);
-                            return new KeyValuePair<int, string>(order, $"Error in fallback translation: {fallbackEx.Message}");
-                        }
-                    }
-                    
-                    return new KeyValuePair<int, string>(order, retryResult);
-                }
-                
-                _logger.LogWarning("Could not find translation tags in Claude response for chunk {Order}, using full response", order);
-                return new KeyValuePair<int, string>(order, claudResponsePlainText);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error translating chunk {Order}", order);
-                return new KeyValuePair<int, string>(order, $"Error translating text: {ex.Message}");
-            }
-        }
 
         private static List<string> GetChunksOfLargeText(string text, int chunkSize = 2000)
         {
