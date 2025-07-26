@@ -300,7 +300,7 @@ public class WordProcessor(
         try
         {
             _logger.LogInformation("Sending document to screenshot service: {FileName}", file.FileName);
-            response = await httpClient.PostAsync("http://127.0.0.1:8000/process-word", content, cancellationToken);
+            response = await httpClient.PostAsync("http://localhost:8000/process-word", content, cancellationToken);
             response.EnsureSuccessStatusCode();
         }
         catch (HttpRequestException ex)
