@@ -55,7 +55,7 @@ namespace Api24ContentAI.Controllers
 
         [HttpGet("user")]
         public async Task<IActionResult> GetUserChats(
-            [FromQuery] string? fileType = null,
+            [FromQuery] string fileType = null,
             [FromQuery] int? targetLanguageId = null,
             [FromQuery] DateTime? fromDate = null,
             [FromQuery] DateTime? toDate = null,
@@ -136,7 +136,7 @@ namespace Api24ContentAI.Controllers
             }
         }
 
-        private string? GetUserId()
+        private string GetUserId()
         {
             return User.FindFirst("sub")?.Value ?? User.FindFirst("UserId")?.Value;
         }

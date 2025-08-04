@@ -135,6 +135,7 @@ namespace Api24ContentAI.Controllers
                                     result.OriginalContent ?? "",
                                     result.TranslatedContent ?? "",
                                     request.TargetLanguageId,
+                                    request.OutputLanguageId,
                                     cancellationToken,
                                     null,
                                     request.Model);
@@ -287,6 +288,7 @@ namespace Api24ContentAI.Controllers
                                                 result.OriginalContent ?? "",
                                                 result.TranslatedContent ?? "",
                                                 request.TargetLanguageId,
+                                                request.OutputLanguageId,
                                                 CancellationToken.None,
                                                 null,
                                                 request.Model);
@@ -560,6 +562,7 @@ namespace Api24ContentAI.Controllers
                                     result.OriginalContent ?? "",
                                     result.TranslatedContent ?? "",
                                     request.TargetLanguageId,
+                                    request.OutputLanguageId,
                                     cancellationToken,
                                     null,
                                     AIModel.Claude4Sonnet);
@@ -907,7 +910,7 @@ namespace Api24ContentAI.Controllers
             return tempFilePath;
         }
 
-        private async Task<IFormFile> CreateFormFileFromTempFile(string tempFilePath, string originalFileName, string? contentType)
+        private async Task<IFormFile> CreateFormFileFromTempFile(string tempFilePath, string originalFileName, string contentType)
         {
             var fileBytes = await System.IO.File.ReadAllBytesAsync(tempFilePath);
             var stream = new MemoryStream(fileBytes);

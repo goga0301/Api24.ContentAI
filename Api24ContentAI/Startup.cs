@@ -106,6 +106,7 @@ namespace Api24ContentAI
                         client.BaseAddress = new Uri("https://generativelanguage.googleapis.com/");
                         client.Timeout = TimeSpan.FromMinutes(10);
                     })
+
             .ConfigurePrimaryHttpMessageHandler(() =>
                     {
                         return new SocketsHttpHandler()

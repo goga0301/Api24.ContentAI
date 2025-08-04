@@ -51,6 +51,7 @@ namespace Api24ContentAI.Domain.Models
     {
         public IFormFile File { get; set; }
         public int TargetLanguageId { get; set; }
+        public int OutputLanguageId {get; set; }
         public DocumentFormat OutputFormat { get; set; } = DocumentFormat.Pdf;
         public AIModel Model { get; set; } = AIModel.Claude4Sonnet;
     }
@@ -116,6 +117,7 @@ namespace Api24ContentAI.Domain.Models
         public string SuggestionId { get; set; }
         public TranslationSuggestion Suggestion { get; set; }
         public int TargetLanguageId { get; set; }
+        public int OutputLanguageId {get; set; }
         public string? EditedOriginalText { get; set; }
         public string? EditedSuggestedText { get; set; }
         
