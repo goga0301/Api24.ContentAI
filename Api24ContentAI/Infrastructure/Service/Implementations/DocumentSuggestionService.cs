@@ -33,6 +33,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             string originalContent,
             string translatedContent,
             int targetLanguageId,
+            int outputLanguageId,
             CancellationToken cancellationToken,
             List<TranslationSuggestion> previousSuggestions = null,
             AIModel? model = null)
@@ -42,14 +43,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _logger.LogInformation("Generating suggestions for translation to language ID: {LanguageId} using model: {Model}", 
                     targetLanguageId, model?.ToString() ?? "Claude (default)");
 
-                // Use a fresh cancellation token with timeout for database operations to avoid inherited cancellation
                 using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
                 
-                LanguageModel language;
+                LanguageModel targetLanguage;
                 try
                 {
-                    language = await _languageService.GetById(targetLanguageId, combinedCts.Token);
+                    targetLanguage = await _languageService.GetById(targetLanguageId, combinedCts.Token);
                 }
                 catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested)
                 {
@@ -62,13 +62,36 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     return new List<TranslationSuggestion>();
                 }
 
-                if (language == null)
+                LanguageModel outputLanguage;
+                try
+                {
+                    outputLanguage = await _languageService.GetById(outputLanguageId, combinedCts.Token);
+                }
+                catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested)
+                {
+                    _logger.LogWarning("Database operation timed out while fetching language {LanguageId}, skipping suggestions", outputLanguageId);
+                    return new List<TranslationSuggestion>();
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    _logger.LogInformation("Suggestion generation was cancelled by user request");
+                    return new List<TranslationSuggestion>();
+                }
+
+
+                if (targetLanguage == null)
                 {
                     _logger.LogWarning("Language not found: {LanguageId}, skipping suggestions", targetLanguageId);
                     return new List<TranslationSuggestion>();
                 }
 
-                var prompt = GenerateTranslationReviewPrompt(originalContent, translatedContent, language.Name, previousSuggestions);
+                if (outputLanguage == null) {
+                    _logger.LogWarning("Language not found: {LanguageId}, skipping suggestions", targetLanguageId);
+                    return new List<TranslationSuggestion>();
+
+                }
+
+                var prompt = GenerateTranslationReviewPrompt(originalContent, translatedContent, targetLanguage.Name, outputLanguage.Name, previousSuggestions);
 
                 string responseText;
                 if (model.HasValue)
@@ -261,7 +284,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     // Create a list of all previous suggestions including the one just applied
                     var allPreviousSuggestions = new List<TranslationSuggestion> { effectiveSuggestion };
-                    newSuggestions = await GenerateSuggestions("", updatedContent, request.TargetLanguageId, newSuggestionsCts.Token, allPreviousSuggestions);
+                    newSuggestions = await GenerateSuggestions("", updatedContent, request.TargetLanguageId, request.OutputLanguageId, newSuggestionsCts.Token, allPreviousSuggestions);
                 }
                 catch (OperationCanceledException)
                 {
@@ -478,7 +501,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
 
 
-        private static string GenerateTranslationReviewPrompt(string originalContent, string translatedContent, string targetLanguage, List<TranslationSuggestion> previousSuggestions = null)
+        private static string GenerateTranslationReviewPrompt(string originalContent, string translatedContent,
+                                                              string targetLanguage, string outputLanguage, List<TranslationSuggestion> previousSuggestions = null)
         {
             var duplicateAvoidanceInstruction = "";
             if (previousSuggestions != null && previousSuggestions.Any())
@@ -497,7 +521,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
             return $@"
             <role>
-                You are an expert professional translation quality reviewer and linguist with deep expertise in {targetLanguage} language and cross-cultural communication. Your task is to meticulously analyze the provided translation and identify exactly 10 specific, actionable improvement suggestions.
+            You are an expert professional translation quality reviewer and linguist with deep expertise in the {targetLanguage} language and cross-cultural communication.
+            Your task is to meticulously analyze the provided translation in {targetLanguage} and identify exactly 10 specific, actionable improvement suggestions.
             </role>
 
             <content_to_analyze>
@@ -546,7 +571,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 </focus_areas>
             </analysis_task>
 
-                <output_requirements>
+            <output_requirements>
                     Provide your analysis as a valid JSON array containing exactly 10 suggestion objects. Each suggestion must include:
 
                     ```json
@@ -560,8 +585,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                          ""priority"": 1-3 (1=Critical/High impact, 2=Moderate impact, 3=Minor/Polish)
                      }}
                     ]
-                        ```
-                    </output_requirements>
+                     ```
+                     All output must be in {outputLanguage}, even though the translation being reviewed is in {targetLanguage}.
+                     All suggestion fields except `originalText` must be written in **{outputLanguage}**.
+            </output_requirements>
 
                 <guidelines>
                     <do>
@@ -586,9 +613,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 </guidelines>
 
                 <instructions>
-                Even if the translation appears to be of high quality, identify areas for enhancement that would make it more natural, accurate, or culturally appropriate for native {targetLanguage} speakers. Look for improvements across all categories: critical errors, moderate improvements, and minor polish.
+                    You must generate exactly 10 suggestions, no matter how good the translation appears. Do not skip, omit, or reduce the number of suggestions under any circumstances.
 
-                Return only the JSON array with exactly 10 suggestions - no additional text or explanations outside the JSON structure.
+                    Even if the translation is high quality, you are required to find areas for improvement — including minor polishing, stylistic refinement, better word choices, or subtle localization enhancements — that would make the text more natural, accurate, or culturally appropriate for native {targetLanguage} speakers.
+
+                    Cover all categories: critical errors, moderate improvements, and minor polish.
+
+                    Return only the JSON array with exactly 10 suggestions, written entirely in {outputLanguage}.  
+                    Do not include any extra explanation, summary, or commentary outside the JSON.  
+                    Do not mix languages — all fields except `originalText` must be in {outputLanguage}.  
                 </instructions>";
         }
 
