@@ -1,6 +1,4 @@
 using Api24ContentAI.Domain.Models;
-using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -30,7 +28,7 @@ namespace Api24ContentAI.Domain.Service
             string? translationJobId = null, 
             CancellationToken cancellationToken = default);
         
-        Task<string> GenerateChatTitle(string fileName, string targetLanguage);
+        string GenerateChatTitle(string fileName, string targetLanguage);
         Task CleanupOldChats(int daysOld = 90, CancellationToken cancellationToken = default);
     }
 } 

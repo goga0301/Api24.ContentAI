@@ -23,7 +23,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             _repository = repository ?? throw new ArgumentNullException(nameof(repository));
         }
 
-        public async Task<string> CreateJob(string fileType, long fileSizeKB, int estimatedTimeMinutes)
+        public async Task<string> CreateJob(string fileType, long fileSizeKB, int estimatedTimeMinutes, CancellationToken cancellationToken)
         {
             var jobId = Guid.NewGuid().ToString();
             var job = new TranslationJobEntity
@@ -38,7 +38,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ExpiresAt = DateTime.UtcNow.AddHours(2)
             };
 
-            var result = await _repository.Create(job, CancellationToken.None);
+            var result = await _repository.Create(job, cancellationToken);
             
             _logger.LogInformation("Created translation job {JobId} for {FileType} file ({SizeKB}KB)", 
                 result, fileType, fileSizeKB);
@@ -46,9 +46,10 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             return result;
         }
 
-        public async Task<string> CreateJobWithModel(string fileType, long fileSizeKB, int estimatedTimeMinutes, string userId, AIModel model)
+        public async Task<string> CreateJobWithModel(string fileType, long fileSizeKB, int estimatedTimeMinutes,
+                                                     string userId, AIModel model, CancellationToken cancellationToken)
         {
-            var jobId = await _repository.CreateWithModel(fileType, fileSizeKB, estimatedTimeMinutes, userId, model, CancellationToken.None);
+            var jobId = await _repository.CreateWithModel(fileType, fileSizeKB, estimatedTimeMinutes, userId, model, cancellationToken);
             
             _logger.LogInformation("Created translation job {JobId} for {FileType} file ({SizeKB}KB) with model {Model}", 
                 jobId, fileType, fileSizeKB, model);

@@ -41,7 +41,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 }
 
                 var chatId = Guid.NewGuid().ToString();
-                var title = await GenerateChatTitle(model.OriginalFileName, targetLanguage.Name);
+                var title = GenerateChatTitle(model.OriginalFileName, targetLanguage.Name);
 
                 var chat = new DocumentTranslationChat
                 {
@@ -288,12 +288,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         #region Utility Methods
 
-        public async Task<string> GenerateChatTitle(string fileName, string targetLanguage)
+        public string GenerateChatTitle(string fileName, string targetLanguage)
         {
             try
             {
                 var fileNameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
-                return $"Translate {fileNameWithoutExtension} to {targetLanguage}";
+                return @"Translate {fileNameWithoutExtension} to {targetLanguage}";
             }
             catch
             {

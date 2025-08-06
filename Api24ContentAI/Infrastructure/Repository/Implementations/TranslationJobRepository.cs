@@ -37,7 +37,8 @@ namespace Api24ContentAI.Infrastructure.Repository.Implementations
             return entity.JobId;
         }
 
-        public async Task<string> CreateWithModel(string fileType, long fileSizeKB, int estimatedTimeMinutes, string userId, AIModel model, CancellationToken cancellationToken)
+        public async Task<string> CreateWithModel(string fileType, long fileSizeKB, int estimatedTimeMinutes, string userId,
+                                                  AIModel model, CancellationToken cancellationToken)
         {
             var jobId = Guid.NewGuid().ToString();
             var entity = new TranslationJobEntity

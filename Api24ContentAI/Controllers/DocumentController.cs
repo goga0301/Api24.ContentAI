@@ -87,7 +87,8 @@ namespace Api24ContentAI.Controllers
 
                 var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
                 var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
-                var jobId = await _translationJobService.CreateJobWithModel(fileExtension, request.File.Length / 1024, estimatedMinutes, userId, request.Model);
+                var jobId = await _translationJobService.CreateJobWithModel(fileExtension, request.File.Length / 1024,
+                                            estimatedMinutes, userId, request.Model, cancellationToken);
 
                 var chatModel = new CreateDocumentTranslationChatModel
                 {
@@ -225,7 +226,13 @@ namespace Api24ContentAI.Controllers
 
                 var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
                 var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
-                var jobId = await _translationJobService.CreateJobWithModel(fileExtension, request.File.Length / 1024, estimatedMinutes, userId, request.Model);
+                var jobId = await _translationJobService.CreateJobWithModel(
+                                                            fileExtension,
+                                                            request.File.Length / 1024,
+                                                            estimatedMinutes,
+                                                            userId,
+                                                            request.Model,
+                                                            cancellationToken);
 
                 var chatModel = new CreateDocumentTranslationChatModel
                 {
@@ -263,7 +270,7 @@ namespace Api24ContentAI.Controllers
                                 userId, 
                                 request.OutputFormat,
                                 request.Model,
-                                CancellationToken.None);
+                                cancellationToken);
 
                         if (result.Success)
                         {
@@ -290,7 +297,7 @@ namespace Api24ContentAI.Controllers
                                             result.TranslatedContent ?? "",
                                             request.TargetLanguageId,
                                             request.OutputLanguageId,
-                                            CancellationToken.None,
+                                            cancellationToken,
                                             null,
                                             request.Model);
 
@@ -511,7 +518,8 @@ namespace Api24ContentAI.Controllers
                 }
 
                 var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
-                var jobId = await _translationJobService.CreateJobWithModel(fileExtension, request.File.Length / 1024, estimatedMinutes, userId, AIModel.Claude4Sonnet);
+                var jobId = await _translationJobService.CreateJobWithModel(fileExtension, request.File.Length / 1024,
+                        estimatedMinutes, userId, AIModel.Claude4Sonnet, cancellationToken);
 
                 var targetLanguageData = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
                 var chatModel = new CreateDocumentTranslationChatModel
