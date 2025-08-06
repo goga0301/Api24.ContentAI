@@ -283,7 +283,7 @@ namespace Api24ContentAI.Controllers
                                     suggestions: new List<TranslationSuggestion>()
                                     );
 
-                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, CancellationToken.None);
+                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
 
                            BackgroundJobExecutor.Run(async () => {
                                     using var asyncScope = _serviceScopeFactory.CreateScope();
