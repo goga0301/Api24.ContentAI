@@ -356,6 +356,164 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpPost("/demo/translate")]
+        public async Task<IActionResult> TranslateDocumentWithClaudeDemo([FromForm] DocumentTranslationRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var userId = User.FindFirst("sub")?.Value;
+                if (string.IsNullOrEmpty(userId))
+                {
+                    userId = User.FindFirst("UserId")?.Value;
+                    if (string.IsNullOrEmpty(userId))
+                    {
+                        return Unauthorized("User ID not found in token");
+                    }
+                }
+
+                if (request.File == null || request.File.Length == 0)
+                {
+                    return BadRequest("No file uploaded");
+                }
+
+                if (request.File.Length > MaxFileSizeBytes)
+                {
+                    return BadRequest($"File size exceeds maximum limit of {MaxFileSizeBytes / (1024 * 1024)}MB");
+                }
+
+                var fileExtension = Path.GetExtension(request.File.FileName).ToLowerInvariant();
+                var estimatedMinutes = GetEstimatedProcessingMinutes(fileExtension);
+                var jobId = await _translationJobService.CreateJobWithModel(
+                        fileExtension,
+                        request.File.Length / 1024,
+                        estimatedMinutes,
+                        userId,
+                        request.Model,
+                        cancellationToken);
+
+                var chatModel = new CreateDocumentTranslationChatModel
+                {
+                    UserId = userId,
+                    OriginalFileName = request.File.FileName,
+                    OriginalContentType = request.File.ContentType,
+                    OriginalFileSizeBytes = request.File.Length,
+                    FileType = fileExtension.TrimStart('.'),
+                    TargetLanguageId = request.TargetLanguageId,
+                    InitialMessage = $"Starting {request.Model} AI translation..."
+                };
+
+                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+
+                var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
+
+                BackgroundJobExecutor.Run(async () =>
+                        {
+                        using var taskScope = _serviceScopeFactory.CreateScope();
+                        using var activity = _logger.BeginScope(new Dictionary<string, object> { { "job.id", jobId } });
+                        _logger.LogInformation("Starting {Model} translation job {JobId} for user {UserId}", request.Model, jobId, userId);
+
+                        try
+                        {
+                        var jobService = taskScope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                        var docService = taskScope.ServiceProvider.GetRequiredService<IDocumentTranslationService>();
+                        var chatService = taskScope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
+
+                        await jobService.UpdateProgress(jobId, 10);
+
+                        var formFile = await CreateFormFileFromTempFile(tempFilePath, request.File.FileName, request.File.ContentType);
+                        var result = await docService.TranslateDocumentWithClaude(
+                                formFile,
+                                request.TargetLanguageId, 
+                                userId, 
+                                request.OutputFormat,
+                                request.Model,
+                                cancellationToken);
+
+                        if (result.Success)
+                        {
+
+                            await jobService.CompleteJob(
+                                    jobId, 
+                                    result.FileData ?? Encoding.UTF8.GetBytes(result.TranslatedContent ?? ""), 
+                                    result.FileName ?? "translated-file",
+                                    result.ContentType ?? "text/plain",
+                                    suggestions: new List<TranslationSuggestion>()
+                                    );
+
+                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
+
+                            BackgroundJobExecutor.Run(async () => {
+                                    using var asyncScope = _serviceScopeFactory.CreateScope();
+                                    try
+                                    {
+                                    var suggestionService = asyncScope.ServiceProvider.GetRequiredService<IDocumentSuggestionService>();
+                                    var jobServiceAsync = asyncScope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+
+                                    var suggestions = await suggestionService.GenerateSuggestions(
+                                            result.OriginalContent ?? "",
+                                            result.TranslatedContent ?? "",
+                                            request.TargetLanguageId,
+                                            request.OutputLanguageId,
+                                            cancellationToken,
+                                            null,
+                                            request.Model);
+
+                                    _logger.LogInformation("Suggestions generated: {SuggestionsJson}", 
+                                            JsonSerializer.Serialize(suggestions, new JsonSerializerOptions { WriteIndented = true }));
+
+
+                                    await jobServiceAsync.AttachSuggestions(jobId, suggestions);  
+                                    _logger.LogInformation("Async: Suggestions generated and attached for job {JobId}", jobId);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        _logger.LogWarning(ex, "Async: Suggestion generation failed for job {JobId}", jobId);
+                                    }
+
+                            });
+
+                        }
+                        else
+                        {
+                            await jobService.FailJob(jobId, result.ErrorMessage ?? "Translation failed");
+                            await chatService.AddErrorMessage(chatResponse.ChatId, userId, result.ErrorMessage ?? "Translation failed", jobId, cancellationToken);
+                            _logger.LogWarning("{Model} translation job {JobId} failed: {ErrorMessage}", request.Model, jobId, result.ErrorMessage);
+                        }
+                        }
+                        catch (Exception ex)
+                        {
+                            using var errorScope = _serviceScopeFactory.CreateScope();
+                            var jobService = errorScope.ServiceProvider.GetRequiredService<ITranslationJobService>();
+                            var chatService = errorScope.ServiceProvider.GetRequiredService<IDocumentTranslationChatService>();
+                            await jobService.FailJob(jobId, ex.Message);
+                            await chatService.AddErrorMessage(chatResponse.ChatId, userId, $"Translation failed with error: {ex.Message}", jobId, cancellationToken);
+                            _logger.LogError(ex, "{Model} translation job {JobId} failed: {ErrorMessage}", request.Model, jobId, ex.Message);
+                        }
+                        finally
+                        {
+                            CleanupTempFile(tempFilePath);
+                        }
+                        });
+
+                return Accepted(new
+                        {
+                        JobId = jobId,
+                        ChatId = chatResponse.ChatId,
+                        Message = $"{request.Model} translation started in background. Use the job ID to check status.",
+                        EstimatedTimeMinutes = estimatedMinutes,
+                        FileType = fileExtension,
+                        FileSizeKB = request.File.Length / 1024,
+                        Model = request.Model.ToString()
+                        });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error starting Claude translation");
+                return StatusCode(StatusCodes.Status500InternalServerError, $"Error starting translation: {ex.Message}");
+            }
+        }
+
+
         [HttpGet("translate/status/{jobId}")]
         public async Task<IActionResult> GetTranslationStatus(string jobId)
         {
