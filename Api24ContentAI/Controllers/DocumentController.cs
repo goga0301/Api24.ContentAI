@@ -263,7 +263,7 @@ namespace Api24ContentAI.Controllers
                                 userId, 
                                 request.OutputFormat,
                                 request.Model,
-                                cancellationToken);
+                                CancellationToken.None);
 
                         if (result.Success)
                         {
@@ -276,7 +276,7 @@ namespace Api24ContentAI.Controllers
                                     suggestions: new List<TranslationSuggestion>()
                                     );
 
-                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, cancellationToken);
+                            await chatService.AddTranslationResult(chatResponse.ChatId, userId, result, jobId, CancellationToken.None);
 
                            BackgroundJobExecutor.Run(async () => {
                                     using var asyncScope = _serviceScopeFactory.CreateScope();
