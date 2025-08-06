@@ -271,6 +271,10 @@ namespace Api24ContentAI
                 });
             }
 
+            
+            var loggerFactory = app.ApplicationServices.GetRequiredService<ILoggerFactory>();
+            BackgroundJobExecutor.Initialize(loggerFactory);
+
             // Only use HTTPS redirection in production
             if (!env.IsDevelopment())
             {
