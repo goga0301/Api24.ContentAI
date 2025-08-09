@@ -66,34 +66,6 @@ namespace Api24ContentAI.Controllers
             return Ok(new { Token = token });
         }
 
-        [HttpPost("login")]
-        public async Task<IActionResult> Login(LoginRequest loginRequestDTO, CancellationToken cancellationToken)
-        {
-            try
-            {
-                LoginResponse user = await _authService.Login(loginRequestDTO, cancellationToken);
-                return Ok(user);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(ex.Message);
-            }
-        }
-
-        [HttpPost("login-with-fb")]
-        public async Task<IActionResult> LoginWithFacebook([FromBody] string credential, CancellationToken cancellationToken)
-        {
-            try
-            {
-                LoginResponse user = await _authService.LoginWithFacebook(credential, cancellationToken);
-                return Ok(user);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(ex.Message);
-            }
-        }
-
         [HttpPost("refresh-token")]
         public async Task<IActionResult> RefreshToken([FromBody] TokenModel tokenModel, CancellationToken cancellationToken)
         {

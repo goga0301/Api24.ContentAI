@@ -198,31 +198,29 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private async Task<List<GeminiPart>> ProcessPartsWithScreenshotService(List<GeminiPart> parts, CancellationToken cancellationToken)
         {
-            var processedParts = new List<GeminiPart>();
-            
-            foreach (var part in parts)
+            var tasks = parts.Select(async part =>
             {
                 if (part.InlineData != null && IsUnsupportedFileType(part.InlineData.MimeType))
                 {
-                    _logger.LogInformation("Converting unsupported file type {MimeType} using screenshot service", part.InlineData.MimeType);
-                    
-                    try
-                    {
-                        var screenshotParts = await ConvertFileToScreenshots(part.InlineData, cancellationToken);
-                        processedParts.AddRange(screenshotParts);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to convert file using screenshot service for MIME type: {MimeType}", part.InlineData.MimeType);
-                        processedParts.Add(part);
-                    }
+                        try
+                        {
+                            return await ConvertFileToScreenshots(part.InlineData, cancellationToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Screenshot conversion failed");
+                            return new List<GeminiPart> { part };
+                        }
                 }
                 else
                 {
-                    processedParts.Add(part);
+                        return new List<GeminiPart> { part };
                 }
-            }
+            }); 
+
             
+            var processedPartsLists = await Task.WhenAll(tasks);
+            var processedParts = processedPartsLists.SelectMany(x => x).ToList();
             return processedParts;
         }
 

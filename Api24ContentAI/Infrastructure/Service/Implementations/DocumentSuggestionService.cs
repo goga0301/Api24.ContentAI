@@ -1,10 +1,12 @@
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Service;
+using HtmlAgilityPack;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -174,47 +176,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
 
         public async Task<ApplySuggestionResponse> ApplySuggestion(
-            ApplySuggestionRequest request,
-            CancellationToken cancellationToken)
+                ApplySuggestionRequest request,
+                CancellationToken cancellationToken)
         {
             try
             {
                 _logger.LogInformation("Applying suggestion: {SuggestionId}", request.SuggestionId);
 
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
-                
-                LanguageModel language;
-                try
-                {
-                    language = await _languageService.GetById(request.TargetLanguageId, combinedCts.Token);
-                }
-                catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested)
-                {
-                    _logger.LogWarning("Database operation timed out while fetching language {LanguageId}", request.TargetLanguageId);
-                    return new ApplySuggestionResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Database timeout while fetching language information"
-                    };
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    return new ApplySuggestionResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Operation was cancelled by user request"
-                    };
-                }
-
+                var language = await GetLanguageOrNullAsync(request.TargetLanguageId, cancellationToken);
                 if (language == null)
                 {
-                    _logger.LogWarning("Language not found: {LanguageId}", request.TargetLanguageId);
-                    return new ApplySuggestionResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Target language not found"
-                    };
+                    _logger.LogWarning("Language not found or could not be fetched: {LanguageId}", request.TargetLanguageId);
+                    return BuildFailureResponse("Target language not found or could not be fetched");
                 }
 
                 var effectiveSuggestion = new TranslationSuggestion
@@ -223,76 +196,26 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     Title = request.Suggestion.Title,
                     Description = request.Suggestion.Description,
                     Type = request.Suggestion.Type,
-                    OriginalText = request.EditedOriginalText ?? request.Suggestion.OriginalText,
-                    SuggestedText = request.EditedSuggestedText ?? request.Suggestion.SuggestedText,
+                    OriginalText = (string.IsNullOrEmpty(request.EditedOriginalText) || request.EditedOriginalText == "string") 
+                        ? request.Suggestion.OriginalText 
+                        : request.EditedOriginalText,
+                    SuggestedText = (string.IsNullOrEmpty(request.EditedSuggestedText) || request.EditedSuggestedText == "string") 
+                        ? request.Suggestion.SuggestedText 
+                        : request.EditedSuggestedText,
                     Priority = request.Suggestion.Priority
                 };
 
-                _logger.LogInformation("Using effective suggestion - Title: {Title}, Type: {Type}, OriginalText: {OriginalText}, SuggestedText: {SuggestedText}", 
-                    effectiveSuggestion.Title, effectiveSuggestion.Type, effectiveSuggestion.OriginalText, effectiveSuggestion.SuggestedText);
-                
-                _logger.LogInformation("Request details - HasEdits: {HasEdits}, EditedOriginalText: '{EditedOriginalText}', EditedSuggestedText: '{EditedSuggestedText}'", 
-                    request.HasEdits, request.EditedOriginalText ?? "null", request.EditedSuggestedText ?? "null");
+                _logger.LogInformation(
+                        "Using effective suggestion - Title: {Title}, Type: {Type}, OriginalText: {OriginalText}, SuggestedText: {SuggestedText}",
+                        effectiveSuggestion.Title, effectiveSuggestion.Type, effectiveSuggestion.OriginalText, effectiveSuggestion.SuggestedText);
 
-                var prompt = GenerateApplySuggestionPrompt(
-                    request.TranslatedContent, 
-                    effectiveSuggestion, 
-                    language.Name);
+                _logger.LogInformation(
+                        "Request details - HasEdits: {HasEdits}, EditedOriginalText: '{EditedOriginalText}', EditedSuggestedText: '{EditedSuggestedText}'",
+                        request.HasEdits, request.EditedOriginalText ?? "null", request.EditedSuggestedText ?? "null");
 
-                _logger.LogDebug("Sending prompt to Claude with SuggestedText: '{SuggestedText}'", effectiveSuggestion.SuggestedText);
+                var updatedContent = ReplaceInHtml(request.TranslatedContent, effectiveSuggestion.OriginalText, effectiveSuggestion.SuggestedText);
 
-                var claudeRequest = new ClaudeRequest(prompt);
-                
-                ClaudeResponse claudeResponse;
-                try
-                {
-                    using var claudeTimeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-                    using var claudeCombinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, claudeTimeoutCts.Token);
-                    
-                    claudeResponse = await _claudeService.SendRequest(claudeRequest, claudeCombinedCts.Token);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    return new ApplySuggestionResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Operation was cancelled by user request"
-                    };
-                }
-                catch (OperationCanceledException)
-                {
-                    return new ApplySuggestionResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Claude API call timed out"
-                    };
-                }
-
-                var updatedContent = claudeResponse.Content?.FirstOrDefault()?.Text?.Trim();
-                if (string.IsNullOrEmpty(updatedContent))
-                {
-                    return new ApplySuggestionResponse
-                    {
-                        Success = false,
-                        ErrorMessage = "Failed to generate updated content"
-                    };
-                }
-
-                using var newSuggestionsCts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
-                List<TranslationSuggestion> newSuggestions;
-                try
-                {
-                    // Create a list of all previous suggestions including the one just applied
-                    var allPreviousSuggestions = new List<TranslationSuggestion> { effectiveSuggestion };
-                    newSuggestions = await GenerateSuggestions("", updatedContent, request.TargetLanguageId, request.OutputLanguageId, newSuggestionsCts.Token, allPreviousSuggestions);
-                }
-                catch (OperationCanceledException)
-                {
-                    _logger.LogWarning("New suggestions generation timed out, returning without new suggestions");
-                    newSuggestions = new List<TranslationSuggestion>();
-                }
-
-                var changeDescription = request.HasEdits 
+                var changeDescription = request.HasEdits
                     ? $"Applied edited suggestion: {effectiveSuggestion.Title}"
                     : $"Applied suggestion: {effectiveSuggestion.Title}";
 
@@ -300,18 +223,13 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     Success = true,
                     UpdatedContent = updatedContent,
-                    ChangeDescription = changeDescription,
-                    NewSuggestions = newSuggestions
+                    ChangeDescription = changeDescription
                 };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error applying suggestion");
-                return new ApplySuggestionResponse
-                {
-                    Success = false,
-                    ErrorMessage = $"Failed to apply suggestion: {ex.Message}"
-                };
+                return BuildFailureResponse($"Failed to apply suggestion: {ex.Message}");
             }
         }
 
@@ -765,6 +683,46 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             public string OriginalText { get; set; }
             public string SuggestedText { get; set; }
             public int Priority { get; set; }
+        }
+
+        private async Task<LanguageModel> GetLanguageOrNullAsync(int languageId, CancellationToken cancellationToken)
+        {
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+            try
+            {
+                return await _languageService.GetById(languageId, combinedCts.Token);
+            }
+            catch (OperationCanceledException) when (timeoutCts.Token.IsCancellationRequested)
+            {
+                _logger.LogWarning("Database operation timed out while fetching language {LanguageId}", languageId);
+                return null;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("Operation cancelled by user request while fetching language {LanguageId}", languageId);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unexpected error fetching language {LanguageId}", languageId);
+                return null;
+            }
+        }
+
+        private ApplySuggestionResponse BuildFailureResponse(string message)
+        {
+            return new ApplySuggestionResponse
+            {
+                Success = false,
+                ErrorMessage = message
+            };
+        }
+
+        private string ReplaceInHtml(string htmlContent, string originalHtml, string suggestedHtml)
+        {
+            return htmlContent.Replace(originalHtml, suggestedHtml);
         }
     }
 }
