@@ -307,7 +307,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             
             _logger.LogInformation("Sending file to screenshot service endpoint: {Endpoint}", endpoint);
             
-            var response = await httpClient.PostAsync($"http://127.0.0.1:8000/{endpoint}", content, cancellationToken);
+            var response = await httpClient.PostAsync($"http://localhost:8000/{endpoint}", content, cancellationToken);
             response.EnsureSuccessStatusCode();
             
             var result = await response.Content.ReadFromJsonAsync<ScreenShotResult>(cancellationToken: cancellationToken);
@@ -385,7 +385,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 throw new InvalidOperationException("Gemini API key is missing in configuration.");
             }
 
-            _httpClient.Timeout = TimeSpan.FromMinutes(1);
+            _httpClient.Timeout = TimeSpan.FromMinutes(3);
             
             _headersInitialized = true;
         }
