@@ -101,157 +101,182 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task<DocumentTranslationResult> TranslateWithClaude(IFormFile file, int targetLanguageId, string userId, Domain.Models.DocumentFormat outputFormat, AIModel model, CancellationToken cancellationToken)
+        public async Task<DocumentTranslationResult> TranslateWithClaude(
+                IFormFile file,
+                int targetLanguageId,
+                string userId,
+                Domain.Models.DocumentFormat outputFormat,
+                AIModel model,
+                CancellationToken cancellationToken)
         {
-            if (file?.Length == 0)
-                throw new ArgumentException("Uploaded file is empty or null", nameof(file));
+            ValidateClaudeInput(file);
 
-            var targetLanguage = await _languageService.GetById(targetLanguageId, cancellationToken);
-
-            if (targetLanguage == null || string.IsNullOrWhiteSpace(targetLanguage.Name))
-                throw new ArgumentException("Invalid target language ID", nameof(targetLanguageId));
-
+            var targetLanguage = await GetTargetLanguage(targetLanguageId, cancellationToken);
             var screenshotResult = await GetDocumentScreenshots(file, cancellationToken);
 
             _logger.LogInformation("Processing {PageCount} pages from screenshot service", screenshotResult.Pages.Count);
 
-            var allTranslationTasks = screenshotResult.Pages
-                .SelectMany(page =>
-                        page.ScreenShots.Select((base64Data, i) =>
-                            {
-                            var sectionName = i switch
-                            {
-                            0 => "top",
-                            1 => "middle",
-                            2 => "bottom",
-                            _ => $"section-{i + 1}"
-                            };
+            var translatedPages = await TranslateAllPages(screenshotResult, targetLanguage.Name, model, cancellationToken);
+            LogTranslationStats(translatedPages);
 
-                            return TranslateSectionWithRetry(base64Data, page.Page, sectionName, targetLanguage.Name, model, cancellationToken);
-                            }))
-            .ToList();
+            var finalMarkdown = await CombineTranslatedSections(translatedPages, targetLanguage.Name, model, cancellationToken);
 
-            var translatedSections = await Task.WhenAll(allTranslationTasks);
+            var (improvedTranslation, qualityScore) = await VerifyTranslation(finalMarkdown, targetLanguage, model, cancellationToken);
 
-            var translatedPages = new List<List<string>>();
-            var sectionIndex = 0;
-            foreach (var page in screenshotResult.Pages)
-            {
-                var pageSections = new List<string>();
-                for (int i = 0; i < page.ScreenShots.Count; i++)
-                {
-                    pageSections.Add(translatedSections[sectionIndex]);
-                    sectionIndex++;
-                }
-                translatedPages.Add(pageSections);
-            }
+            return BuildTranslationResult(outputFormat, improvedTranslation, qualityScore);
+        }
 
+        private void ValidateClaudeInput(IFormFile file)
+        {
+            if (file?.Length == 0)
+                throw new ArgumentException("Uploaded file is empty or null", nameof(file));
+        }
+
+        private async Task<LanguageModel> GetTargetLanguage(int targetLanguageId, CancellationToken cancellationToken)
+        {
+            var targetLanguage = await _languageService.GetById(targetLanguageId, cancellationToken);
+            if (targetLanguage == null || string.IsNullOrWhiteSpace(targetLanguage.Name))
+                throw new ArgumentException("Invalid target language ID", nameof(targetLanguageId));
+            return targetLanguage;
+        }
+
+
+        private async Task<List<List<string>>> TranslateAllPages(
+                ScreenShotResult screenshotResult,
+                string targetLanguageName,
+                AIModel model,
+                CancellationToken cancellationToken)
+        {
+            var allTasks = screenshotResult.Pages
+                .SelectMany(page => page.ScreenShots.Select((base64, i) =>
+                            TranslateSectionWithRetry(
+                                base64, 
+                                page.Page, 
+                                GetSectionName(i), 
+                                targetLanguageName, 
+                                model, 
+                                cancellationToken)))
+                .ToList();
+
+            var translatedSections = await Task.WhenAll(allTasks);
+            return GroupSectionsByPage(screenshotResult, translatedSections);
+        }
+
+        private void LogTranslationStats(List<List<string>> translatedPages)
+        {
             var totalSections = translatedPages.Sum(p => p.Count);
-            var translatedSectionsCount = translatedPages.Sum(p => p.Count(s => !string.IsNullOrWhiteSpace(s)));
+            var translatedCount = translatedPages.Sum(p => p.Count(s => !string.IsNullOrWhiteSpace(s)));
             var pagesWithContent = translatedPages.Count(p => p.Any(s => !string.IsNullOrWhiteSpace(s)));
 
-            _logger.LogInformation("Translation summary: {TranslatedSections}/{TotalSections} sections translated across {PagesWithContent}/{TotalPages} pages", 
-                    translatedSections, totalSections, pagesWithContent, translatedPages.Count);
+            _logger.LogInformation("Translation summary: {Translated}/{Total} sections, {PagesWithContent}/{TotalPages} pages",
+                    translatedCount, totalSections, pagesWithContent, translatedPages.Count);
 
             for (int i = 0; i < translatedPages.Count; i++)
             {
                 var pageSections = translatedPages[i];
-                var nonEmptySections = pageSections.Count(s => !string.IsNullOrWhiteSpace(s));
-                var totalPageContentLength = pageSections.Sum(s => s?.Length ?? 0);
-                _logger.LogInformation("Page {PageNumber}: {NonEmptyCount}/{TotalCount} sections with content, total length: {TotalLength} chars", 
-                        i + 1, nonEmptySections, pageSections.Count, totalPageContentLength);
+                var nonEmpty = pageSections.Count(s => !string.IsNullOrWhiteSpace(s));
+                var totalLen = pageSections.Sum(s => s?.Length ?? 0);
+
+                _logger.LogInformation("Page {PageNumber}: {NonEmpty}/{Total} sections, total length: {Length} chars",
+                        i + 1, nonEmpty, pageSections.Count, totalLen);
             }
 
+            var dataLoss = (double)(totalSections - translatedCount) / totalSections * 100;
+            if (dataLoss > 25)
+                _logger.LogWarning("Significant data loss detected: {Loss:F1}%", dataLoss);
+        }
 
-            var dataLossPercentage = (double)(totalSections - translatedSectionsCount) / totalSections * 100;
-            if (dataLossPercentage > 25)
+
+        private static string GetSectionName(int index) => index switch
+        {
+            0 => "top",
+            1 => "middle",
+            2 => "bottom",
+            _ => $"section-{index + 1}"
+        };
+
+        private List<List<string>> GroupSectionsByPage(ScreenShotResult result, string[] translatedSections)
+        {
+            var grouped = new List<List<string>>();
+            var index = 0;
+
+            foreach (var page in result.Pages)
             {
-                _logger.LogWarning("Significant data loss detected: {DataLossPercentage:F1}% of sections failed translation", dataLossPercentage);
+                var sections = new List<string>();
+                for (int i = 0; i < page.ScreenShots.Count; i++)
+                    sections.Add(translatedSections[index++]);
+                grouped.Add(sections);
             }
 
-            var finalMarkdown = await CombineTranslatedSections(translatedPages, targetLanguage.Name, model, cancellationToken);
+            return grouped;
+        }
 
-            string improvedTranslation = finalMarkdown;
-            double qualityScore = 0.0;
+        private async Task<(string improvedTranslation, double qualityScore)> VerifyTranslation(
+                string finalMarkdown,
+                LanguageModel targetLanguage,
+                AIModel model,
+                CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrWhiteSpace(finalMarkdown))
+                return (string.Empty, 0.0);
 
-            if (!string.IsNullOrWhiteSpace(finalMarkdown))
+            _logger.LogInformation("Starting translation verification");
+
+            try
             {
-                _logger.LogInformation("Starting translation verification for Claude-translated document");
+                var chunks = finalMarkdown.Length > 8000
+                    ? GetChunksOfText(finalMarkdown, 8000)
+                    .Select((chunk, index) => new KeyValuePair<int, string>(index + 1, chunk))
+                    .ToList()
+                    : [new KeyValuePair<int, string>(1, finalMarkdown)];
 
-                try
+                var (verificationResult, verifiedText) = await ProcessTranslationVerification(
+                        cancellationToken, chunks, targetLanguage, finalMarkdown, model);
+
+                if (verificationResult.Success)
                 {
-                    List<KeyValuePair<int, string>> translationChunksForVerification;
-
-                    if (finalMarkdown.Length > 8000)
-                    {
-                        _logger.LogInformation("Translation is large ({Length} chars), splitting into chunks for verification", finalMarkdown.Length);
-                        var chunks = GetChunksOfText(finalMarkdown, 8000);
-                        translationChunksForVerification = chunks.Select((chunk, index) => 
-                                new KeyValuePair<int, string>(index + 1, chunk)).ToList();
-                        _logger.LogInformation("Split into {Count} chunks for verification", chunks.Count);
-                    }
-                    else
-                    {
-                        translationChunksForVerification = [new KeyValuePair<int, string>(1, finalMarkdown)];
-                    }
-
-                    var verificationResult = new VerificationResult();
-                    var verifiedTranslation = "";
-                    var response = await ProcessTranslationVerification(
-                            cancellationToken, translationChunksForVerification, targetLanguage, finalMarkdown, model);
-
-                    verificationResult = response.verificationResult;
-                    verifiedTranslation = response.translatedText;
-
-                    if (verificationResult.Success)
-                    {
-                        improvedTranslation = verifiedTranslation;
-                        qualityScore = verificationResult.QualityScore ?? 1.0;
-                        _logger.LogInformation("Claude translation verification completed with score: {Score}", qualityScore);
-                    }
-                    else
-                    {
-                        _logger.LogWarning("Translation verification failed: {Error}", verificationResult.ErrorMessage);
-                        qualityScore = 0.5;
-                    }
+                    _logger.LogInformation("Verification completed with score: {Score}", verificationResult.QualityScore ?? 1.0);
+                    return (verifiedText, verificationResult.QualityScore ?? 1.0);
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error during Claude translation verification, using original translation");
-                    qualityScore = 0.5; 
-                }
+
+                _logger.LogWarning("Verification failed: {Error}", verificationResult.ErrorMessage);
+                return (finalMarkdown, 0.5);
             }
-
-            string translationId = Guid.NewGuid().ToString();
-
-            var translationResult = new DocumentTranslationResult
+            catch (Exception ex)
             {
-                TranslatedContent = improvedTranslation,
-                OutputFormat = outputFormat,
+                _logger.LogError(ex, "Error during verification");
+                return (finalMarkdown, 0.5);
+            }
+        }
+
+        private DocumentTranslationResult BuildTranslationResult(
+                Domain.Models.DocumentFormat requestedFormat,
+                string content,
+                double qualityScore)
+        {
+            var result = new DocumentTranslationResult
+            {
+                TranslatedContent = content,
+                OutputFormat = requestedFormat,
                 Success = true,
                 TranslationQualityScore = qualityScore,
-                TranslationId = translationId
+                TranslationId = Guid.NewGuid().ToString()
             };
 
-            if (outputFormat != Domain.Models.DocumentFormat.Markdown)
+            if (requestedFormat != Domain.Models.DocumentFormat.Markdown)
             {
-                _logger.LogInformation("Note: Requested format was {OutputFormat}, but returning Markdown due to conversion limitations", outputFormat);
-                translationResult.OutputFormat = Domain.Models.DocumentFormat.Markdown;
+                _logger.LogInformation("Returning Markdown instead of {Format} due to conversion limits", requestedFormat);
+                result.OutputFormat = Domain.Models.DocumentFormat.Markdown;
 
-                if (!string.IsNullOrEmpty(translationResult.TranslatedContent))
-                {
-                    translationResult.FileData = Encoding.UTF8.GetBytes(translationResult.TranslatedContent);
-                    translationResult.FileName = $"translated_{translationResult.TranslationId}.md";
-                    translationResult.ContentType = "text/markdown";
-                }
-                else
-                {
-                    _logger.LogWarning("Translation result has null or empty content");
+                if (string.IsNullOrEmpty(content))
                     return new DocumentTranslationResult { Success = false, ErrorMessage = "Translation resulted in empty content" };
-                }
+
+                result.FileData = Encoding.UTF8.GetBytes(content);
+                result.FileName = $"translated_{result.TranslationId}.md";
+                result.ContentType = "text/markdown";
             }
 
-            return translationResult;
+            return result;
         }
 
         private async Task<string> TranslateSectionWithRetry(string base64Data, int pageNumber, string sectionName, string targetLanguageName, AIModel model, CancellationToken cancellationToken, int maxRetries = 1)
@@ -755,9 +780,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     new ContentFile 
                     { 
                         Type = "text", 
-                        Text = model == AIModel.Gemini25Pro 
-                            ? ExtractTextAndTranslateForGemini(pageNumber, sectionName, targetLanguageName)
-                            : ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName)
+                        Text = ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName)
                     },
                     new ContentFile 
                     { 
@@ -812,108 +835,103 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         }
 
 
-        private async Task<string> CombineTranslatedSections(List<List<string>> translatedPageSections, string targetLanguageName, AIModel model, CancellationToken cancellationToken)
+        private async Task<string> CombineTranslatedSections(
+                List<List<string>> translatedPageSections,
+                string targetLanguageName,
+                AIModel model,
+                CancellationToken cancellationToken)
         {
             try
             {
-                _logger.LogInformation("Combining translated sections from {PageCount} pages using comprehensive multi-stage approach", translatedPageSections.Count);
+                _logger.LogInformation(
+                        "Combining translated sections from {PageCount} pages",
+                        translatedPageSections.Count);
 
-                var translatedPages = new List<string>();
-                var partiallyFailedPages = new List<int>();
+                var (translatedPages, partiallyFailedPages) = await ProcessPages(
+                        translatedPageSections, targetLanguageName, model, cancellationToken);
 
-                for (int i = 0; i < translatedPageSections.Count; i++)
-                {
-                    var pageSections = translatedPageSections[i];
-                    var validSections = pageSections?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
-                    var totalSections = pageSections?.Count ?? 0;
+                LogPageStats(translatedPages, partiallyFailedPages);
 
-                    _logger.LogInformation("Processing page {PageNumber}: {ValidSections}/{TotalSections} sections have content", 
-                            i + 1, validSections.Count, totalSections);
-
-                    if (validSections.Count == 0)
-                    {
-                        _logger.LogWarning("Page {PageNumber} has no valid sections - adding placeholder", i + 1);
-                        translatedPages.Add($"<!-- Page {i + 1}: No content could be extracted -->");
-                        partiallyFailedPages.Add(i + 1);
-                        continue;
-                    }
-
-                    if (validSections.Count < totalSections)
-                    {
-                        _logger.LogWarning("Page {PageNumber} is missing {MissingSections}/{TotalSections} sections", 
-                                i + 1, totalSections - validSections.Count, totalSections);
-                        partiallyFailedPages.Add(i + 1);
-                    }
-
-                    string combinedPage;
-                    if (validSections.Count == 1)
-                    {
-                        combinedPage = validSections[0];
-                        _logger.LogInformation("Page {PageNumber} has single valid section, using directly", i + 1);
-                    }
-                    else
-                    {
-                        combinedPage = await CombineSectionsForSinglePageWithFallback(validSections, targetLanguageName, model, i + 1, cancellationToken);
-                    }
-
-                    translatedPages.Add(combinedPage);
-                    _logger.LogInformation("Page {PageNumber} combined successfully, final length: {Length} chars", i + 1, combinedPage.Length);
-                }
-
-                _logger.LogInformation("Stage 1 complete: Combined {ProcessedPages} pages, {PartiallyFailedCount} had missing sections", 
-                        translatedPages.Count, partiallyFailedPages.Count);
-
-                if (partiallyFailedPages.Count > 0)
-                {
-                    _logger.LogWarning("Pages with missing sections: {PartiallyFailedPages}", string.Join(", ", partiallyFailedPages));
-                }
-
-                var validPages = translatedPages.Where(p => !p.StartsWith("<!-- Page") || !p.Contains("No content could be extracted")).ToList();
-                var emptyPageCount = translatedPages.Count - validPages.Count;
-
-                if (emptyPageCount > 0)
-                {
-                    _logger.LogWarning("Removed {EmptyPageCount} completely empty pages from final document", emptyPageCount);
-                }
-
-                if (validPages.Count == 0)
-                {
-                    _logger.LogError("All pages resulted in empty content after combination.");
+                var validPages = RemoveEmptyPages(translatedPages);
+                if (!validPages.Any())
                     return string.Empty;
-                }
 
                 if (validPages.Count == 1)
-                {
-                    _logger.LogInformation("Single valid page document, returning combined page directly");
                     return validPages[0];
-                }
 
-                _logger.LogInformation("Performing document-level assembly for {PageCount} valid pages using AI");
-
-                var documentAssembly = new StringBuilder();
-                for (int i = 0; i < validPages.Count; i++)
-                {
-                    documentAssembly.AppendLine($"PAGE {i + 1}:");
-                    documentAssembly.AppendLine(validPages[i]);
-                    documentAssembly.AppendLine();
-
-                    _logger.LogInformation("Added page {PageNumber} to document assembly, page length: {Length} chars", 
-                            i + 1, validPages[i].Length);
-                }
-
-                _logger.LogInformation("Document assembly created with {TotalLength} total characters for {PageCount} pages", 
-                        documentAssembly.Length, validPages.Count);
-
-                var finalDocument = await CombineDocumentPagesWithClaudeAndFallback(documentAssembly.ToString(), targetLanguageName, model, validPages, cancellationToken);
-
-                _logger.LogInformation("Successfully assembled final document of length {Length}", finalDocument.Length);
-                return finalDocument;
+                var assembledDoc = AssembleDocument(validPages);
+                return await CombineDocumentPagesWithClaudeAndFallback(
+                        assembledDoc, targetLanguageName, model, validPages, cancellationToken);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error combining translated sections with Claude, using emergency fallback");
+                _logger.LogError(ex, "Error combining translated sections, using fallback");
                 return CreateEmergencyFallbackCombination(translatedPageSections);
             }
+        }
+        
+        private async Task<(List<string> translatedPages, List<int> partiallyFailedPages)> ProcessPages(
+                List<List<string>> translatedPageSections,
+                string targetLanguageName,
+                AIModel model,
+                CancellationToken cancellationToken)
+        {
+            var translatedPages = new List<string>();
+            var partiallyFailedPages = new List<int>();
+
+            for (int i = 0; i < translatedPageSections.Count; i++)
+            {
+                var (combinedPage, isPartialFail) = await ProcessSinglePage(
+                        i, translatedPageSections[i], targetLanguageName, model, cancellationToken);
+
+                translatedPages.Add(combinedPage);
+                if (isPartialFail) partiallyFailedPages.Add(i + 1);
+            }
+
+            return (translatedPages, partiallyFailedPages);
+        }
+
+        private async Task<(string combinedPage, bool isPartialFail)> ProcessSinglePage(
+                int pageIndex,
+                List<string> sections,
+                string targetLanguageName,
+                AIModel model,
+                CancellationToken cancellationToken)
+        {
+            var validSections = sections?.Where(s => !string.IsNullOrWhiteSpace(s)).ToList() ?? new List<string>();
+            var totalSections = sections?.Count ?? 0;
+            var pageNum = pageIndex + 1;
+
+            if (!validSections.Any())
+                return ($"<!-- Page {pageNum}: No content could be extracted -->", true);
+
+            bool isPartialFail = validSections.Count < totalSections;
+            var combinedPage = validSections.Count == 1
+                ? validSections[0]
+                : await CombineSectionsForSinglePageWithFallback(validSections, targetLanguageName, model, pageNum, cancellationToken);
+
+            return (combinedPage, isPartialFail);
+        }
+
+        private void LogPageStats(List<string> translatedPages, List<int> partiallyFailedPages)
+        {
+            if (partiallyFailedPages.Any())
+                _logger.LogWarning("Pages with missing sections: {Pages}", string.Join(", ", partiallyFailedPages));
+        }
+
+        private List<string> RemoveEmptyPages(List<string> pages) =>
+            pages.Where(p => !p.StartsWith("<!-- Page") || !p.Contains("No content could be extracted")).ToList();
+
+        private string AssembleDocument(List<string> validPages)
+        {
+            var sb = new StringBuilder();
+            for (int i = 0; i < validPages.Count; i++)
+            {
+                sb.AppendLine($"PAGE {i + 1}:");
+                sb.AppendLine(validPages[i]);
+                sb.AppendLine();
+            }
+            return sb.ToString();
         }
 
         private async Task<string> CombineSectionsForSinglePageWithFallback(List<string> validSections, string targetLanguageName, AIModel model, int pageNumber, CancellationToken cancellationToken)
@@ -923,20 +941,18 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 var sectionsContent = new StringBuilder();
                 for (int i = 0; i < validSections.Count; i++)
                 {
-                    var trimmedSection = validSections[i].Trim(); // Trim to avoid leading/trailing newlines
+                    var trimmedSection = validSections[i].Trim();
                     if (!string.IsNullOrEmpty(trimmedSection))
                     {
                         sectionsContent.Append(trimmedSection);
                         if (i < validSections.Count - 1)
                         {
-                            sectionsContent.AppendLine(); // Single newline between sections
+                            sectionsContent.AppendLine();
                         }
                     }
                 }
 
-                var prompt = model == AIModel.Gemini25Pro 
-                    ? GenerateSinglePageCombinationPromptForGemini(targetLanguageName, sectionsContent.ToString())
-                    : GenerateSinglePageCombinationPrompt(targetLanguageName, sectionsContent.ToString());
+                var prompt = GenerateSinglePageCombinationPrompt(targetLanguageName, sectionsContent.ToString());
 
                 var message = new ContentFile { Type = "text", Text = prompt };
                 var response = await _aiService.SendRequestWithFile([message], model, cancellationToken);
@@ -1056,37 +1072,6 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        private static string ExtractTextAndTranslateForGemini(int pageNumber, string sectionName, string targetLanguageName)
-        {
-            string verticalPortion = sectionName switch
-            {
-                "top" => "0-50%",
-                "middle" => "25-75%", 
-                "bottom" => "50-100%",
-                _ => "full page"
-            };
-
-            return $@"
-                You are a professional document translator. Please analyze this image section from page {pageNumber} ({sectionName} section, approximately {verticalPortion} of the page) and:
-
-                1. Extract all visible text accurately
-                2. Translate everything to {targetLanguageName}
-            3. Format the output as clean HTML using only these tags: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
-                - **Use inline CSS styles in each element to preserve original formatting, spacing, and layout where applicable**
-
-                Important rules:
-                - Translate ALL text content including headers, labels, contact information, and descriptions
-                - Keep technical codes, standards (ISO, EN, etc.), and reference numbers unchanged
-                - **NEVER translate email addresses** - keep them exactly as they appear
-                - Preserve the document structure using appropriate HTML tags
-                - Use <br> tags for line breaks, not \\n
-                - Do not add explanatory text or comments
-                - Output only the translated HTML content
-
-                Translate to: {targetLanguageName}
-            ";
-        }
-
         private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
         {
             string verticalPortion = sectionName switch
@@ -1106,7 +1091,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 <context>
                 Document Context:
                 - Page Number: {pageNumber}
-            - Section of Page: {sectionName} (approx. {verticalPortion} vertical portion)
+                - Section of Page: {sectionName} (approx. {verticalPortion} vertical portion)
                 </context>
 
                 <actions>
@@ -1149,7 +1134,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 <output_requirements>
                 - Output **only** the translated text in {targetLanguageName}
-            - Format the entire output strictly in HTML as described
+                - Format the entire output strictly in HTML as described
                 - Do **not** include any explanations, remarks, or original untranslated text
                 - Do **not** add any introductory or concluding statements
                 </output_requirements>
@@ -1157,47 +1142,48 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 ";
         }
 
-
-        private static string GenerateSinglePageCombinationPromptForGemini(string targetLanguageName, string sectionsContent)
-        {
-            return $@"
-                Combine these overlapping text sections from a single document page into one seamless text in {targetLanguageName}. The sections have overlapping content - merge them by removing duplicates while preserving all unique information.
-
-                {sectionsContent}
-
-            Rules:
-                - Combine overlapping content smoothly
-                - Keep all unique information
-                - Maintain HTML formatting
-                - **Use inline CSS styles to preserve layout, font styles, spacing, and structure exactly as in the original document**
-                - Output only the combined text
-                - Do not add explanatory comments
-
-                Combined result:
-                ";
-        }
-
-
         private static string GenerateDocumentCombinationPromptForGemini(string targetLanguageName, string chunkContent)
         {
             return $@"
-                Combine these translated document pages into one complete document in {targetLanguageName}. Each page is labeled with PAGE X markers.
+                You are tasked with combining translated document pages into a single cohesive document in {targetLanguageName}.
 
+                INPUT DATA:
                 {chunkContent}
 
-            Rules:
-                - Merge all pages in order
-                - Remove PAGE markers from final output
-                - Combine any overlapping content between pages
-                - Maintain HTML formatting
-                - **Use inline CSS to preserve layout, styles, fonts, spacing, and structure as close to the original as possible**
-                - Output only the complete document
-                - Do not add explanatory text
+                COMBINATION REQUIREMENTS:
 
-                Complete document:
+                1. PAGE ORDERING AND STRUCTURE:
+                - Process pages sequentially in numerical order (PAGE 1, PAGE 2, etc.)
+                - Remove ALL page markers (PAGE X) from the final output
+                - Maintain the logical document flow from start to finish
+
+                2. CONTENT DEDUPLICATION:
+                - Identify and eliminate duplicate sentences or paragraphs at page boundaries
+                - When duplicate content is found, keep the FIRST occurrence only
+                - Pay special attention to headers, footers, and repeated elements
+                - Preserve unique content from each page
+
+                3. TEXT FLOW AND COHERENCE:
+                - Ensure smooth transitions between formerly separate pages
+                - Maintain proper paragraph breaks and sentence structure
+                - Preserve the natural reading flow of the document
+                - Do not introduce new content or interpretations
+
+                4. FORMATTING AND LAYOUT PRESERVATION:
+                - Retain ALL original HTML tags and structure exactly as provided
+                - Preserve inline CSS styles, fonts, colors, and spacing
+                - Maintain heading hierarchies, lists, tables, and other formatting elements
+                - Keep original text alignment, margins, and visual layout
+
+                5. OUTPUT SPECIFICATIONS:
+                - Return ONLY the final merged document content
+                - Do not include explanations, metadata, or commentary
+                - Do not wrap the output in code blocks or additional formatting
+                - Ensure the result is a complete, standalone document
+
+                Begin the merged document below:
                 ";
         }
-
         private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
         {
             return $@"
