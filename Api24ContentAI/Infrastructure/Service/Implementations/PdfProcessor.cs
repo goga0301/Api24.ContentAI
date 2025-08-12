@@ -780,7 +780,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     new ContentFile 
                     { 
                         Type = "text", 
-                        Text = ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName)
+                        Text = model == AIModel.Gemini25Pro 
+                            ? ExtractTextAndTranslateForGemini(pageNumber, sectionName, targetLanguageName)
+                            : ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName)
                     },
                     new ContentFile 
                     { 
@@ -1072,6 +1074,39 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
+        private static string ExtractTextAndTranslateForGemini(int pageNumber, string sectionName, string targetLanguageName)
+        {
+            string verticalPortion = sectionName switch
+            {
+                "top" => "0-50%",
+                "middle" => "25-75%", 
+                "bottom" => "50-100%",
+                _ => "full page"
+            };
+
+            return $@"
+                You are a professional document translator. Please analyze this image section from page {pageNumber} ({sectionName} section, approximately {verticalPortion} of the page) and:
+
+                1. Extract all visible text accurately
+                2. Translate everything to {targetLanguageName}
+                3. Format the output as clean HTML using only these tags: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
+                - **Use inline CSS styles in each element to preserve original formatting, spacing, and layout where applicable**
+
+                Important rules:
+                - Translate ALL text content including headers, labels, contact information, and descriptions
+                - Keep technical codes, standards (ISO, EN, etc.), and reference numbers unchanged
+                - **NEVER translate email addresses** - keep them exactly as they appear
+                - Preserve the document structure using appropriate HTML tags
+                - Use <br> tags for line breaks, not \\n
+                - Do not add explanatory text or comments
+                - Output only the translated HTML content
+
+                Translate to: {targetLanguageName}
+            ";
+        }
+
+
+
         private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
         {
             string verticalPortion = sectionName switch
@@ -1184,6 +1219,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 Begin the merged document below:
                 ";
         }
+
         private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
         {
             return $@"
@@ -1210,6 +1246,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 3. <Completeness>: Are all elements of the presumed source text fully conveyed, with no omissions or unjustified additions?
                 4. <Accuracy and Fidelity>: Which version better preserves the meaning, nuance, and intent of the original text?
                 5. <Formatting and Structure>: Which version better maintains proper document structure and formatting?
+                6. <Duplicate Adjacent Content>: Check if either translation contains duplicated or repeated text segments next to each other, which should be penalized as errors.
 
                 - **Formatting must use strict HTML**
                 - **Inline CSS must be used to preserve layout, styling, and structure as close to the source as possible**
@@ -1246,7 +1283,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - This includes contact information labels, job titles, signatures, and descriptive text
                 - Ensure translations are natural, fluent, and professionally appropriate for the document type
                 - Use standard technical terminology and industry-specific vocabulary appropriate for {language.Name}
-            - Maintain the same level of formality and tone as the original text
+                - Maintain the same level of formality and tone as the original text
                 - Preserve all semantic nuances and contextual meaning
                 - Do not omit, skip, or summarize any translatable content
                 - Translate all repeated content exactly as it appears - do not deduplicate
@@ -1278,7 +1315,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - Phone/fax numbers: Keep numbers as shown
                 - Street addresses: Translate descriptive parts (Street, Avenue, Building, etc.) but keep proper nouns
                 - Contact labels: MUST translate labels like ""Phone"", ""Fax"", ""Email"", ""Website"", ""Address"" into {language.Name}
-            - Certification listings: Keep certification names (ISO 9001, CE, etc.) but translate descriptive text
+                - Certification listings: Keep certification names (ISO 9001, CE, etc.) but translate descriptive text
                 - Signatures and titles: MUST translate personal titles and roles into {language.Name}
             </contact_information_rules>
 
@@ -1516,12 +1553,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 <objectives>
                 1. <Combine and Order>
-                Merge all provided sections into a single cohesive text block.
+                Merge all provided sections into a single cohesive text block, ensuring no duplicate content remains from overlapping parts.
 
                 2. <Seamless Stitching from Overlap>
                 The sections have overlapping content. Use this overlap to perfectly stitch them together into a single, continuous text. It is critical that **no content from the beginning of the first section or the end of the last section is lost**. Your goal is to reconstruct the full, original text of the page from these overlapping pieces.
 
-                3. <Preserve Structure and Formatting>
+                3. <Remove Duplicates>
+                Carefully detect and remove any duplicate text arising from overlaps to avoid repetition in the final output.
+
+                4. <Preserve Structure and Formatting>
                 Maintain the original structure (headings, paragraphs, lists, tables) and all HTML formatting present in the sections.
                 - **Apply inline CSS styles** where needed to reflect original visual formatting, such as:
                 * Text alignment
@@ -1530,7 +1570,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 * Layout structure
                 * Line breaks and color (if relevant)
 
-                4. <Content Fidelity>
+                5. <Content Fidelity>
                 Do NOT add any new content or information. The output should only be the combined text.
                 </objectives>
 
