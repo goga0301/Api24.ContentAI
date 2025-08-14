@@ -244,7 +244,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static decimal CalculateDocumentTranslationPrice(int pageCount)
         {
-            return pageCount * 0.1m;
+            return pageCount;
         }
 
         private async Task<int> GetDocumentPageCount(IFormFile file, CancellationToken cancellationToken)
