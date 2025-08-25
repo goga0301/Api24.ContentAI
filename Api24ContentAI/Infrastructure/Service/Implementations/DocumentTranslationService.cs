@@ -244,40 +244,39 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         private static decimal CalculateDocumentTranslationPrice(int pageCount)
         {
-            return pageCount * 0.1m;
+            return pageCount;
         }
 
         private async Task<int> GetDocumentPageCount(IFormFile file, CancellationToken cancellationToken)
         {
             try
             {
-                var processor = _fileProcessorFactory.GetProcessor(file.FileName);
-                
-                // page count for pdf files
-                if (file.FileName.ToLowerInvariant().EndsWith(".pdf"))
+                if (file.FileName.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase))
                 {
-                    var fileSizeInMB = file.Length / (1024.0 * 1024.0);
-                    var estimatedPages = Math.Max(1, (int)Math.Ceiling(fileSizeInMB / 0.5)); // Assume ~0.5MB per page
-                    
-                    _logger.LogInformation("Estimated page count for PDF {FileName}: {PageCount} pages (based on {FileSize:F2}MB file size)", 
-                        file.FileName, estimatedPages, fileSizeInMB);
-                    
+                    using var stream = file.OpenReadStream();
+                    using var reader = new iText.Kernel.Pdf.PdfReader(stream);
+                    using var pdfDoc = new iText.Kernel.Pdf.PdfDocument(reader);
+                    int pageCount = pdfDoc.GetNumberOfPages();
+
+                    _logger.LogInformation("Actual page count for PDF {FileName}: {PageCount} pages", file.FileName, pageCount);
+                    return pageCount;
+                }
+
+                if (file.FileName.EndsWith(".docx", StringComparison.OrdinalIgnoreCase))
+                {
+                    var fileSizeInKB = file.Length / 1024.0;
+                    int estimatedPages = Math.Max(1, (int)Math.Ceiling(fileSizeInKB / 50.0)); // ~50KB per page
+                    _logger.LogInformation("Estimated page count for DOCX {FileName}: {PageCount} pages (based on {FileSize:F2}KB file size)",
+                            file.FileName, estimatedPages, fileSizeInKB);
                     return estimatedPages;
                 }
-                
-                // (DOCX, DOC, TXT), estimate based on file size
-                var fileSizeInKB = file.Length / 1024.0;
-                var estimatedPagesForDoc = Math.Max(1, (int)Math.Ceiling(fileSizeInKB / 50)); // Assume ~50KB per page for text documents
-                
-                _logger.LogInformation("Estimated page count for document {FileName}: {PageCount} pages (based on {FileSize:F2}KB file size)", 
-                    file.FileName, estimatedPagesForDoc, fileSizeInKB);
-                
-                return estimatedPagesForDoc;
+
+                return 1;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error estimating page count for file {FileName}, defaulting to 1 page", file.FileName);
-                return 1; 
+                _logger.LogWarning(ex, "Error calculating page count for file {FileName}, defaulting to 1 page", file.FileName);
+                return 1;
             }
         }
 

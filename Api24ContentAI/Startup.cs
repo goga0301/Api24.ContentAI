@@ -245,6 +245,9 @@ namespace Api24ContentAI
                 client.Timeout = TimeSpan.FromMinutes(5);
             });
             
+
+            services.Configure<PayseraOptions>(Configuration.GetSection("PayseraOptions"));
+
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

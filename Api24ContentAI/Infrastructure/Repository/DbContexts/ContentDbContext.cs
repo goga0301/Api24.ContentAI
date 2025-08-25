@@ -1,4 +1,4 @@
-﻿using Api24ContentAI.Domain.Entities;
+using Api24ContentAI.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 
 namespace Api24ContentAI.Infrastructure.Repository.DbContexts
@@ -17,6 +17,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
         public DbSet<UserBalance> UserBalances { get; set; }
         public DbSet<TranslationJobEntity> TranslationJobs { get; set; }
         public DbSet<DocumentTranslationChat> DocumentTranslationChats { get; set; }
+        public DbSet<Payment> Payments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -79,13 +80,6 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
             _ = modelBuilder.Entity<User>().HasOne(static x => x.Role).WithMany().HasForeignKey(static x => x.RoleId);
 
             _ = modelBuilder.Entity<UserBalance>().HasOne(static x => x.User).WithOne(static x => x.UserBalance).HasForeignKey<UserBalance>(static x => x.UserId).IsRequired(false);
-
-            _ = modelBuilder.Entity<DocumentTranslationChat>()
-                .HasIndex(static x => x.ChatId)
-                .IsUnique();
-
-            _ = modelBuilder.Entity<DocumentTranslationChat>()
-                .HasIndex(static x => x.UserId);
 
         }
     }

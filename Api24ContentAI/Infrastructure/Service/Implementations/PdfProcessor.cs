@@ -780,7 +780,9 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     new ContentFile 
                     { 
                         Type = "text", 
-                        Text = ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName)
+                        Text = model == AIModel.Gemini25Pro 
+                            ? ExtractTextAndTranslateForGemini(pageNumber, sectionName, targetLanguageName)
+                            : ExtractTextAndTranslate(pageNumber, sectionName, targetLanguageName)
                     },
                     new ContentFile 
                     { 
@@ -1071,6 +1073,50 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 return string.Empty;
             }
         }
+        private static string ExtractTextAndTranslateForGemini(int pageNumber, string sectionName, string targetLanguageName)
+        {
+            string verticalPortion = sectionName switch
+            {
+                "top" => "0-50%",
+                "middle" => "25-75%", 
+                "bottom" => "50-100%",
+                _ => "full page"
+            };
+
+            return $@"
+                You are a professional document translator analyzing page {pageNumber}, {sectionName} section ({verticalPortion}).
+
+                CRITICAL ANTI-DUPLICATION RULES:
+                1. Extract ONLY the text that is CLEARLY VISIBLE and READABLE in this specific image section
+                2. Do NOT repeat or duplicate any content within your response
+                3. Do NOT add content that might be from adjacent sections
+                4. If text appears cut off at edges, include only the COMPLETE words/sentences you can see
+                5. Do NOT fill in or guess missing parts of cut-off text
+
+                TRANSLATION TASK:
+                1. Extract all visible text accurately from THIS section only
+                2. Translate everything to {targetLanguageName}
+                3. Format as clean HTML with inline CSS styles for layout preservation
+
+                FORMATTING RULES:
+                - Use only: <h1>-<h6>, <p>, <ul>, <ol>, <li>, <table>, <tr>, <th>, <td>, <strong>, <em>, <br>, <hr>, <pre>, <code>
+                - Add inline CSS styles to preserve original formatting, spacing, and layout
+                - Translate ALL text content including headers, labels, contact information
+                - Keep technical codes, standards (ISO, EN, etc.), and reference numbers unchanged
+                - **NEVER translate email addresses** - keep them exactly as they appear
+                - Use <br> tags for line breaks, not \\n
+                - Output only the translated HTML content with NO explanatory text
+
+                SECTION BOUNDARIES:
+                - Extract ONLY what is visible in this {sectionName} section
+                - Do not extrapolate or continue sentences that are cut off
+                - Focus on complete, readable content within the visible area
+
+                Translate to: {targetLanguageName}
+            ";
+        }
+
+
 
         private static string ExtractTextAndTranslate(int pageNumber, string sectionName, string targetLanguageName)
         {
@@ -1150,40 +1196,54 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 INPUT DATA:
                 {chunkContent}
 
-                COMBINATION REQUIREMENTS:
+                CRITICAL ANTI-DUPLICATION REQUIREMENTS:
 
-                1. PAGE ORDERING AND STRUCTURE:
-                - Process pages sequentially in numerical order (PAGE 1, PAGE 2, etc.)
-                - Remove ALL page markers (PAGE X) from the final output
-                - Maintain the logical document flow from start to finish
+                1. DUPLICATE DETECTION AND REMOVAL:
+                - Scan for identical or near-identical sentences/paragraphs between adjacent pages
+                - Remove ALL duplicate content - keep only the FIRST occurrence
+                - Pay special attention to:
+                * Headers and footers that repeat across pages
+                * Paragraph text that appears at page boundaries
+                * Contact information or signatures that repeat
+                * Table headers or repeated formatting elements
+                - Use semantic similarity, not just exact text matching
+                - When in doubt, remove the duplicate rather than keep both versions
 
-                2. CONTENT DEDUPLICATION:
-                - Identify and eliminate duplicate sentences or paragraphs at page boundaries
-                - When duplicate content is found, keep the FIRST occurrence only
-                - Pay special attention to headers, footers, and repeated elements
-                - Preserve unique content from each page
+                2. OVERLAP HANDLING:
+                - Pages may have overlapping content from screenshot boundaries
+                - Identify overlapping sections by content similarity (>80% similar = duplicate)
+                - Merge overlapping sections by keeping the most complete version
+                - Remove partial sentences or cut-off text in favor of complete versions
 
-                3. TEXT FLOW AND COHERENCE:
-                - Ensure smooth transitions between formerly separate pages
-                - Maintain proper paragraph breaks and sentence structure
-                - Preserve the natural reading flow of the document
-                - Do not introduce new content or interpretations
+                3. PAGE PROCESSING:
+                - Process pages sequentially (PAGE 1, PAGE 2, etc.)
+                - Remove ALL page markers (PAGE X) from final output
+                - Maintain logical document flow from start to finish
+                - Preserve unique content from each page only
 
-                4. FORMATTING AND LAYOUT PRESERVATION:
-                - Retain ALL original HTML tags and structure exactly as provided
-                - Preserve inline CSS styles, fonts, colors, and spacing
-                - Maintain heading hierarchies, lists, tables, and other formatting elements
-                - Keep original text alignment, margins, and visual layout
+                4. CONTENT INTEGRITY:
+                - Do not add new content or interpretations
+                - Maintain original HTML structure and inline CSS styles
+                - Preserve heading hierarchies, lists, tables exactly as provided
+                - Keep text alignment, margins, and visual layout intact
 
                 5. OUTPUT SPECIFICATIONS:
                 - Return ONLY the final merged document content
-                - Do not include explanations, metadata, or commentary
-                - Do not wrap the output in code blocks or additional formatting
-                - Ensure the result is a complete, standalone document
+                - No explanations, metadata, or commentary
+                - Complete, standalone document with no duplicates
+                - Ensure smooth reading flow without repetitive content
+
+                DUPLICATE DETECTION ALGORITHM:
+                For each new paragraph/section being added:
+                1. Compare with last 3 paragraphs already in output
+                2. If similarity > 80%, skip the new paragraph
+                3. If similarity 50-80%, merge keeping the more complete version
+                4. If similarity < 50%, add as new unique content
 
                 Begin the merged document below:
                 ";
         }
+
         private static string GenerateVerificationPrompt(string translatedText, string targetLanguage, string improvedTranslation)
         {
             return $@"
@@ -1210,6 +1270,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 3. <Completeness>: Are all elements of the presumed source text fully conveyed, with no omissions or unjustified additions?
                 4. <Accuracy and Fidelity>: Which version better preserves the meaning, nuance, and intent of the original text?
                 5. <Formatting and Structure>: Which version better maintains proper document structure and formatting?
+                6. <Duplicate Adjacent Content>: Check if either translation contains duplicated or repeated text segments next to each other, which should be penalized as errors.
 
                 - **Formatting must use strict HTML**
                 - **Inline CSS must be used to preserve layout, styling, and structure as close to the source as possible**
@@ -1246,7 +1307,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - This includes contact information labels, job titles, signatures, and descriptive text
                 - Ensure translations are natural, fluent, and professionally appropriate for the document type
                 - Use standard technical terminology and industry-specific vocabulary appropriate for {language.Name}
-            - Maintain the same level of formality and tone as the original text
+                - Maintain the same level of formality and tone as the original text
                 - Preserve all semantic nuances and contextual meaning
                 - Do not omit, skip, or summarize any translatable content
                 - Translate all repeated content exactly as it appears - do not deduplicate
@@ -1278,7 +1339,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 - Phone/fax numbers: Keep numbers as shown
                 - Street addresses: Translate descriptive parts (Street, Avenue, Building, etc.) but keep proper nouns
                 - Contact labels: MUST translate labels like ""Phone"", ""Fax"", ""Email"", ""Website"", ""Address"" into {language.Name}
-            - Certification listings: Keep certification names (ISO 9001, CE, etc.) but translate descriptive text
+                - Certification listings: Keep certification names (ISO 9001, CE, etc.) but translate descriptive text
                 - Signatures and titles: MUST translate personal titles and roles into {language.Name}
             </contact_information_rules>
 
@@ -1516,12 +1577,15 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 <objectives>
                 1. <Combine and Order>
-                Merge all provided sections into a single cohesive text block.
+                Merge all provided sections into a single cohesive text block, ensuring no duplicate content remains from overlapping parts.
 
                 2. <Seamless Stitching from Overlap>
                 The sections have overlapping content. Use this overlap to perfectly stitch them together into a single, continuous text. It is critical that **no content from the beginning of the first section or the end of the last section is lost**. Your goal is to reconstruct the full, original text of the page from these overlapping pieces.
 
-                3. <Preserve Structure and Formatting>
+                3. <Remove Duplicates>
+                Carefully detect and remove any duplicate text arising from overlaps to avoid repetition in the final output.
+
+                4. <Preserve Structure and Formatting>
                 Maintain the original structure (headings, paragraphs, lists, tables) and all HTML formatting present in the sections.
                 - **Apply inline CSS styles** where needed to reflect original visual formatting, such as:
                 * Text alignment
@@ -1530,7 +1594,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 * Layout structure
                 * Line breaks and color (if relevant)
 
-                4. <Content Fidelity>
+                5. <Content Fidelity>
                 Do NOT add any new content or information. The output should only be the combined text.
                 </objectives>
 
