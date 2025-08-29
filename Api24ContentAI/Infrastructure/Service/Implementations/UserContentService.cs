@@ -25,6 +25,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 {
     public class UserContentService : IUserContentService
     {
+        private readonly IGeminiService _geminiService;
         private readonly IClaudeService _claudeService;
         private readonly IUserRequestLogService _requestLogService;
         private readonly IProductCategoryService _productCategoryService;
@@ -33,6 +34,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
         private readonly ILogger<UserContentService> _logger;
 
         public UserContentService(
+            IGeminiService geminiService,
             IClaudeService claudeService,
             IUserRequestLogService requestLogService,
             IProductCategoryService productCategoryService,
@@ -40,6 +42,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             IUserRepository userRepository,
             ILogger<UserContentService> logger)
         {
+            _geminiService = geminiService;
             _claudeService = claudeService;
             _requestLogService = requestLogService;
             _productCategoryService = productCategoryService;
@@ -453,41 +456,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     _logger.LogDebug("Translating chunk {Order}, attempt {Attempt}", order, attempt);
 
                     string templateText = GetTranslateTemplate(targetLanguage, sourceLanguage, text);
-                    var contents = new List<ContentFile>
+                    var parts = new List<GeminiPart>
                     {
-                        new ContentFile { Type = "text", Text = templateText }
+                        new GeminiPart { Text = templateText }
                     };
-                    var requestWithFile = new ClaudeRequestWithFile(contents);
 
-                    var claudeResponse = await _claudeService.SendRequestWithFile(requestWithFile, cancellationToken);
+                    var geminiResponse = await _geminiService.SendRequestWithFile(parts, cancellationToken);
 
-                    if (claudeResponse == null || claudeResponse.Content == null || !claudeResponse.Content.Any())
-                    {
-                        _logger.LogWarning("Claude API returned empty response for chunk {Order}, attempt {Attempt}", order, attempt);
-                        await Task.Delay(delay, cancellationToken);
-                        delay = delay * 2; // exponential backoff
-                        continue;
-                    }
+                    var responseText = geminiResponse.Candidates?
+                        .FirstOrDefault()?
+                        .Content?
+                        .Parts?
+                        .FirstOrDefault()?
+                        .Text;
 
-                    var responseText = claudeResponse.Content.First().Text;
                     if (string.IsNullOrWhiteSpace(responseText))
                     {
-                        _logger.LogWarning("Claude API response text is empty for chunk {Order}, attempt {Attempt}", order, attempt);
-                        await Task.Delay(delay, cancellationToken);
-                        delay = delay * 2;
-                        continue;
-                    }
-
-                    if (ClaudeErrorIndicators.Any(ind => responseText.Contains(ind, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        _logger.LogWarning("Claude returned error indicator for chunk {Order}, attempt {Attempt}", order, attempt);
-
-                        if (attempt == maxAttempts)
-                        {
-                            var retryResult = await RetryWithSimplePrompt(order, text, sourceLanguage, targetLanguage, cancellationToken);
-                            return new KeyValuePair<int, string>(order, retryResult);
-                        }
-
+                        _logger.LogWarning("Gemini API response text is empty for chunk {Order}, attempt {Attempt}", order, attempt);
                         await Task.Delay(delay, cancellationToken);
                         delay = delay * 2;
                         continue;

@@ -17,6 +17,7 @@ namespace Api24ContentAI.Infrastructure.Repository.DbContexts
         public DbSet<UserBalance> UserBalances { get; set; }
         public DbSet<TranslationJobEntity> TranslationJobs { get; set; }
         public DbSet<DocumentTranslationChat> DocumentTranslationChats { get; set; }
+        public DbSet<DocumentTranslationChatMessage> DocumentTranslationChatMessages {get; set;}
         public DbSet<Payment> Payments { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)

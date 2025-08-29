@@ -15,6 +15,7 @@ namespace Api24ContentAI.Tests.UnitTests.Services
     public class UserContentServiceTest
     {
         private readonly Mock<IClaudeService> _mockClaudeService;
+        private readonly Mock<IGeminiService> _mockGeminiService;
         private readonly Mock<IUserRequestLogService> _mockUserRequestLogService;
         private readonly Mock<IProductCategoryService> _mockProductCategoryService;
         private readonly Mock<ILanguageService> _mockLanguageService;
@@ -24,6 +25,7 @@ namespace Api24ContentAI.Tests.UnitTests.Services
 
         public UserContentServiceTest()
         {
+            _mockGeminiService = new Mock<IGeminiService>();
             _mockClaudeService = new Mock<IClaudeService>();
             _mockUserRequestLogService = new Mock<IUserRequestLogService>();
             _mockProductCategoryService = new Mock<IProductCategoryService>();
@@ -32,6 +34,7 @@ namespace Api24ContentAI.Tests.UnitTests.Services
             _mockLogger = new Mock<ILogger<UserContentService>>();
 
             _userContentService = new UserContentService(
+                _mockGeminiService.Object,
                 _mockClaudeService.Object,
                 _mockUserRequestLogService.Object,
                 _mockProductCategoryService.Object,
