@@ -90,6 +90,12 @@ namespace Api24ContentAI.Controllers
                 var jobId = await _translationJobService.CreateJobWithModel(fileExtension, request.File.Length / 1024,
                                             estimatedMinutes, userId, request.Model, cancellationToken);
 
+                byte[] fileBytes;
+                using (var ms = new MemoryStream())
+                {
+                    await request.File.CopyToAsync(ms, cancellationToken);
+                    fileBytes = ms.ToArray();
+                }
                 var chatModel = new CreateDocumentTranslationChatModel
                 {
                     UserId = userId,
@@ -98,7 +104,8 @@ namespace Api24ContentAI.Controllers
                     OriginalFileSizeBytes = request.File.Length,
                     FileType = fileExtension.TrimStart('.'),
                     TargetLanguageId = request.TargetLanguageId,
-                    InitialMessage = "Starting Tesseract OCR translation..."
+                    InitialMessage = "Starting Tesseract OCR translation...",
+                    DocumentData = fileBytes
                 };
 
                 var chatResponse = await _chatService.StartChat(chatModel, jobId, cancellationToken);
@@ -185,12 +192,12 @@ namespace Api24ContentAI.Controllers
 
                 return Accepted(new
                         {
-                        JobId = jobId,
-                        ChatId = chatResponse.ChatId,
-                        Message = "Tesseract translation started in background. Use the job ID to check status.",
-                        EstimatedTimeMinutes = estimatedMinutes,
-                        FileType = fileExtension,
-                        FileSizeKB = request.File.Length / 1024
+                            JobId = jobId,
+                            ChatId = chatResponse.ChatId,
+                            Message = "Tesseract translation started in background. Use the job ID to check status.",
+                            EstimatedTimeMinutes = estimatedMinutes,
+                            FileType = fileExtension,
+                            FileSizeKB = request.File.Length / 1024
                         });
             }
             catch (Exception ex)
@@ -234,6 +241,13 @@ namespace Api24ContentAI.Controllers
                                                             request.Model,
                                                             cancellationToken);
 
+                byte[] fileBytes;
+                using(var ms = new MemoryStream())
+                {
+                    await request.File.CopyToAsync(ms, cancellationToken);
+                    fileBytes = ms.ToArray();
+                }
+
                 var chatModel = new CreateDocumentTranslationChatModel
                 {
                     UserId = userId,
@@ -242,7 +256,8 @@ namespace Api24ContentAI.Controllers
                     OriginalFileSizeBytes = request.File.Length,
                     FileType = fileExtension.TrimStart('.'),
                     TargetLanguageId = request.TargetLanguageId,
-                    InitialMessage = $"Starting {request.Model} AI translation..."
+                    InitialMessage = $"Starting {request.Model} AI translation...",
+                    DocumentData = fileBytes
                 };
 
                 var chatResponse = await _chatService.StartChat(chatModel, jobId, cancellationToken);
@@ -522,6 +537,14 @@ namespace Api24ContentAI.Controllers
                         estimatedMinutes, userId, AIModel.Claude4Sonnet, cancellationToken);
 
                 var targetLanguageData = await _languageService.GetById(request.TargetLanguageId, cancellationToken);
+
+                byte[] fileBytes;
+                using(var ms = new MemoryStream())
+                {
+                    await request.File.CopyToAsync(ms, cancellationToken);
+                    fileBytes = ms.ToArray();
+                }
+
                 var chatModel = new CreateDocumentTranslationChatModel
                 {
                     UserId = userId,
@@ -531,7 +554,8 @@ namespace Api24ContentAI.Controllers
                     FileType = "srt",
                     TargetLanguageId = request.TargetLanguageId,
                     TargetLanguageName = targetLanguageData?.Name,
-                    InitialMessage = "Starting SRT subtitle translation..."
+                    InitialMessage = "Starting SRT subtitle translation...",
+                    DocumentData = fileBytes
                 };
 
                 var chatResponse = await _chatService.StartChat(chatModel, jobId, cancellationToken);

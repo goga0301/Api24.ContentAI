@@ -46,6 +46,8 @@ namespace Api24ContentAI.Domain.Entities
         
         [MaxLength(1000)]
         public string? ErrorMessage { get; set; }
+
+        public byte[]? DocumentData { get; set; }
     }
     
     [Table("DocumentTranslationChatMessages")]

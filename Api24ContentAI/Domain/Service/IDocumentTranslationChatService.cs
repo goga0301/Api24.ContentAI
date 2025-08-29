@@ -9,7 +9,11 @@ namespace Api24ContentAI.Domain.Service
         Task<DocumentTranslationChatResponse> StartChat(CreateDocumentTranslationChatModel model, string jobId, CancellationToken cancellationToken);
         
         Task<DocumentTranslationChatResponse> GetChat(string chatId, CancellationToken cancellationToken = default);
-        
+
+        Task<bool> UpdateChatFileContent(string chatId,string newContent, CancellationToken cancellationToken);
+
+        Task<ChatFileResult?> GetChatFile(string chatId, CancellationToken cancellationToken);
+
         Task<DocumentTranslationChatListResponse> GetUserChats(string userId, DocumentTranslationChatFilter filter = null, CancellationToken cancellationToken = default);
         
         Task<bool> DeleteChat(string chatId, CancellationToken cancellationToken);

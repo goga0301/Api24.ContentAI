@@ -53,6 +53,32 @@ namespace Api24ContentAI.Controllers
             }
         }
 
+        [HttpGet("{chatId}/file")]
+        public async Task<IActionResult> GetChatDocument(
+                string chatId,
+                CancellationToken cancellationToken)
+        {
+            var userId = GetUserId();
+            var file = await _chatService.GetChatFile(chatId, cancellationToken);
+            return File(file.DocumentData, file.ContentType, file.FileName);
+        }
+
+        [HttpPut("{chatId}/content")]
+        public async Task<IActionResult> UpdateDocumentContent(
+                string chatId,
+                [FromBody] string newContent,
+                CancellationToken cancellationToken
+                )
+        {
+            var userId = GetUserId();
+            var updated = await _chatService.UpdateChatFileContent(chatId, newContent, cancellationToken);
+
+            if (!updated)
+                return NotFound(new { Message = "Chat not found" });
+
+            return Ok(new { Success = true, Message = "File content updated" });
+        }
+
         [HttpGet("user")]
         public async Task<IActionResult> GetUserChats(
             [FromQuery] string fileType = null,

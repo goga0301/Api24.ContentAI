@@ -92,6 +92,7 @@ namespace Api24ContentAI.Domain.Models
         public int TargetLanguageId { get; set; }
         public string? TargetLanguageName { get; set; }
         public string? InitialMessage { get; set; }
+        public byte[]? DocumentData {get; set;}
     }
 
     public class AddChatMessageModel
@@ -149,5 +150,12 @@ namespace Api24ContentAI.Domain.Models
         public int PageNumber { get; set; } = 1;
         public string SortBy { get; set; } = "LastActivityAt";
         public string SortDirection { get; set; } = "DESC";
+    }
+
+    public class ChatFileResult
+    {
+        public byte[] DocumentData { get; set; } = Array.Empty<byte>();
+        public string? ContentType { get; set; }
+        public string? FileName { get; set; }
     }
 } 

@@ -60,7 +60,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     TargetLanguageId = model.TargetLanguageId,
                     TargetLanguageName = targetLanguage.Name,
                     Title = title,
-                    Status = "Processing" // Status: Processing, Completed, Failed
+                    Status = "Processing", // Status: Processing, Completed, Failed
+                    DocumentData = model.DocumentData
                 };
 
                 await _chatRepository.CreateChat(chat, cancellationToken);
@@ -101,7 +102,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             {
                 var chat = await _chatRepository.GetChatById(chatId, cancellationToken);
                 if (chat == null)
-                    return null;
+                    throw new Exception();
 
                 DocumentTranslationResult? translationResult = null;
                 if (!string.IsNullOrEmpty(chat.TranslationResult))
@@ -216,6 +217,53 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 _logger.LogError(ex, "Error deleting chat {ChatId}", chatId);
                 throw;
             }
+        }
+
+
+        public async Task<ChatFileResult?> GetChatFile(string chatId, CancellationToken cancellationToken)
+        {
+            var chat = await _chatRepository.GetChatById(chatId, cancellationToken);
+
+            if (chat == null || chat.DocumentData == null || chat.DocumentData.Length == 0)
+            {
+                throw new Exception("Chat not found with id : " + chatId);
+            }
+
+            return new ChatFileResult
+            {
+                DocumentData = chat.DocumentData,
+                ContentType = chat.OriginalContentType ?? "application/octet-stream",
+                FileName = chat.OriginalFileName
+            };
+        }
+
+        public async Task<bool> UpdateChatFileContent(string chatId, string newContent, CancellationToken cancellationToken)
+        {
+            var chat = await _chatRepository.GetChatById(chatId, cancellationToken);
+            if (chat == null) return false;
+
+            if (!string.IsNullOrEmpty(chat.TranslationResult))
+            {
+                DocumentTranslationResult? result;
+                try
+                {
+                    result = JsonSerializer.Deserialize<DocumentTranslationResult>(chat.TranslationResult)!;
+                }
+                catch (JsonException)
+                {
+                    result = new DocumentTranslationResult { Success = true };
+                }
+
+                result.TranslatedContent = newContent;
+
+                chat.TranslationResult = JsonSerializer.Serialize(result);
+                chat.LastActivityAt = DateTime.UtcNow;
+
+                await _dbContext.SaveChangesAsync(cancellationToken);
+                return true;
+            }
+
+            return false;
         }
 
         #endregion
