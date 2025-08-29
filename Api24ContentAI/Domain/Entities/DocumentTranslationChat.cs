@@ -20,9 +20,7 @@ namespace Api24ContentAI.Domain.Entities
         
         [Required]
         [MaxLength(255)]
-        public string OriginalFileName { get; set; } = string.Empty;
-        
-        [MaxLength(100)]
+        public string OriginalFileName { get; set; } = string.Empty; [MaxLength(100)]
         public string? OriginalContentType { get; set; }
         
         public long OriginalFileSizeBytes { get; set; }
@@ -57,7 +55,7 @@ namespace Api24ContentAI.Domain.Entities
         
         [Required]
         [MaxLength(50)]
-        public string ChatId { get; set; } = string.Empty;
+        public Guid ChatId { get; set; }
         
         [Required]
         [MaxLength(20)]
@@ -81,9 +79,10 @@ namespace Api24ContentAI.Domain.Entities
         
         public int? ProcessingTimeSeconds { get; set; }
         
-        public bool IsVisible { get; set; } = true; 
-        
-        public virtual DocumentTranslationChat Chat { get; set; }
+        public bool IsVisible { get; set; } = true;
+
+        [ForeignKey(nameof(ChatId))]
+        public DocumentTranslationChat Chat { get; set; }
     }
     
     public enum ChatMessageType

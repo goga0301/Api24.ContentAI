@@ -35,6 +35,7 @@ namespace Api24ContentAI.Domain.Models
         public string ChatId { get; set; }
         public string Status { get; set; } // Processing, Completed, Failed
         public string Title { get; set; }
+        public string JobId {get; set;}
         public string OriginalFileName { get; set; }
         public string FileType { get; set; }
         public string TargetLanguageName { get; set; }

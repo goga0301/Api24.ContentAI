@@ -2,10 +2,13 @@ using Api24ContentAI.Domain.Entities;
 using Api24ContentAI.Domain.Models;
 using Api24ContentAI.Domain.Repository;
 using Api24ContentAI.Domain.Service;
+using Api24ContentAI.Infrastructure.Repository.DbContexts;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,17 +18,20 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
     public class DocumentTranslationChatService : IDocumentTranslationChatService
     {
         private readonly IDocumentTranslationChatRepository _chatRepository;
+        private readonly ContentDbContext _dbContext;
         private readonly ILanguageService _languageService;
         private readonly ILogger<DocumentTranslationChatService> _logger;
 
         public DocumentTranslationChatService(
             IDocumentTranslationChatRepository chatRepository,
+            ContentDbContext dbContext,
             ILanguageService languageService,
             ILogger<DocumentTranslationChatService> logger)
         {
             _chatRepository = chatRepository ?? throw new ArgumentNullException(nameof(chatRepository));
             _languageService = languageService ?? throw new ArgumentNullException(nameof(languageService));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+            _dbContext = dbContext;
         }
 
         #region Chat Management
@@ -59,8 +65,23 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
                 await _chatRepository.CreateChat(chat, cancellationToken);
 
+                if (!string.IsNullOrEmpty(model.InitialMessage))
+                {
+                    var initialMessage = new DocumentTranslationChatMessage
+                    {
+                        ChatId = chat.Id,
+                        UserId = model.UserId,
+                        MessageType = "UserRequest",
+                        Content = model.InitialMessage,
+                        CreatedAt = DateTime.UtcNow,
+                        TranslationJobId = chat.Id.ToString()
+                    };
+                    _dbContext.DocumentTranslationChatMessages.Add(initialMessage);
+                    await _dbContext.SaveChangesAsync(cancellationToken);
+                }
+
                 _logger.LogInformation("Started new document translation chat {ChatId} for user {UserId} with file {FileName}", 
-                    chatId, model.UserId, model.OriginalFileName);
+                        chatId, model.UserId, model.OriginalFileName);
 
                 return await GetChat(chatId, cancellationToken) 
                     ?? throw new Exception("Failed to retrieve created chat");
@@ -72,7 +93,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
             }
         }
 
-        public async Task<DocumentTranslationChatResponse?> GetChat(
+        public async Task<DocumentTranslationChatResponse> GetChat(
             string chatId, 
             CancellationToken cancellationToken = default)
         {
@@ -87,12 +108,16 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                 {
                     try
                     {
-                        translationResult = JsonSerializer.Deserialize<DocumentTranslationResult>(chat.TranslationResult, new JsonSerializerOptions
-                        {
-                            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                            PropertyNameCaseInsensitive = true
-                        });
-                        _logger.LogInformation("Deserialized translation result for chat {ChatId}. Success: {Success}, " +
+                        translationResult = JsonSerializer.Deserialize<DocumentTranslationResult>(
+                            chat.TranslationResult,
+                            new JsonSerializerOptions
+                            {
+                                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                                PropertyNameCaseInsensitive = true
+                            });
+
+                        _logger.LogInformation(
+                            "Deserialized translation result for chat {ChatId}. Success: {Success}, " +
                             "TranslatedContent length: {TranslatedContentLength}, OriginalContent length: {OriginalContentLength}", 
                             chatId, translationResult?.Success ?? false,
                             translationResult?.TranslatedContent?.Length ?? 0,
@@ -109,6 +134,12 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     _logger.LogInformation("No translation result data found for chat {ChatId}", chatId);
                 }
 
+                string? latestJobId = await _dbContext.DocumentTranslationChatMessages
+                    .Where(m => m.ChatId == chat.Id && m.TranslationJobId != null)
+                    .OrderByDescending(m => m.CreatedAt)
+                    .Select(m => m.TranslationJobId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
                 return new DocumentTranslationChatResponse
                 {
                     ChatId = chat.ChatId,
@@ -120,7 +151,8 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                     CreatedAt = chat.CreatedAt,
                     LastActivityAt = chat.LastActivityAt,
                     TranslationResult = translationResult,
-                    ErrorMessage = chat.ErrorMessage
+                    ErrorMessage = chat.ErrorMessage,
+                    JobId = latestJobId 
                 };
             }
             catch (Exception ex)
