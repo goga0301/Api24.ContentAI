@@ -6,7 +6,7 @@ namespace Api24ContentAI.Domain.Service
 {
     public interface IDocumentTranslationChatService
     {
-        Task<DocumentTranslationChatResponse> StartChat(CreateDocumentTranslationChatModel model, CancellationToken cancellationToken);
+        Task<DocumentTranslationChatResponse> StartChat(CreateDocumentTranslationChatModel model, string jobId, CancellationToken cancellationToken);
         
         Task<DocumentTranslationChatResponse> GetChat(string chatId, CancellationToken cancellationToken = default);
         

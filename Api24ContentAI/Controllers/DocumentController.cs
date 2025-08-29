@@ -101,7 +101,7 @@ namespace Api24ContentAI.Controllers
                     InitialMessage = "Starting Tesseract OCR translation..."
                 };
 
-                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                var chatResponse = await _chatService.StartChat(chatModel, jobId, cancellationToken);
 
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
 
@@ -245,7 +245,7 @@ namespace Api24ContentAI.Controllers
                     InitialMessage = $"Starting {request.Model} AI translation..."
                 };
 
-                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                var chatResponse = await _chatService.StartChat(chatModel, jobId, cancellationToken);
 
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);
 
@@ -534,7 +534,7 @@ namespace Api24ContentAI.Controllers
                     InitialMessage = "Starting SRT subtitle translation..."
                 };
 
-                var chatResponse = await _chatService.StartChat(chatModel, cancellationToken);
+                var chatResponse = await _chatService.StartChat(chatModel, jobId, cancellationToken);
                 var chatId = chatResponse.ChatId;
 
                 var tempFilePath = await SaveToTempFile(request.File, jobId, cancellationToken);

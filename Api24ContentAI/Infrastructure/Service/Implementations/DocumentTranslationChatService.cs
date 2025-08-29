@@ -36,7 +36,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
 
         #region Chat Management
 
-        public async Task<DocumentTranslationChatResponse> StartChat(CreateDocumentTranslationChatModel model, CancellationToken cancellationToken)
+        public async Task<DocumentTranslationChatResponse> StartChat(CreateDocumentTranslationChatModel model, string jobId, CancellationToken cancellationToken)
         {
             try
             {
@@ -74,7 +74,7 @@ namespace Api24ContentAI.Infrastructure.Service.Implementations
                         MessageType = "UserRequest",
                         Content = model.InitialMessage,
                         CreatedAt = DateTime.UtcNow,
-                        TranslationJobId = chat.Id.ToString()
+                        TranslationJobId = jobId
                     };
                     _dbContext.DocumentTranslationChatMessages.Add(initialMessage);
                     await _dbContext.SaveChangesAsync(cancellationToken);
